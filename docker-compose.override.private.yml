@@ -52,15 +52,3 @@ services:
   searxng:
     ports:
       - 127.0.0.1:8081:8080
-
-  ollama-cpu:
-    ports:
-      - 127.0.0.1:11434:11434
-
-  ollama-gpu:
-    ports:
-      - 127.0.0.1:11434:11434
-      
-  ollama-gpu-amd:
-    ports:
-      - 127.0.0.1:11434:11434
