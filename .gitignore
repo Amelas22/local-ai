@@ -9,6 +9,7 @@ searxng/uwsgi*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
+/supabase/
 *.py[codz]
 *$py.class
 
