@@ -94,6 +94,13 @@ class StrengthLevel(str, Enum):
     STRONG = "strong"
     VERY_STRONG = "very_strong"
 
+class ArgumentResearchPriority(BaseModel):
+    """Research priority specific to an individual argument"""
+    research_question: str = Field(..., description="Specific question to research")
+    suggested_search_terms: List[str] = Field(..., description="Keywords for research")
+    case_law_focus: Optional[str] = Field(None, description="Specific area of case law to explore")
+    factual_investigation: Optional[str] = Field(None, description="Facts to investigate in case file")
+    
 class AnalysisOptions(BaseModel):
     include_citations: bool = Field(True, description="Include case law citations analysis")
     verify_citations: bool = Field(False, description="Verify citation accuracy (slower)")
@@ -112,10 +119,11 @@ class LegalCitation(BaseModel):
     citation_strength: StrengthLevel = Field(..., description="Strength of citation support")
 
 class ExtractedArgument(BaseModel):
-    """Individual argument extracted from the motion"""
+    """Individual argument extracted from the motion - enhanced for research guidance"""
     argument_id: str = Field(..., description="Unique identifier for this argument")
     argument_text: str = Field(..., description="Direct quote or close paraphrase from motion")
-    argument_summary: str = Field(..., description="Concise summary of the argument")
+    detailed_summary: str = Field(..., description="Comprehensive summary including context and implications")
+    excerpts_from_motion: List[str] = Field(..., description="Direct quotes from the motion supporting this argument")
     category: Union[ArgumentCategory, str] = Field(..., description="Primary category (can be custom)")
     subcategories: List[str] = Field(default_factory=list, description="Additional relevant categories")
     location_in_motion: str = Field(..., description="Where in motion this appears (section/paragraph)")
@@ -130,6 +138,9 @@ class ExtractedArgument(BaseModel):
     confidence_score: float = Field(..., ge=0, le=1, description="AI confidence in extraction (0-1)")
     requires_expert_response: bool = Field(False, description="Whether expert testimony needed to counter")
     priority_level: int = Field(..., ge=1, le=5, description="Priority for response (1-5)")
+    research_priorities: List[ArgumentResearchPriority] = Field(..., description="Specific research tasks for this argument")
+    required_evidence: List[str] = Field(..., description="Evidence needed from case file to counter this argument")
+    suggested_case_facts_to_find: List[str] = Field(..., description="Specific facts to look for in depositions/discovery")
 
 class ArgumentGroup(BaseModel):
     """Groups of related arguments"""
@@ -163,35 +174,8 @@ class ComprehensiveMotionAnalysis(BaseModel):
     case_number: Optional[str] = Field(None, description="Case identification number")
     parties: List[str] = Field(default_factory=list, description="Parties involved")
     filing_date: Optional[datetime] = Field(None, description="Motion filing date")
-    
     # All extracted arguments
     all_arguments: List[ExtractedArgument] = Field(..., description="Every argument found in motion")
-    argument_groups: List[ArgumentGroup] = Field(default_factory=list, description="Related argument groupings")
-    
-    # Categorized view (for backwards compatibility and easy filtering)
-    arguments_by_category: Dict[str, List[ExtractedArgument]] = Field(..., description="Arguments organized by category")
-    
-    # Strategic analysis
-    primary_themes: List[str] = Field(..., description="Main strategic themes in motion")
-    strongest_arguments: List[str] = Field(..., description="IDs of strongest arguments to address")
-    weakest_arguments: List[str] = Field(..., description="IDs of weakest/most vulnerable arguments")
-    
-    # Missing or implied arguments
-    implied_arguments: List[str] = Field(default_factory=list, description="Arguments implied but not explicitly stated")
-    notable_omissions: List[str] = Field(default_factory=list, description="Expected arguments that are missing")
-    
-    # Research and response planning
-    research_priorities: List[ResearchPriority] = Field(..., description="Research recommendations")
-    recommended_response_structure: List[str] = Field(..., description="Suggested order for response")
-    required_evidence: List[str] = Field(..., description="Evidence needed to counter arguments")
-    expert_witness_needs: List[str] = Field(default_factory=list, description="Areas requiring expert testimony")
-    
-    # Overall assessment
-    overall_strength: StrengthLevel = Field(..., description="Overall motion strength assessment")
-    risk_assessment: int = Field(..., ge=1, le=10, description="Risk level (1-10)")
-    confidence_in_analysis: float = Field(..., ge=0, le=1, description="Overall confidence in analysis completeness")
-    recommended_actions: List[str] = Field(..., description="Recommended response actions")
-    
     # Metadata
     total_arguments_found: int = Field(..., description="Total number of distinct arguments")
     categories_used: List[str] = Field(..., description="All categories identified")
@@ -221,9 +205,8 @@ class ComprehensiveMotionAnalysisResponse(ComprehensiveMotionAnalysis):
                     }
                 ],
                 "total_arguments_found": 7,
-                "overall_strength": "strong",
-                "risk_assessment": 7,
-                "confidence_in_analysis": 0.92
+                "categories_used": ["liability_derivative", "liability_vicarious"],
+                "custom_categories_created": ["liability_joint"]
             }
         }
     )
