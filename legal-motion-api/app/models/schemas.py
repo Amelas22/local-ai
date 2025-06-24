@@ -114,7 +114,7 @@ class LegalCitation(BaseModel):
     legal_principle: str = Field(..., description="Legal principle or holding")
     application: str = Field(..., description="How citation applies to current case")
     jurisdiction: str = Field(..., description="Court jurisdiction")
-    year: int = Field(..., description="Year of decision")
+    year: Optional[int] = Field(None, description="Year of decision")
     is_binding: bool = Field(..., description="Whether citation is binding authority")
     citation_strength: StrengthLevel = Field(..., description="Strength of citation support")
 
