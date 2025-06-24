@@ -45,13 +45,20 @@ services:
         - ~/.flowise:/root/.flowise
     entrypoint: /bin/sh -c "sleep 3; flowise start"
 
+
   convert-to-docx-json:
     build:
       context: ./convert-to-docx
     container_name: convert-to-docx-json
     restart: unless-stopped
-    volumes:
-      - ./convert-to-docx-json:/app
+    expose:
+      - 8000/tcp
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     profiles:
       - cpu
       - gpu-nvidia
