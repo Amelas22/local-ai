@@ -125,6 +125,9 @@ services:
     image: qdrant/qdrant
     container_name: qdrant
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
     expose:
       - 6333/tcp
       - 6334/tcp
