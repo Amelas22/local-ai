@@ -45,13 +45,13 @@ services:
         - ~/.flowise:/root/.flowise
     entrypoint: /bin/sh -c "sleep 3; flowise start"
 
-  convert-to-docx:
+  convert-to-docx-json:
     build:
       context: ./convert-to-docx
-    container_name: convert-to-docx
+    container_name: convert-to-docx-json
     restart: unless-stopped
     volumes:
-      - ./convert-to-docx:/app
+      - ./convert-to-docx-json:/app
     profiles:
       - cpu
       - gpu-nvidia
