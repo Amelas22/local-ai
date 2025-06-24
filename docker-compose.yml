@@ -46,10 +46,10 @@ services:
     entrypoint: /bin/sh -c "sleep 3; flowise start"
 
 
-  convert-to-docx-json:
+  doc-converter:
     build:
       context: ./convert-to-docx
-    container_name: convert-to-docx-json
+    container_name: doc-converter
     restart: unless-stopped
     expose:
       - 8000/tcp
