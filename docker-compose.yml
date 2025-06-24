@@ -45,6 +45,19 @@ services:
         - ~/.flowise:/root/.flowise
     entrypoint: /bin/sh -c "sleep 3; flowise start"
 
+  convert-to-docx:
+    build:
+      context: ./convert-to-docx
+    container_name: convert-to-docx
+    restart: unless-stopped
+    volumes:
+      - ./convert-to-docx:/app
+    profiles:
+      - cpu
+      - gpu-nvidia
+      - gpu-amd
+      - none
+
   legal-motion-api:
     build: ./legal-motion-api
     container_name: legal-motion-api
