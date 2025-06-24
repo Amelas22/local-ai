@@ -32,10 +32,146 @@ def add_numbered_points(doc, items):
         p = doc.add_paragraph(item, style='List Number')
         p.paragraph_format.space_after = Pt(6)
 
-def parse_docx_to_json(doc):
-    """Parse a DOCX document back to the original JSON structure"""
+def parse_docx_to_sections(doc):
+    """Parse a DOCX document into sections for sequential processing"""
     result = {
         "title": "",
+        "sections": [],
+        "style_notes": []
+    }
+    
+    current_section = None
+    current_subsection = None
+    collecting_bullets = False
+    bullet_collector = []
+    in_style_notes = False
+    
+    # Helper function to save current section
+    def save_current_section():
+        nonlocal current_section
+        if current_section:
+            result["sections"].append(current_section)
+            current_section = None
+    
+    for para in doc.paragraphs:
+        text = para.text.strip()
+        if not text:
+            continue
+            
+        # Check if it's a heading
+        style_name = para.style.name
+        is_heading = 'Heading' in style_name
+        is_bullet = para.style.name == 'List Bullet' or para.style.name == 'List Number'
+        
+        # Title (centered, bold, no heading style)
+        if para.alignment == WD_ALIGN_PARAGRAPH.CENTER and para.runs and para.runs[0].bold and not result["title"]:
+            result["title"] = text
+            continue
+            
+        # Main section headings (Heading 1 or Heading 2 with Roman numerals)
+        if is_heading and ('Heading 1' in style_name or ('Heading 2' in style_name and re.match(r'^[IVX]+\.', text))):
+            # Save any pending bullets
+            if collecting_bullets and bullet_collector:
+                if in_style_notes:
+                    result["style_notes"] = bullet_collector.copy()
+                elif current_subsection:
+                    current_subsection["items"] = bullet_collector.copy()
+                bullet_collector = []
+                collecting_bullets = False
+                
+            # Check if this is Style Notes
+            if "Style Notes" in text:
+                save_current_section()
+                in_style_notes = True
+                continue
+                
+            # Save current section
+            save_current_section()
+            in_style_notes = False
+            
+            # Determine section type
+            section_type = "standard"
+            if "Introduction" in text:
+                section_type = "introduction"
+            elif "Statement of Facts" in text:
+                section_type = "facts"
+            elif "Conclusion" in text:
+                section_type = "conclusion"
+            elif re.match(r'^[IVX]+\.', text):  # Roman numeral arguments
+                section_type = "argument"
+                
+            current_section = {
+                "type": section_type,
+                "heading": text,
+                "content": []
+            }
+            current_subsection = None
+            continue
+            
+        # Handle bullet points
+        if is_bullet:
+            bullet_collector.append(text)
+            collecting_bullets = True
+            continue
+            
+        # If we hit a non-bullet after collecting bullets, save them
+        if collecting_bullets and bullet_collector:
+            if in_style_notes:
+                result["style_notes"] = bullet_collector.copy()
+            elif current_subsection:
+                current_subsection["items"] = bullet_collector.copy()
+            bullet_collector = []
+            collecting_bullets = False
+            
+        # Process content within sections
+        if in_style_notes:
+            # Style notes are being collected as bullets
+            continue
+        elif current_section:
+            # Check for field labels
+            field_match = re.match(r'^(Hook|Theme|Preview|Organization|Summary|Final Theme):\s*(.+)', text)
+            if field_match:
+                current_section["content"].append({
+                    "type": "field",
+                    "label": field_match.group(1),
+                    "value": field_match.group(2).strip()
+                })
+                current_subsection = None
+            # Check for subsection headers
+            elif text in ["Key Facts to Emphasize:", "Bad Facts to Address:", "Fact Themes:", 
+                         "Structure:", "Key Authorities:", "Fact Integration:", 
+                         "Counter-Argument Response:", "Specific Relief:"]:
+                current_subsection = {
+                    "type": "list",
+                    "label": text.rstrip(':'),
+                    "items": []
+                }
+                current_section["content"].append(current_subsection)
+            # Regular paragraph
+            else:
+                current_section["content"].append({
+                    "type": "paragraph",
+                    "text": text
+                })
+                current_subsection = None
+    
+    # Save any remaining section or style notes
+    if collecting_bullets and bullet_collector:
+        if in_style_notes:
+            result["style_notes"] = bullet_collector.copy()
+        elif current_subsection:
+            current_subsection["items"] = bullet_collector.copy()
+    save_current_section()
+    
+    return result
+
+def parse_docx_to_json(doc):
+    """Parse a DOCX document back to the original JSON structure (legacy format)"""
+    sections_data = parse_docx_to_sections(doc)
+    
+    # Convert sections format to original JSON structure
+    result = {
+        "title": sections_data["title"],
         "introduction": {
             "hook": "",
             "theme": "",
@@ -55,141 +191,69 @@ def parse_docx_to_json(doc):
         "style_notes": []
     }
     
-    current_section = None
-    current_argument = None
-    current_subsection = None
-    collecting_bullets = False
-    bullet_collector = []
-    
-    for para in doc.paragraphs:
-        text = para.text.strip()
-        if not text:
-            continue
-            
-        # Check if it's a heading
-        style_name = para.style.name
-        is_heading = 'Heading' in style_name
-        is_bullet = para.style.name == 'List Bullet' or para.style.name == 'List Number'
-        
-        # Title (centered, bold, no heading style)
-        if para.alignment == WD_ALIGN_PARAGRAPH.CENTER and para.runs and para.runs[0].bold:
-            result["title"] = text
-            continue
-            
-        # Main headings
-        if is_heading and 'Heading 1' in style_name:
-            # Save any pending bullets
-            if collecting_bullets and bullet_collector:
-                _save_bullets(result, current_section, current_subsection, bullet_collector, current_argument)
-                bullet_collector = []
-                collecting_bullets = False
-                
-            if text == "Introduction":
-                current_section = "introduction"
-                current_argument = None
-            elif text == "Statement of Facts":
-                current_section = "fact_section"
-                current_argument = None
-            elif text == "Conclusion":
-                current_section = "conclusion"
-                current_argument = None
-            elif text == "Style Notes":
-                current_section = "style_notes"
-                current_argument = None
-            continue
-            
-        # Argument headings (Heading 2)
-        if is_heading and 'Heading 2' in style_name and current_section not in ["introduction", "fact_section", "conclusion", "style_notes"]:
-            # Save any pending bullets
-            if collecting_bullets and bullet_collector:
-                _save_bullets(result, current_section, current_subsection, bullet_collector, current_argument)
-                bullet_collector = []
-                collecting_bullets = False
-                
-            current_argument = {
-                "heading": text,
+    # Process each section
+    for section in sections_data["sections"]:
+        if section["type"] == "introduction":
+            for item in section["content"]:
+                if item["type"] == "field":
+                    if item["label"] == "Hook":
+                        result["introduction"]["hook"] = item["value"]
+                    elif item["label"] == "Theme":
+                        result["introduction"]["theme"] = item["value"]
+                    elif item["label"] == "Preview":
+                        result["introduction"]["preview"] = item["value"]
+                        
+        elif section["type"] == "facts":
+            for item in section["content"]:
+                if item["type"] == "field" and item["label"] == "Organization":
+                    result["fact_section"]["organization"] = item["value"]
+                elif item["type"] == "list":
+                    if item["label"] == "Key Facts to Emphasize":
+                        result["fact_section"]["key_facts_to_emphasize"] = item["items"]
+                    elif item["label"] == "Bad Facts to Address":
+                        result["fact_section"]["bad_facts_to_address"] = item["items"]
+                    elif item["label"] == "Fact Themes":
+                        result["fact_section"]["fact_themes"] = item["items"]
+                        
+        elif section["type"] == "argument":
+            arg = {
+                "heading": section["heading"],
                 "summary": "",
                 "structure": [],
                 "key_authorities": [],
                 "fact_integration": [],
                 "counter_argument_response": []
             }
-            result["arguments"].append(current_argument)
-            current_section = "arguments"
-            continue
             
-        # Handle bullet points
-        if is_bullet:
-            bullet_collector.append(text)
-            collecting_bullets = True
-            continue
+            for item in section["content"]:
+                if item["type"] == "field" and item["label"] == "Summary":
+                    arg["summary"] = item["value"]
+                elif item["type"] == "list":
+                    if item["label"] == "Structure":
+                        arg["structure"] = item["items"]
+                    elif item["label"] == "Key Authorities":
+                        for auth_text in item["items"]:
+                            arg["key_authorities"].append(_parse_authority(auth_text))
+                    elif item["label"] == "Fact Integration":
+                        for fact_text in item["items"]:
+                            arg["fact_integration"].append(_parse_fact_integration(fact_text))
+                    elif item["label"] == "Counter-Argument Response":
+                        for counter_text in item["items"]:
+                            arg["counter_argument_response"].append(_parse_counter_argument(counter_text))
+                            
+            result["arguments"].append(arg)
             
-        # If we hit a non-bullet after collecting bullets, save them
-        if collecting_bullets and bullet_collector:
-            _save_bullets(result, current_section, current_subsection, bullet_collector, current_argument)
-            bullet_collector = []
-            collecting_bullets = False
-            
-        # Parse field values
-        if text.startswith("Hook:"):
-            result["introduction"]["hook"] = text[5:].strip()
-        elif text.startswith("Theme:"):
-            result["introduction"]["theme"] = text[6:].strip()
-        elif text.startswith("Preview:"):
-            result["introduction"]["preview"] = text[8:].strip()
-        elif text.startswith("Organization:"):
-            result["fact_section"]["organization"] = text[13:].strip()
-        elif text.startswith("Summary:") and current_argument:
-            current_argument["summary"] = text[8:].strip()
-        elif text.startswith("Final Theme:"):
-            result["conclusion"]["final_theme"] = text[12:].strip()
-        elif text == "Key Facts to Emphasize:":
-            current_subsection = "key_facts_to_emphasize"
-        elif text == "Bad Facts to Address:":
-            current_subsection = "bad_facts_to_address"
-        elif text == "Fact Themes:":
-            current_subsection = "fact_themes"
-        elif text == "Structure:":
-            current_subsection = "structure"
-        elif text == "Key Authorities:":
-            current_subsection = "key_authorities"
-        elif text == "Fact Integration:":
-            current_subsection = "fact_integration"
-        elif text == "Counter-Argument Response:":
-            current_subsection = "counter_argument_response"
-            
-    # Save any remaining bullets
-    if collecting_bullets and bullet_collector:
-        _save_bullets(result, current_section, current_subsection, bullet_collector, current_argument)
-        
+        elif section["type"] == "conclusion":
+            for item in section["content"]:
+                if item["type"] == "field" and item["label"] == "Final Theme":
+                    result["conclusion"]["final_theme"] = item["value"]
+                elif item["type"] == "list" and item["label"] == "Specific Relief":
+                    result["conclusion"]["specific_relief"] = item["items"]
+    
+    # Add style notes from the sections data
+    result["style_notes"] = sections_data.get("style_notes", [])
+    
     return result
-
-def _save_bullets(result, section, subsection, bullets, current_argument):
-    """Helper function to save collected bullet points to the appropriate section"""
-    if section == "fact_section" and subsection:
-        result["fact_section"][subsection] = bullets.copy()
-    elif section == "arguments" and current_argument and subsection:
-        if subsection in ["structure"]:
-            current_argument[subsection] = bullets.copy()
-        elif subsection == "key_authorities":
-            # Try to parse complex authority format
-            for bullet in bullets:
-                parsed = _parse_authority(bullet)
-                current_argument["key_authorities"].append(parsed)
-        elif subsection == "fact_integration":
-            # Try to parse fact integration format
-            for bullet in bullets:
-                parsed = _parse_fact_integration(bullet)
-                current_argument["fact_integration"].append(parsed)
-        elif subsection == "counter_argument_response":
-            # Try to parse counter-argument format
-            for bullet in bullets:
-                parsed = _parse_counter_argument(bullet)
-                current_argument["counter_argument_response"].append(parsed)
-    elif section == "conclusion" and subsection == "specific_relief":
-        result["conclusion"]["specific_relief"] = bullets.copy()
-    elif section == "style_notes":
-        result["style_notes"] = bullets.copy()
 
 def _parse_authority(text):
     """Parse key authority text back to structured format"""
@@ -300,7 +364,9 @@ async def generate_outline(request: Request):
                 doc.add_paragraph(summary, style='List Bullet')
 
     doc.add_heading("Conclusion", level=1)
-    add_bullet_points(doc, data['conclusion']['specific_relief'])
+    if data['conclusion']['specific_relief']:
+        doc.add_paragraph("Specific Relief:")
+        add_bullet_points(doc, data['conclusion']['specific_relief'])
     doc.add_paragraph(f"Final Theme: {data['conclusion']['final_theme']}")
 
     doc.add_heading("Style Notes", level=1)
@@ -323,8 +389,29 @@ async def parse_outline(file: UploadFile = File(...)):
         # Load the document
         doc = Document(io.BytesIO(contents))
         
-        # Parse the document
+        # Parse the document - legacy format by default
         parsed_data = parse_docx_to_json(doc)
+        
+        return JSONResponse(content=parsed_data)
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error parsing document: {str(e)}")
+
+@app.post("/parse-outline-sections/")
+async def parse_outline_sections(file: UploadFile = File(...)):
+    """Parse an uploaded DOCX file into sections for sequential processing"""
+    if not file.filename.endswith('.docx'):
+        raise HTTPException(status_code=400, detail="File must be a .docx document")
+    
+    try:
+        # Read the uploaded file
+        contents = await file.read()
+        
+        # Load the document
+        doc = Document(io.BytesIO(contents))
+        
+        # Parse the document into sections
+        parsed_data = parse_docx_to_sections(doc)
         
         return JSONResponse(content=parsed_data)
         
