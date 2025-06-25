@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator  
 import tiktoken
 from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -145,13 +145,13 @@ class OutlineRequest(BaseModel):
     counter_arguments: str = Field(..., description="Our counter arguments and facts")
     reasoning_effort: Optional[str] = Field(None, description="Override reasoning effort (low/medium/high)")
     
-    @validator('motion_text', 'counter_arguments')
+    @field_validator('motion_text', 'counter_arguments')
     def validate_not_empty(cls, v, field):
         if not v or not v.strip():
             raise ValueError(f"{field.name} cannot be empty")
         return v
     
-    @validator('reasoning_effort')
+    @field_validator('reasoning_effort')
     def validate_reasoning_effort(cls, v):
         if v is not None:
             v = v.lower()

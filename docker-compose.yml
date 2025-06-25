@@ -69,7 +69,7 @@ services:
       context: ./outline-drafter
       dockerfile: Dockerfile
     ports:
-      - "8001:8001"
+      - "8015:8015"
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=INFO
