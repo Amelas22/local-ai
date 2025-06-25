@@ -45,25 +45,55 @@ services:
         - ~/.flowise:/root/.flowise
     entrypoint: /bin/sh -c "sleep 3; flowise start"
 
-
-  doc-converter:
+  # Service for converting JSON outlines to DOCX and back
+  convert-to-docx:
     build:
       context: ./convert-to-docx
-    container_name: doc-converter
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
     restart: unless-stopped
-    expose:
-      - 8000/tcp
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-    profiles:
-      - cpu
-      - gpu-nvidia
-      - gpu-amd
-      - none
+
+  # Service for generating legal outlines using OpenAI o3
+  outline-drafter:
+    build:
+      context: ./outline-drafter
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - REASONING_EFFORT=${REASONING_EFFORT:-high}
+      - MAX_COMPLETION_TOKENS=${MAX_COMPLETION_TOKENS:-50000}
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Resource limits for handling large requests
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
 
   legal-motion-api:
     build: ./legal-motion-api
@@ -90,8 +120,6 @@ services:
           cpus: '0.5'
         reservations:
           memory: 512M
-    networks:
-      - default
       
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
