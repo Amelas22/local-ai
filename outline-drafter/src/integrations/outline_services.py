@@ -1,12 +1,12 @@
 """
-Integration module for outline drafting and document conversion services
+Integration module for outline drafting service with integrated DOCX conversion
 """
 
 import aiohttp
 import asyncio
 import json
 import logging
-from typing import Dict, Any, Optional, BinaryIO
+from typing import Dict, Any, Optional, BinaryIO, Union
 from io import BytesIO
 from datetime import datetime
 from pathlib import Path
@@ -17,12 +17,11 @@ logger = get_logger(__name__)
 
 
 class OutlineServices:
-    """Client for interacting with outline drafting and conversion services"""
+    """Client for interacting with the integrated outline drafting service"""
     
     def __init__(
         self,
-        outline_drafter_url: str = "http://localhost:8001",
-        docx_converter_url: str = "http://localhost:8000",
+        outline_drafter_url: str = "http://outline-drafter:8000",
         timeout: int = 600
     ):
         """
@@ -30,19 +29,18 @@ class OutlineServices:
         
         Args:
             outline_drafter_url: URL for the outline drafting service
-            docx_converter_url: URL for the DOCX conversion service
             timeout: Request timeout in seconds
         """
         self.outline_drafter_url = outline_drafter_url.rstrip('/')
-        self.docx_converter_url = docx_converter_url.rstrip('/')
         self.timeout = aiohttp.ClientTimeout(total=timeout)
     
     async def generate_outline(
         self,
         motion_text: str,
         counter_arguments: str,
-        reasoning_effort: Optional[str] = None
-    ) -> Dict[str, Any]:
+        reasoning_effort: Optional[str] = None,
+        output_format: str = "docx"
+    ) -> Union[bytes, Dict[str, Any]]:
         """
         Generate a legal outline using the OpenAI o3 model.
         
@@ -50,39 +48,73 @@ class OutlineServices:
             motion_text: The opposing counsel's motion text
             counter_arguments: Our counter arguments and facts
             reasoning_effort: Optional reasoning effort level (low/medium/high)
+            output_format: Output format - "docx" for binary file or "json" for structured data
             
         Returns:
-            Dictionary containing the generated outline and metadata
+            If output_format="docx": Bytes of the DOCX file
+            If output_format="json": Dictionary containing the generated outline and metadata
             
         Raises:
             Exception: If the API call fails
         """
-        logger.info(f"Generating legal outline with effort: {reasoning_effort or 'default'}")
+        logger.info(f"Generating legal outline with effort: {reasoning_effort or 'default'}, format: {output_format}")
         
         async with aiohttp.ClientSession(timeout=self.timeout) as session:
             try:
                 request_data = {
                     "motion_text": motion_text,
-                    "counter_arguments": counter_arguments
+                    "counter_arguments": counter_arguments,
+                    "output_format": output_format
                 }
                 
                 if reasoning_effort:
                     request_data["reasoning_effort"] = reasoning_effort
                 
+                # Set appropriate headers based on output format
+                headers = {}
+                if output_format == "json":
+                    headers["Accept"] = "application/json"
+                else:
+                    headers["Accept"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                
                 async with session.post(
                     f"{self.outline_drafter_url}/generate-outline",
-                    json=request_data
+                    json=request_data,
+                    headers=headers
                 ) as response:
-                    result = await response.json()
+                    # Handle JSON response
+                    if output_format == "json" or response.content_type == "application/json":
+                        result = await response.json()
+                        
+                        if response.status != 200:
+                            raise Exception(f"API error: {result.get('error', 'Unknown error')}")
+                        
+                        if not result.get('success'):
+                            raise Exception(f"Outline generation failed: {result.get('error')}")
+                        
+                        logger.info(f"Outline generated successfully. Tokens used: {result['metadata'].get('total_tokens', 'N/A')}, Effort: {result['metadata'].get('reasoning_effort', 'N/A')}")
+                        return result
                     
-                    if response.status != 200:
-                        raise Exception(f"API error: {result.get('error', 'Unknown error')}")
-                    
-                    if not result.get('success'):
-                        raise Exception(f"Outline generation failed: {result.get('error')}")
-                    
-                    logger.info(f"Outline generated successfully. Tokens used: {result['metadata'].get('total_tokens', 'N/A')}, Effort: {result['metadata'].get('reasoning_effort', 'N/A')}")
-                    return result
+                    # Handle DOCX response
+                    else:
+                        if response.status != 200:
+                            error_text = await response.text()
+                            raise Exception(f"Outline generation failed: {error_text}")
+                        
+                        docx_bytes = await response.read()
+                        
+                        # Extract metadata from header if available
+                        metadata_str = response.headers.get('X-Metadata')
+                        if metadata_str:
+                            try:
+                                metadata = json.loads(metadata_str)
+                                logger.info(f"Outline generated successfully. Tokens used: {metadata.get('total_tokens', 'N/A')}, Effort: {metadata.get('reasoning_effort', 'N/A')}")
+                            except:
+                                logger.info("Outline generated successfully (DOCX format)")
+                        else:
+                            logger.info("Outline generated successfully (DOCX format)")
+                        
+                        return docx_bytes
                     
             except asyncio.TimeoutError:
                 logger.error("Outline generation timed out")
@@ -91,135 +123,57 @@ class OutlineServices:
                 logger.error(f"Error generating outline: {e}")
                 raise
     
-    async def convert_outline_to_docx(
+    async def generate_outline_json(
         self,
-        outline_data: Dict[str, Any]
-    ) -> bytes:
+        motion_text: str,
+        counter_arguments: str,
+        reasoning_effort: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
-        Convert a JSON outline to a DOCX document.
+        Generate a legal outline and always return JSON format.
+        
+        This is a convenience method that always requests JSON output.
         
         Args:
-            outline_data: The outline data in JSON format
+            motion_text: The opposing counsel's motion text
+            counter_arguments: Our counter arguments and facts
+            reasoning_effort: Optional reasoning effort level (low/medium/high)
+            
+        Returns:
+            Dictionary containing the generated outline and metadata
+        """
+        return await self.generate_outline(
+            motion_text=motion_text,
+            counter_arguments=counter_arguments,
+            reasoning_effort=reasoning_effort,
+            output_format="json"
+        )
+    
+    async def generate_outline_docx(
+        self,
+        motion_text: str,
+        counter_arguments: str,
+        reasoning_effort: Optional[str] = None
+    ) -> bytes:
+        """
+        Generate a legal outline and always return DOCX format.
+        
+        This is a convenience method that always requests DOCX output.
+        
+        Args:
+            motion_text: The opposing counsel's motion text
+            counter_arguments: Our counter arguments and facts
+            reasoning_effort: Optional reasoning effort level (low/medium/high)
             
         Returns:
             Bytes of the DOCX file
-            
-        Raises:
-            Exception: If the conversion fails
         """
-        logger.info("Converting outline to DOCX...")
-        
-        async with aiohttp.ClientSession() as session:
-            try:
-                async with session.post(
-                    f"{self.docx_converter_url}/generate-outline/",
-                    json=outline_data
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        raise Exception(f"DOCX conversion failed: {error_text}")
-                    
-                    docx_bytes = await response.read()
-                    logger.info("Outline converted to DOCX successfully")
-                    return docx_bytes
-                    
-            except Exception as e:
-                logger.error(f"Error converting to DOCX: {e}")
-                raise
-    
-    async def parse_docx_to_outline(
-        self,
-        docx_file: BinaryIO,
-        filename: str = "outline.docx"
-    ) -> Dict[str, Any]:
-        """
-        Parse a DOCX file back to JSON outline format.
-        
-        Args:
-            docx_file: File-like object containing the DOCX data
-            filename: Name of the file
-            
-        Returns:
-            Dictionary containing the parsed outline
-            
-        Raises:
-            Exception: If the parsing fails
-        """
-        logger.info(f"Parsing DOCX file: {filename}")
-        
-        async with aiohttp.ClientSession() as session:
-            try:
-                # Prepare multipart form data
-                data = aiohttp.FormData()
-                data.add_field(
-                    'file',
-                    docx_file,
-                    filename=filename,
-                    content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-                )
-                
-                async with session.post(
-                    f"{self.docx_converter_url}/parse-outline/",
-                    data=data
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        raise Exception(f"DOCX parsing failed: {error_text}")
-                    
-                    outline_data = await response.json()
-                    logger.info("DOCX parsed to outline successfully")
-                    return outline_data
-                    
-            except Exception as e:
-                logger.error(f"Error parsing DOCX: {e}")
-                raise
-    
-    async def parse_docx_sections(
-        self,
-        docx_file: BinaryIO,
-        filename: str = "outline.docx"
-    ) -> Dict[str, Any]:
-        """
-        Parse a DOCX file into sections for sequential processing.
-        
-        Args:
-            docx_file: File-like object containing the DOCX data
-            filename: Name of the file
-            
-        Returns:
-            Dictionary containing the parsed sections
-            
-        Raises:
-            Exception: If the parsing fails
-        """
-        logger.info(f"Parsing DOCX file into sections: {filename}")
-        
-        async with aiohttp.ClientSession() as session:
-            try:
-                # Prepare multipart form data
-                data = aiohttp.FormData()
-                data.add_field(
-                    'file',
-                    docx_file,
-                    filename=filename,
-                    content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-                )
-                
-                async with session.post(
-                    f"{self.docx_converter_url}/parse-outline-sections/",
-                    data=data
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        raise Exception(f"DOCX section parsing failed: {error_text}")
-                    
-                    sections_data = await response.json()
-                    logger.info("DOCX parsed into sections successfully")
-                    return sections_data
-                    
-            except Exception as e:
-                logger.error(f"Error parsing DOCX sections: {e}")
-                raise
+        return await self.generate_outline(
+            motion_text=motion_text,
+            counter_arguments=counter_arguments,
+            reasoning_effort=reasoning_effort,
+            output_format="docx"
+        )
     
     async def validate_outline(
         self,
@@ -272,38 +226,48 @@ class OutlineServices:
         motion_text: str,
         counter_arguments: str,
         output_path: Optional[Path] = None,
-        reasoning_effort: Optional[str] = None
+        reasoning_effort: Optional[str] = None,
+        save_json: bool = False
     ) -> Dict[str, Any]:
         """
-        Complete workflow: generate outline and convert to DOCX.
+        Complete workflow: generate outline and save as DOCX.
         
         Args:
             motion_text: The opposing counsel's motion text
             counter_arguments: Our counter arguments and facts
             output_path: Optional path to save the DOCX file
             reasoning_effort: Optional reasoning effort level (low/medium/high)
+            save_json: If True, also save the JSON outline
             
         Returns:
-            Dictionary containing the outline and file path
+            Dictionary containing the file path and metadata
         """
         logger.info("Starting complete outline workflow...")
         
-        # Generate the outline
-        outline_result = await self.generate_outline(
+        # Generate the outline as DOCX
+        docx_bytes = await self.generate_outline_docx(
             motion_text, counter_arguments, reasoning_effort
         )
-        outline_data = outline_result['outline']
         
-        # Validate the outline
-        validation = await self.validate_outline(outline_data)
-        if not validation['valid']:
-            logger.warning(f"Outline validation issues: {validation}")
+        # If we need the JSON data (for validation or saving), make a separate request
+        outline_data = None
+        validation = None
         
-        # Convert to DOCX
-        docx_bytes = await self.convert_outline_to_docx(outline_data)
+        if save_json:
+            json_result = await self.generate_outline_json(
+                motion_text, counter_arguments, reasoning_effort
+            )
+            outline_data = json_result['outline']
+            
+            # Validate the outline
+            validation = await self.validate_outline(outline_data)
+            if not validation['valid']:
+                logger.warning(f"Outline validation issues: {validation}")
         
-        # Save if path provided
-        saved_path = None
+        # Save files if path provided
+        saved_docx_path = None
+        saved_json_path = None
+        
         if output_path:
             output_path = Path(output_path)
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -311,25 +275,39 @@ class OutlineServices:
             # Generate filename with timestamp if directory provided
             if output_path.is_dir():
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"legal_outline_{timestamp}.docx"
-                output_path = output_path / filename
+                docx_filename = f"legal_outline_{timestamp}.docx"
+                json_filename = f"legal_outline_{timestamp}.json"
+                docx_path = output_path / docx_filename
+                json_path = output_path / json_filename
+            else:
+                # If specific file path provided
+                docx_path = output_path
+                json_path = output_path.with_suffix('.json')
             
-            output_path.write_bytes(docx_bytes)
-            saved_path = str(output_path)
-            logger.info(f"Outline saved to: {saved_path}")
+            # Save DOCX
+            docx_path.write_bytes(docx_bytes)
+            saved_docx_path = str(docx_path)
+            logger.info(f"DOCX outline saved to: {saved_docx_path}")
+            
+            # Save JSON if requested
+            if save_json and outline_data:
+                with open(json_path, 'w') as f:
+                    json.dump(outline_data, f, indent=2)
+                saved_json_path = str(json_path)
+                logger.info(f"JSON outline saved to: {saved_json_path}")
         
         return {
-            "outline": outline_data,
-            "metadata": outline_result['metadata'],
-            "validation": validation,
             "docx_bytes": docx_bytes,
-            "saved_path": saved_path
+            "docx_path": saved_docx_path,
+            "json_path": saved_json_path,
+            "outline_data": outline_data,
+            "validation": validation
         }
 
 
 # Example usage
 async def example_usage():
-    """Example of how to use the OutlineServices client"""
+    """Example of how to use the integrated OutlineServices client"""
     
     # Initialize the client
     client = OutlineServices()
@@ -353,28 +331,40 @@ async def example_usage():
     """
     
     try:
-        # Example 1: Quick outline with low effort
-        print("Generating quick outline with low effort...")
-        quick_result = await client.generate_outline(
+        # Example 1: Get DOCX directly (most common use case)
+        print("Generating outline as DOCX...")
+        docx_bytes = await client.generate_outline_docx(
             motion_text=motion_text,
             counter_arguments=counter_arguments,
-            reasoning_effort="low"
+            reasoning_effort="high"
         )
-        print(f"Quick outline generated in {quick_result['metadata']['generation_time']:.1f}s")
+        print(f"Generated DOCX outline: {len(docx_bytes)} bytes")
         
-        # Example 2: Complete workflow with high effort
-        print("\nGenerating comprehensive outline with high effort...")
+        # Example 2: Get JSON for processing
+        print("\nGenerating outline as JSON...")
+        json_result = await client.generate_outline_json(
+            motion_text=motion_text,
+            counter_arguments=counter_arguments,
+            reasoning_effort="medium"
+        )
+        print(f"Generated JSON outline with {len(json_result['outline']['arguments'])} arguments")
+        print(f"Total tokens used: {json_result['metadata']['total_tokens']}")
+        
+        # Example 3: Complete workflow with file saving
+        print("\nRunning complete workflow...")
         result = await client.complete_outline_workflow(
             motion_text=motion_text,
             counter_arguments=counter_arguments,
             output_path=Path("outputs/outlines/"),
-            reasoning_effort="high"
+            reasoning_effort="high",
+            save_json=True  # Also save JSON version
         )
         
-        print(f"Outline generated successfully!")
-        print(f"Saved to: {result['saved_path']}")
-        print(f"Total tokens used: {result['metadata']['total_tokens']}")
-        print(f"Reasoning effort: {result['metadata']['reasoning_effort']}")
+        print(f"Workflow completed successfully!")
+        print(f"DOCX saved to: {result['docx_path']}")
+        print(f"JSON saved to: {result['json_path']}")
+        if result['validation']:
+            print(f"Validation: {'✓ Passed' if result['validation']['valid'] else '✗ Failed'}")
         
     except Exception as e:
         print(f"Error: {e}")

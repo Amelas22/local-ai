@@ -1,30 +1,34 @@
 """
-Legal Outline Drafter Service
+Legal Outline Drafter Service with Integrated DOCX Conversion
 Uses OpenAI's o3 reasoning model to generate comprehensive legal brief outlines
+and automatically converts them to DOCX format
 
 Key features:
 - Uses 'developer' role for instructions (required for reasoning models)
 - Supports adjustable reasoning effort (low/medium/high)
 - Generates structured JSON outlines with up to 50k tokens
-- Does NOT support temperature or other standard parameters
+- Automatically converts to DOCX format
+- Returns binary DOCX file or JSON based on accept header
 """
 
 import os
 import asyncio
 import json
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 from datetime import datetime
 from contextlib import asynccontextmanager
+from io import BytesIO
 
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, field_validator  
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, Header
+from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel, Field, field_validator
 import tiktoken
 from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 from pythonjsonlogger import jsonlogger
 from dotenv import load_dotenv
+import aiohttp
 
 # Load environment variables
 load_dotenv()
@@ -52,6 +56,8 @@ MODEL_NAME = os.getenv("OPENAI_MODEL", "o3-2025-04-16")  # Default to o3, config
 MAX_COMPLETION_TOKENS = int(os.getenv("MAX_COMPLETION_TOKENS", "50000"))  # o3 supports up to 100k
 MAX_INPUT_TOKENS = int(os.getenv("MAX_INPUT_TOKENS", "100000"))  # Safety limit
 REASONING_EFFORT = os.getenv("REASONING_EFFORT", "high").lower()  # low, medium, or high for o3
+DOCX_CONVERTER_URL = os.getenv("DOCX_CONVERTER_URL", "http://doc-converter:8000")
+API_TIMEOUT = int(os.getenv("API_TIMEOUT", "600"))
 
 # Validate reasoning effort
 if REASONING_EFFORT not in ["low", "medium", "high"]:
@@ -151,11 +157,12 @@ class OutlineRequest(BaseModel):
     motion_text: str = Field(..., description="The opposing counsel's motion text")
     counter_arguments: str = Field(..., description="Our counter arguments and facts")
     reasoning_effort: Optional[str] = Field(None, description="Override reasoning effort (low/medium/high)")
+    output_format: Optional[str] = Field("docx", description="Output format: 'docx' or 'json'")
     
     @field_validator('motion_text', 'counter_arguments')
     def validate_not_empty(cls, v, field):
         if not v or not v.strip():
-            raise ValueError(f"{field.name} cannot be empty")
+            raise ValueError(f"{field.field_name} cannot be empty")
         return v
     
     @field_validator('reasoning_effort')
@@ -164,6 +171,14 @@ class OutlineRequest(BaseModel):
             v = v.lower()
             if v not in ["low", "medium", "high"]:
                 raise ValueError("reasoning_effort must be 'low', 'medium', or 'high'")
+        return v
+    
+    @field_validator('output_format')
+    def validate_output_format(cls, v):
+        if v is not None:
+            v = v.lower()
+            if v not in ["docx", "json"]:
+                raise ValueError("output_format must be 'docx' or 'json'")
         return v
 
 class OutlineResponse(BaseModel):
@@ -179,7 +194,8 @@ async def log_api_usage(
     response_tokens: int,
     total_tokens: int,
     duration: float,
-    model: str
+    model: str,
+    output_format: str
 ):
     """Log API usage metrics for monitoring and cost tracking"""
     logger.info({
@@ -189,6 +205,7 @@ async def log_api_usage(
         "response_tokens": response_tokens,
         "total_tokens": total_tokens,
         "duration_seconds": duration,
+        "output_format": output_format,
         "estimated_cost": calculate_cost(request_tokens, response_tokens, model)
     })
 
@@ -197,8 +214,8 @@ def calculate_cost(request_tokens: int, response_tokens: int, model: str) -> flo
     # Placeholder pricing - update with actual o3 pricing when available
     if model.startswith("o3"):
         # Assuming o3 pricing similar to GPT-4
-        input_cost_per_1k = 0.02
-        output_cost_per_1k = 0.08
+        input_cost_per_1k = 0.03
+        output_cost_per_1k = 0.06
     elif model.startswith("gpt-4"):
         input_cost_per_1k = 0.03
         output_cost_per_1k = 0.06
@@ -226,6 +243,60 @@ def count_tokens(text: str) -> int:
         # Rough estimation: 1 token ≈ 4 characters
         return len(text) // 4
 
+async def convert_outline_to_docx(outline_data: Dict[str, Any]) -> bytes:
+    """
+    Convert outline JSON to DOCX using the converter service.
+    
+    Args:
+        outline_data: The outline data in JSON format
+        
+    Returns:
+        Bytes of the DOCX file
+        
+    Raises:
+        HTTPException: If conversion fails
+    """
+    logger.info("Converting outline to DOCX...")
+    
+    timeout = aiohttp.ClientTimeout(total=API_TIMEOUT)
+    
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        try:
+            async with session.post(
+                f"{DOCX_CONVERTER_URL}/generate-outline/",
+                json=outline_data
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"DOCX conversion failed: {error_text}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"DOCX conversion failed: {error_text}"
+                    )
+                
+                docx_bytes = await response.read()
+                logger.info("Outline converted to DOCX successfully")
+                return docx_bytes
+                
+        except asyncio.TimeoutError:
+            logger.error("DOCX conversion timed out")
+            raise HTTPException(
+                status_code=504,
+                detail="DOCX conversion timed out"
+            )
+        except aiohttp.ClientError as e:
+            logger.error(f"HTTP client error during DOCX conversion: {e}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Error connecting to DOCX converter service: {str(e)}"
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error during DOCX conversion: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unexpected error during DOCX conversion: {str(e)}"
+            )
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=4, max=60)
@@ -234,8 +305,9 @@ async def generate_outline_with_openai(
     motion_text: str,
     counter_arguments: str,
     background_tasks: BackgroundTasks,
-    reasoning_effort: Optional[str] = None
-) -> Dict[str, Any]:
+    reasoning_effort: Optional[str] = None,
+    output_format: str = "docx"
+) -> Union[Dict[str, Any], bytes]:
     """Generate legal outline using OpenAI's o3 model with retry logic"""
     
     start_time = datetime.now()
@@ -260,7 +332,8 @@ async def generate_outline_with_openai(
         "reasoning_effort": effort_level if MODEL_NAME.startswith("o3") else None,
         "input_tokens": total_input_tokens,
         "motion_length": len(motion_text),
-        "counter_args_length": len(counter_arguments)
+        "counter_args_length": len(counter_arguments),
+        "output_format": output_format
     })
     
     try:
@@ -312,7 +385,8 @@ async def generate_outline_with_openai(
             response_tokens=response_tokens,
             total_tokens=total_tokens,
             duration=duration,
-            model=response.model
+            model=response.model,
+            output_format=output_format
         )
         
         logger.info({
@@ -322,16 +396,50 @@ async def generate_outline_with_openai(
             "total_tokens": total_tokens
         })
         
-        return {
-            "outline": outline_json,
-            "metadata": {
-                "model": response.model,
-                "reasoning_effort": effort_level if MODEL_NAME.startswith("o3") else None,
-                "total_tokens": total_tokens,
-                "generation_time": duration,
-                "timestamp": datetime.now().isoformat()
+        # If JSON format requested, return the outline data
+        if output_format == "json":
+            return {
+                "outline": outline_json,
+                "metadata": {
+                    "model": response.model,
+                    "reasoning_effort": effort_level if MODEL_NAME.startswith("o3") else None,
+                    "total_tokens": total_tokens,
+                    "generation_time": duration,
+                    "timestamp": datetime.now().isoformat()
+                }
             }
-        }
+        
+        # Otherwise, convert to DOCX
+        try:
+            docx_bytes = await convert_outline_to_docx(outline_json)
+            
+            # Return DOCX bytes with metadata
+            return {
+                "docx_bytes": docx_bytes,
+                "metadata": {
+                    "model": response.model,
+                    "reasoning_effort": effort_level if MODEL_NAME.startswith("o3") else None,
+                    "total_tokens": total_tokens,
+                    "generation_time": duration,
+                    "timestamp": datetime.now().isoformat(),
+                    "output_format": "docx"
+                }
+            }
+        except Exception as e:
+            logger.error(f"Failed to convert to DOCX, returning JSON instead: {e}")
+            # Fallback to JSON if DOCX conversion fails
+            return {
+                "outline": outline_json,
+                "metadata": {
+                    "model": response.model,
+                    "reasoning_effort": effort_level if MODEL_NAME.startswith("o3") else None,
+                    "total_tokens": total_tokens,
+                    "generation_time": duration,
+                    "timestamp": datetime.now().isoformat(),
+                    "conversion_error": str(e),
+                    "output_format": "json"
+                }
+            }
         
     except Exception as e:
         logger.error({
@@ -355,6 +463,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to connect to OpenAI: {e}")
     
+    # Test DOCX converter connection
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{DOCX_CONVERTER_URL}/health") as response:
+                if response.status == 200:
+                    logger.info(f"Connected to DOCX converter at {DOCX_CONVERTER_URL}")
+                else:
+                    logger.warning(f"DOCX converter health check failed: {response.status}")
+    except Exception as e:
+        logger.warning(f"Could not connect to DOCX converter: {e}")
+    
     yield
     
     # Shutdown
@@ -362,8 +481,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Legal Outline Drafter Service",
-    description="Generate comprehensive legal brief outlines using OpenAI's o3 model",
-    version="1.0.0",
+    description="Generate comprehensive legal brief outlines using OpenAI's o3 model with integrated DOCX conversion",
+    version="2.0.0",
     lifespan=lifespan
 )
 
@@ -373,21 +492,37 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "outline-drafter",
-        "timestamp": datetime.now().isoformat()
+        "version": "2.0.0",
+        "timestamp": datetime.now().isoformat(),
+        "docx_converter_url": DOCX_CONVERTER_URL
     }
 
-@app.post("/generate-outline", response_model=OutlineResponse)
+@app.post("/generate-outline")
 async def generate_outline(
     request: OutlineRequest,
-    background_tasks: BackgroundTasks
+    background_tasks: BackgroundTasks,
+    accept: str = Header(default="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 ):
     """
     Generate a comprehensive legal outline based on opposing motion and counter-arguments.
     
     This endpoint uses OpenAI's o3 model to create detailed legal brief outlines
     that include introduction, facts, arguments, and conclusion sections.
+    
+    By default, returns a DOCX file. To get JSON response, either:
+    1. Set Accept header to 'application/json'
+    2. Set output_format to 'json' in request body
     """
     try:
+        # Determine output format based on Accept header or request parameter
+        output_format = request.output_format
+        if output_format is None:
+            # Check Accept header
+            if "application/json" in accept:
+                output_format = "json"
+            else:
+                output_format = "docx"
+        
         # Validate token limits
         total_input_tokens = count_tokens(request.motion_text + request.counter_arguments)
         if total_input_tokens > MAX_INPUT_TOKENS:
@@ -401,14 +536,34 @@ async def generate_outline(
             motion_text=request.motion_text,
             counter_arguments=request.counter_arguments,
             background_tasks=background_tasks,
-            reasoning_effort=request.reasoning_effort
+            reasoning_effort=request.reasoning_effort,
+            output_format=output_format
         )
         
-        return OutlineResponse(
-            success=True,
-            outline=result["outline"],
-            metadata=result["metadata"]
-        )
+        # Return based on format
+        if output_format == "json" or "outline" in result:
+            # JSON response
+            return OutlineResponse(
+                success=True,
+                outline=result.get("outline"),
+                metadata=result.get("metadata", {})
+            )
+        else:
+            # DOCX response
+            docx_bytes = result["docx_bytes"]
+            
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"legal_outline_{timestamp}.docx"
+            
+            return Response(
+                content=docx_bytes,
+                media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{filename}"',
+                    "X-Metadata": json.dumps(result["metadata"])  # Include metadata in header
+                }
+            )
         
     except HTTPException:
         raise
@@ -419,6 +574,19 @@ async def generate_outline(
             error=f"Failed to generate outline: {str(e)}",
             metadata={"error_type": type(e).__name__}
         )
+
+@app.post("/generate-outline-json", response_model=OutlineResponse)
+async def generate_outline_json(
+    request: OutlineRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    Generate outline and always return JSON response.
+    
+    This endpoint is for backwards compatibility and always returns JSON.
+    """
+    request.output_format = "json"
+    return await generate_outline(request, background_tasks, accept="application/json")
 
 @app.post("/validate-outline")
 async def validate_outline(outline_data: Dict[str, Any]):
@@ -495,12 +663,15 @@ async def get_model_info():
         "max_completion_tokens": MAX_COMPLETION_TOKENS,
         "model_max_output": 100000,  # o3 supports up to 100k
         "context_window": 128000,  # Assuming similar to GPT-4
+        "docx_converter_url": DOCX_CONVERTER_URL,
+        "default_output_format": "docx",
         "features": [
             "JSON mode",
             "High-quality legal reasoning",
             "Extended context for long documents",
             "Structured output generation",
-            "100k max output tokens capability"
+            "100k max output tokens capability",
+            "Integrated DOCX conversion"
         ]
     }
     

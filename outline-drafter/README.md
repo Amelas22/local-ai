@@ -9,7 +9,7 @@ This directory contains two microservices for the Clerk legal AI system:
 
 ### Outline Drafter Service (Port 8015)
 
-The outline drafter uses OpenAI's o3-2025-01-16 reasoning model to generate detailed legal brief outlines. It's optimized for:
+The outline drafter uses OpenAI's o3-2025-04-16 reasoning model to generate detailed legal brief outlines. It's optimized for:
 - Large input handling (40-50k tokens typical)
 - Maximum completion tokens: 50,000 (model supports up to 100k)
 - Structured JSON output
@@ -82,7 +82,7 @@ Response:
   "success": true,
   "outline": { /* Generated outline JSON */ },
   "metadata": {
-    "model": "o3-2025-01-16",
+    "model": "o3-2025-04-16",
     "total_tokens": 65000,
     "generation_time": 45.2,
     "timestamp": "2025-06-25T10:30:00Z"
@@ -96,7 +96,7 @@ GET /model-info
 
 Response:
 {
-  "model": "o3-2025-01-16",
+  "model": "o3-2025-04-16",
   "max_completion_tokens": 50000,
   "reasoning_effort": "high",
   "reasoning_effort_options": ["low", "medium", "high"],
