@@ -46,7 +46,7 @@ services:
     entrypoint: /bin/sh -c "sleep 3; flowise start"
 
   # Service for converting JSON outlines to DOCX and back
-  convert-to-docx:
+  doc-converter:
     build:
       context: ./convert-to-docx
       dockerfile: Dockerfile
