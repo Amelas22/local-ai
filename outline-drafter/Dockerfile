@@ -43,12 +43,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8015/health || exit 1
+    CMD curl -f http://localhost:8000/health || exit 1
 
 # Switch to non-root user
 USER appuser
 
-EXPOSE 8015
+EXPOSE 8000
 
 # Run with gunicorn and uvicorn workers
-CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "main:app", "--bind", "0.0.0.0:8001", "--workers", "2", "--timeout", "600"]
+CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "main:app", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "600"]
