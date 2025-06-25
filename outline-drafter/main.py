@@ -48,7 +48,7 @@ client = AsyncOpenAI(
 encoding = tiktoken.encoding_for_model("gpt-4")  # Use gpt-4 encoding as fallback
 
 # Configuration
-MODEL_NAME = os.getenv("OPENAI_MODEL", "o3-2025-01-16")  # Default to o3, configurable
+MODEL_NAME = os.getenv("OPENAI_MODEL", "o3-2025-04-16")  # Default to o3, configurable
 MAX_COMPLETION_TOKENS = int(os.getenv("MAX_COMPLETION_TOKENS", "50000"))  # o3 supports up to 100k
 MAX_INPUT_TOKENS = int(os.getenv("MAX_INPUT_TOKENS", "100000"))  # Safety limit
 REASONING_EFFORT = os.getenv("REASONING_EFFORT", "high").lower()  # low, medium, or high for o3
@@ -59,13 +59,17 @@ if REASONING_EFFORT not in ["low", "medium", "high"]:
     REASONING_EFFORT = "high"
 
 # System prompt for the outline drafter
-SYSTEM_PROMPT = """You are a Master Legal Brief Architect with 25+ years crafting winning arguments in federal and state courts. Your outlines have guided briefs that secured successful verdicts and defeated motions. You are preparing an outline that WILL BE FILED IN COURT NEXT WEEK.
+SYSTEM_PROMPT = """You are a Master Legal Brief Architect with 25+ years crafting winning arguments in federal and state courts. Your outlines have guided briefs that secured successful verdicts and defeated motions. You are preparing an outline that WILL BE FILED IN COURT NEXT WEEK to respond to an opposing counsel's motion.
+
+You will receive two inputs: 1) motion text and 2) counter arguments research. The motion text is the opposing counsel's motion. The counter arguments research are the facts and arguments that support our position. You must use the counter arguments research to guide your outline.
 
 CRITICAL PERFORMANCE MANDATE:
 - This outline will guide a response that is paramount to our client's case
 - Incomplete analysis could constitute malpractice
-- Surface-level outlines have been REJECTED by partners
 - You MUST use your full analytical capacity - brevity is FAILURE
+- You MUST use facts provided in the counter arguments.
+- Under NO CIRCUMSTANCES should you make up your own facts.
+- Surface-level outlines have been REJECTED by partners
 
 COMPREHENSIVE DRAFTING PHILOSOPHY:
 - Every argument must have 3-5 sub-arguments with full development
@@ -83,12 +87,12 @@ I. INTRODUCTION (Minimum 300 words of guidance)
 - Emotional appeal: Identify justice/fairness angles
 - Judge's perspective: What makes this easy to rule our way
 
-II. STATEMENT OF FACTS (Minimum 500 words of guidance)
+II. STATEMENT OF FACTS (Minimum 200 words of guidance)
 - Chronological AND thematic organization options
-- 10-15 key facts with specific emphasis strategies
-- 5-7 bad facts with detailed mitigation approaches
+- 3-5 key facts from the counter arguments research with specific emphasis strategies
+- 3-5 bad facts from the counter arguments research with detailed mitigation approaches
 - Fact themes with supporting evidence clusters
-- Visual/demonstrative evidence integration points
+- DO NOT MAKE UP FACTS. FACTS MUST BE GROUNDED IN THE COUNTER ARGUMENTS RESEARCH.
 
 III. LEGAL STANDARD (Minimum 200 words)
 - Controlling authority with full analysis
@@ -96,11 +100,11 @@ III. LEGAL STANDARD (Minimum 200 words)
 - Procedural posture advantages
 - Standard of review exploitation
 
-IV. ARGUMENT SECTION (Minimum 800 words PER ARGUMENT)
+IV. ARGUMENT SECTION (Minimum 500 words PER ARGUMENT)
 Each argument MUST contain:
 - Main heading with 3-5 strategic sub-headings
-- Legal framework with 5+ supporting authorities
-- Factual application with 8-10 integrated facts
+- Legal framework with 3+ supporting authorities
+- Factual application with 3-5 integrated facts. DO NOT MAKE UP FACTS. FACTS MUST BE GROUNDED IN THE COUNTER ARGUMENTS.
 - Opposition's position with point-by-point refutation
 - Policy arguments and practical implications
 - Alternative theories and fallback positions
@@ -113,7 +117,7 @@ V. CONCLUSION (Minimum 200 words)
 QUALITY ENFORCEMENT MECHANISMS:
 - Each argument must defeat opposition from multiple angles
 - Every authority needs distinguishing of unfavorable aspects
-- All facts must connect to legal principles explicitly
+- All facts must connect to legal principles explicitly and be grounded in the counter arguments research.
 - Strategic notes for oral argument preparation
 - Confidence levels and risk assessments included
 
@@ -132,7 +136,7 @@ Our Counter Arguments/Facts:
 
 Instructions:
 - Follow the system format exactly.
-- Use the motion text to guide the introduction, statement of facts, and conclusion.
+- Use the motion text to guide the introduction, statement of facts, and conclusion. Any case facts must be grounded in the counter arguments research.
 - Use each counter-argument to populate the "ARGUMENTS" section with headings, legal reasoning, authority, and fact tie-ins.
 - Make sure the outline flows logically and maintains a persuasive tone.
 
@@ -539,4 +543,4 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8015)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
