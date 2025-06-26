@@ -159,6 +159,8 @@ class OutlineRequest(BaseModel):
     counter_arguments: str = Field(..., description="Our counter arguments and facts")
     reasoning_effort: Optional[str] = Field(None, description="Override reasoning effort (low/medium/high)")
     output_format: Optional[str] = Field("docx", description="Output format: 'docx' or 'json'")
+    upload_to_box: Optional[bool] = Field(False, description="Upload generated DOCX to Box")
+    box_folder_id: Optional[str] = Field(None, description="Box folder ID for upload")
     
     @field_validator('motion_text', 'counter_arguments')
     def validate_not_empty(cls, v, field):
@@ -322,6 +324,47 @@ async def convert_outline_to_docx(outline_data: Dict[str, Any]) -> bytes:
                 status_code=500,
                 detail=f"Unexpected error during DOCX conversion: {str(e)}"
             )
+
+async def upload_docx_to_box(
+    docx_bytes: bytes, 
+    filename: str,
+    folder_id: str,
+    description: Optional[str] = None
+) -> Dict[str, Any]:
+    """Upload DOCX file to Box via Clerk API"""
+    
+    # Clerk API URL - use environment variable or default
+    clerk_url = os.getenv("CLERK_API_URL", "http://clerk:8000")
+    
+    # Create form data
+    files = {
+        'file': (filename, io.BytesIO(docx_bytes), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    }
+    data = {
+        'folder_id': folder_id,
+        'description': description or f"Legal outline generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    }
+    
+    timeout = aiohttp.ClientTimeout(total=60)
+    
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        try:
+            async with session.post(
+                f"{clerk_url}/upload/file",
+                data=data,
+                files=files
+            ) as response:
+                result = await response.json()
+                
+                if response.status != 200:
+                    raise Exception(f"Upload failed: {result.get('detail', 'Unknown error')}")
+                
+                logger.info(f"DOCX uploaded to Box successfully. File ID: {result.get('file_id')}")
+                return result
+                
+        except Exception as e:
+            logger.error(f"Error uploading to Box: {e}")
+            raise
 
 @retry(
     stop=stop_after_attempt(3),
@@ -653,11 +696,12 @@ async def generate_outline_docx(
 ):
     """
     Generate outline and always return DOCX file.
-    
-    This endpoint always returns a binary DOCX file, perfect for n8n integration.
+    Optionally upload to Box if requested.
     """
     request.output_format = "docx"
     
+    DEFAULT_BOX_FOLDER_ID = "327679822937"
+
     # Force DOCX generation
     try:
         # Validate token limits
@@ -700,7 +744,32 @@ async def generate_outline_docx(
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"legal_outline_{timestamp}.docx"
         
-        logger.info(f"Returning DOCX file via dedicated endpoint: {filename}, size: {len(docx_bytes)} bytes")
+        # Upload to Box if requested
+        box_upload_result = None
+        if request.upload_to_box:
+            folder_id = request.box_folder_id or DEFAULT_BOX_FOLDER_ID
+            logger.info(f"Uploading outline to Box folder: {folder_id}")
+            
+            try:
+                box_upload_result = await upload_docx_to_box(
+                    docx_bytes=docx_bytes,
+                    filename=filename,
+                    folder_id=folder_id,
+                    description=f"Legal outline - {len(request.motion_text)} chars motion, {len(request.counter_arguments)} chars arguments"
+                )
+                
+                # Add Box info to metadata
+                result["metadata"]["box_upload"] = {
+                    "file_id": box_upload_result.get("file_id"),
+                    "web_link": box_upload_result.get("web_link"),
+                    "folder_id": folder_id
+                }
+                
+            except Exception as e:
+                logger.error(f"Box upload failed, but returning DOCX: {e}")
+                result["metadata"]["box_upload_error"] = str(e)
+        
+        logger.info(f"Returning DOCX file: {filename}, size: {len(docx_bytes)} bytes")
         
         return Response(
             content=docx_bytes,
@@ -711,6 +780,18 @@ async def generate_outline_docx(
                 "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 "X-Metadata": json.dumps(result["metadata"]),
                 "X-Output-Format": "docx"
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in generate_outline_docx: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": f"Failed to generate DOCX: {str(e)}",
+                "error_type": type(e).__name__,
+                "timestamp": datetime.now().isoformat()
             }
         )
         

@@ -10,3 +10,4 @@ asyncio>=3.4.3
 aiohttp>=3.9.0
 python-json-logger==2.0.7
 tenacity==8.2.3
+aiofiles>=23.0.0

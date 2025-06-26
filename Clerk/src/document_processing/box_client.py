@@ -11,7 +11,8 @@ from datetime import datetime
 
 from boxsdk import Client, JWTAuth
 from boxsdk.object.folder import Folder
-from boxsdk.object.file import File
+from boxsdk.object.file import File as BoxFile
+from typing import BinaryIO
 
 from config.settings import settings
 
@@ -201,7 +202,47 @@ class BoxClient:
         except Exception as e:
             logger.error(f"Error traversing folder {parent_folder_id}: {str(e)}")
             raise
-    
+
+    def upload_file(self, file_stream: BinaryIO, file_name: str, 
+                    parent_folder_id: str, description: Optional[str] = None) -> BoxFile:
+        """Upload a file to Box
+        
+        Args:
+            file_stream: File content as a binary stream
+            file_name: Name for the uploaded file
+            parent_folder_id: Box folder ID where file should be uploaded
+            description: Optional description for the file
+            
+        Returns:
+            BoxFile object representing the uploaded file
+            
+        Raises:
+            Exception: If upload fails
+        """
+        try:
+            logger.info(f"Uploading file '{file_name}' to folder {parent_folder_id}")
+            
+            # Get the parent folder
+            parent_folder = self.client.folder(folder_id=parent_folder_id)
+            
+            # Upload the file
+            uploaded_file = parent_folder.upload_stream(
+                file_stream=file_stream,
+                file_name=file_name
+            )
+            
+            logger.info(f"Successfully uploaded file '{file_name}' with ID: {uploaded_file.id}")
+            
+            # Add description if provided
+            if description:
+                uploaded_file.update_info({'description': description})
+            
+            return uploaded_file
+            
+        except Exception as e:
+            logger.error(f"Error uploading file '{file_name}': {str(e)}")
+            raise
+        
     def download_file(self, file_id: str) -> bytes:
         """Download file content from Box
         

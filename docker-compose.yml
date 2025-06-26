@@ -73,11 +73,12 @@ services:
       - REASONING_EFFORT=${REASONING_EFFORT:-high}
       - MAX_COMPLETION_TOKENS=${MAX_COMPLETION_TOKENS:-50000}
       - MAX_INPUT_TOKENS=${MAX_INPUT_TOKENS:-100000}
-      - DOCX_CONVERTER_URL=http://doc-converter:8000  # Internal service name
+      - DOCX_CONVERTER_URL=http://doc-converter:8000
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - API_TIMEOUT=${API_TIMEOUT:-600}
       - WORKERS=${WORKERS:-2}
       - WORKER_TIMEOUT=${WORKER_TIMEOUT:-600}
+      - CLERK_API_URL=http://clerk:8000
     depends_on:
       doc-converter:
         condition: service_healthy

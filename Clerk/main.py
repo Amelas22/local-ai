@@ -4,11 +4,12 @@ Provides HTTP API endpoints for document processing and search
 """
 
 import logging
-from typing import List, Dict, Any, Optional
+import io
+from typing import List, Dict, Any, Optional, BinaryIO
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, File, UploadFile, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -92,6 +93,14 @@ class HealthResponse(BaseModel):
 class ProcessingStatus(BaseModel):
     status: str
     message: str
+    details: Optional[Dict[str, Any]] = None
+
+class UploadResponse(BaseModel):
+    status: str
+    message: str
+    file_id: Optional[str] = None
+    file_name: Optional[str] = None
+    web_link: Optional[str] = None
     details: Optional[Dict[str, Any]] = None
 
 # Health check endpoint
@@ -245,6 +254,108 @@ async def ai_query(case_name: str, query: str, user_id: str = "api_user"):
         logger.error(f"AI query error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"AI query failed: {str(e)}")
 
+@app.post("/upload/file", response_model=UploadResponse)
+async def upload_file_to_box(
+    file: UploadFile = File(...),
+    folder_id: str = Form(...),
+    description: Optional[str] = Form(None)
+):
+    """Upload a file to a specific Box folder
+    
+    Args:
+        file: The file to upload
+        folder_id: Box folder ID where the file should be uploaded
+        description: Optional description for the file
+        
+    Returns:
+        UploadResponse with file details
+    """
+    if not document_injector or not document_injector.box_client:
+        raise HTTPException(status_code=503, detail="Box service not available")
+    
+    try:
+        # Read the file content
+        file_content = await file.read()
+        file_stream = io.BytesIO(file_content)
+        
+        # Upload to Box
+        uploaded_file = document_injector.box_client.upload_file(
+            file_stream=file_stream,
+            file_name=file.filename,
+            parent_folder_id=folder_id,
+            description=description
+        )
+        
+        # Get the web link for the file
+        web_link = None
+        try:
+            file_info = document_injector.box_client.client.file(uploaded_file.id).get()
+            if hasattr(file_info, 'shared_link') and file_info.shared_link:
+                web_link = file_info.shared_link.get('url')
+        except:
+            logger.warning("Could not retrieve web link for uploaded file")
+        
+        return UploadResponse(
+            status="success",
+            message=f"File uploaded successfully to Box",
+            file_id=uploaded_file.id,
+            file_name=uploaded_file.name,
+            web_link=web_link,
+            details={
+                "size": len(file_content),
+                "folder_id": folder_id,
+                "content_type": file.content_type
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error uploading file to Box: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.post("/generate-and-upload-outline")
+async def generate_and_upload_outline(
+    motion_text: str = Form(...),
+    counter_arguments: str = Form(...),
+    folder_id: str = Form("327679822937"),  # Default to your folder
+    reasoning_effort: Optional[str] = Form("high")
+):
+    """Generate legal outline and upload directly to Box"""
+    
+    # Call outline drafter service
+    outline_drafter_url = os.getenv("OUTLINE_DRAFTER_URL", "http://outline-drafter:8000")
+    
+    async with aiohttp.ClientSession() as session:
+        try:
+            # Generate outline
+            async with session.post(
+                f"{outline_drafter_url}/generate-outline-docx",
+                json={
+                    "motion_text": motion_text,
+                    "counter_arguments": counter_arguments,
+                    "reasoning_effort": reasoning_effort,
+                    "upload_to_box": True,
+                    "box_folder_id": folder_id
+                }
+            ) as response:
+                if response.status == 200:
+                    # Get metadata from header
+                    metadata = json.loads(response.headers.get('X-Metadata', '{}'))
+                    
+                    return {
+                        "status": "success",
+                        "message": "Outline generated and uploaded to Box",
+                        "box_file_id": metadata.get("box_upload", {}).get("file_id"),
+                        "box_web_link": metadata.get("box_upload", {}).get("web_link"),
+                        "generation_metadata": metadata
+                    }
+                else:
+                    error_data = await response.json()
+                    raise HTTPException(status_code=response.status, detail=error_data.get("error"))
+                    
+        except Exception as e:
+            logger.error(f"Error in generate and upload workflow: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+            
 @app.get("/")
 async def root():
     """Root endpoint"""
