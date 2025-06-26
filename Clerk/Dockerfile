@@ -39,6 +39,11 @@ RUN groupadd -r appuser && useradd --no-log-init -r -g appuser appuser
 WORKDIR /app
 COPY --chown=appuser:appuser . /app/
 
+# Create logs directory and set proper permissions
+RUN mkdir -p /app/logs && \
+    chown -R appuser:appuser /app/logs && \
+    chmod -R 755 /app/logs
+
 # Install curl for health checks
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl && rm -rf /var/lib/apt/lists/*
