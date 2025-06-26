@@ -31,4 +31,4 @@ RUN mkdir -p logs reports scripts/cache
 ENV PYTHONPATH=/app:$PYTHONPATH
 
 # Default command (can be overridden)
-CMD ["python", "-m", "uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
