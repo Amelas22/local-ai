@@ -13,6 +13,8 @@ volumes:
   langfuse_clickhouse_data:
   langfuse_clickhouse_logs:
   langfuse_minio_data:
+  clerk_logs:
+  clerk_reports:
 
 x-n8n: &service-n8n
   image: n8nio/n8n:latest
@@ -115,10 +117,9 @@ services:
       # Other settings
       - ENABLE_COST_TRACKING=${ENABLE_COST_TRACKING:-true}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      
     volumes:
-      - ./Clerk/logs:/app/logs
-      - ./Clerk/reports:/app/reports
+      - clerk_logs:/app/logs
+      - clerk_reports:/app/reports
     depends_on:
       - qdrant
     networks:

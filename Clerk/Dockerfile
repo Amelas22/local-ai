@@ -37,19 +37,17 @@ RUN groupadd -r appuser && useradd --no-log-init -r -g appuser appuser
 
 # Set working directory and copy app files
 WORKDIR /app
-COPY --chown=appuser:appuser . /app/
+COPY . /app/
 
-# Create logs directory and set proper permissions
-RUN mkdir -p /app/logs && \
+RUN mkdir -p /app/logs /app/reports && \
     chown -R appuser:appuser /app && \
     chmod -R 755 /app && \
-    chmod -R 777 /app/logs
+    chmod 777 /app/logs /app/reports
 
 # Install curl for health checks
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl && rm -rf /var/lib/apt/lists/*
 
-# Health check (adjust endpoint if needed)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
@@ -57,5 +55,4 @@ USER appuser
 
 EXPOSE 8000
 
-# Launch with Gunicorn and UvicornWorker
 CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "main:app", "--bind", "0.0.0.0:8000"]
