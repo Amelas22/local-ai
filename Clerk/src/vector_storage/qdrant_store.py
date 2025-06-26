@@ -11,6 +11,9 @@ from datetime import datetime
 from dataclasses import dataclass
 import re
 import hashlib
+import cohere
+from collections import defaultdict
+import numpy as np
 
 from qdrant_client import QdrantClient, AsyncQdrantClient
 from qdrant_client.http import models
@@ -23,6 +26,7 @@ from qdrant_client.models import (
 )
 from config.settings import settings
 from src.utils.logger import get_logger
+from src.vector_storage.sparse_encoder import SparseVectorEncoder
 
 logger = get_logger(__name__)
 
@@ -41,13 +45,25 @@ class SearchResult:
 class QdrantVectorStore:
     """Manages vector storage in Qdrant with folder-based isolation and hybrid search"""
     
-    def __init__(self):
-        """Initialize Qdrant client"""
+    def __init__(self, database_name: Optional[str] = None):
+        """Initialize Qdrant client
+        
+        Args:
+            database_name: Optional database name for case-specific collections
+        """
         self.config = settings.qdrant
+        self.database_name = database_name
+        
+        # Build URL with database name if provided
+        base_url = self.config.url
+        if database_name:
+            if base_url.endswith('/'):
+                base_url = base_url[:-1]
+            base_url = f"{base_url}/{database_name}"
         
         # Initialize synchronous client
         self.client = QdrantClient(
-            url=self.config.url,
+            url=base_url,
             api_key=self.config.api_key,
             prefer_grpc=self.config.prefer_grpc,
             timeout=self.config.timeout
@@ -55,11 +71,19 @@ class QdrantVectorStore:
         
         # Initialize async client for batch operations
         self.async_client = AsyncQdrantClient(
-            url=self.config.url,
+            url=base_url,
             api_key=self.config.api_key,
             prefer_grpc=self.config.prefer_grpc,
             timeout=self.config.timeout
         )
+        
+        # Initialize sparse encoder for hybrid search
+        self.sparse_encoder = SparseVectorEncoder()
+        
+        # Initialize Cohere client for reranking
+        self.cohere_client = cohere.Client(settings.cohere.api_key) if settings.cohere.api_key else None
+        if not self.cohere_client:
+            logger.warning("Cohere API key not found. Reranking will be disabled.")
     
     def get_collection_name(self, folder_name: str) -> str:
         """Generate safe collection name from folder name"""
@@ -346,13 +370,13 @@ class QdrantVectorStore:
             logger.error(f"Error storing hybrid document: {str(e)}")
             # Don't raise - hybrid is optional enhancement
     
-    def search_documents(self, folder_name: str, query_embedding: List[float],
+    def search_documents(self, collection_name: str, query_embedding: List[float],
                         limit: int = 10, threshold: float = 0.7,
                         filters: Optional[Dict[str, Any]] = None) -> List[SearchResult]:
-        """Search for similar documents ONLY within a specific folder
+        """Search for similar documents in collection (no folder filtering needed)
         
         Args:
-            folder_name: Name of the folder to search within (CRITICAL)
+            collection_name: Name of the collection to search
             query_embedding: Query vector
             limit: Maximum number of results
             threshold: Minimum similarity threshold
@@ -362,34 +386,24 @@ class QdrantVectorStore:
             List of search results with similarity scores
         """
         try:
-            # Build folder isolation filter
-            folder_filter = Filter(
-                must=[
-                    FieldCondition(
-                        key="folder_name",
-                        match=MatchValue(value=folder_name)
-                    )
-                ]
-            )
-            
-            # Add additional filters if provided
+            # Build filter if provided
+            query_filter = None
             if filters:
+                conditions = []
                 for key, value in filters.items():
-                    folder_filter.must.append(
+                    conditions.append(
                         FieldCondition(
                             key=key,
                             match=MatchValue(value=value)
                         )
                     )
-            
-            # Log filter for debugging
-            logger.debug(f"Searching with filter: folder_name='{folder_name}'")
+                query_filter = Filter(must=conditions)
             
             # Perform search
             results = self.client.search(
-                collection_name=self.get_collection_name(folder_name),
+                collection_name=collection_name,
                 query_vector=query_embedding,
-                query_filter=folder_filter,
+                query_filter=query_filter,
                 limit=limit,
                 score_threshold=threshold,
                 with_payload=True,
@@ -399,15 +413,6 @@ class QdrantVectorStore:
             # Convert to SearchResult objects
             search_results = []
             for point in results:
-                # CRITICAL: Double-check folder isolation
-                point_folder_name = point.payload.get("folder_name")
-                if point_folder_name != folder_name:
-                    logger.error(
-                        f"CRITICAL: Folder isolation breach detected! "
-                        f"Expected: {folder_name}, Got: {point_folder_name}"
-                    )
-                    continue
-                
                 search_results.append(SearchResult(
                     id=str(point.id),
                     content=point.payload.get("content", ""),
@@ -418,45 +423,231 @@ class QdrantVectorStore:
                     search_type="vector"
                 ))
             
-            logger.debug(f"Found {len(search_results)} results for folder '{folder_name}'")
+            logger.debug(f"Found {len(search_results)} vector results")
             return search_results
             
         except Exception as e:
             logger.error(f"Error searching documents: {str(e)}")
             raise
     
+    def reciprocal_rank_fusion(self, *result_lists, k: int = 60) -> List[SearchResult]:
+        """Combine multiple result lists using Reciprocal Rank Fusion
+        
+        Args:
+            result_lists: Multiple lists of SearchResult objects
+            k: RRF parameter (typically 60)
+            
+        Returns:
+            Fused and ranked list of SearchResult objects
+        """
+        # Track scores for each document
+        doc_scores = defaultdict(float)
+        doc_objects = {}
+        
+        for results in result_lists:
+            for rank, result in enumerate(results, 1):
+                # RRF formula: 1 / (k + rank)
+                rrf_score = 1.0 / (k + rank)
+                doc_scores[result.id] += rrf_score
+                
+                # Store the result object (prefer higher original scores)
+                if result.id not in doc_objects or result.score > doc_objects[result.id].score:
+                    doc_objects[result.id] = result
+        
+        # Sort by RRF score and create final results
+        fused_results = []
+        for doc_id, rrf_score in sorted(doc_scores.items(), key=lambda x: x[1], reverse=True):
+            result = doc_objects[doc_id]
+            # Update score to RRF score and mark as hybrid
+            result.score = rrf_score
+            result.search_type = "hybrid"
+            fused_results.append(result)
+        
+        return fused_results
+    
+    async def cohere_rerank(self, query: str, results: List[SearchResult], top_n: int = 4) -> List[SearchResult]:
+        """Rerank results using Cohere Rerank v3.5
+        
+        Args:
+            query: Original search query
+            results: List of SearchResult objects to rerank
+            top_n: Number of top results to return
+            
+        Returns:
+            Reranked list of SearchResult objects
+        """
+        if not self.cohere_client or not results:
+            logger.warning("Cohere client not available or no results to rerank")
+            return results[:top_n]
+        
+        try:
+            # Prepare documents for reranking
+            documents = []
+            for result in results:
+                # Format document content for Cohere
+                doc_text = result.content
+                if result.metadata.get('document_type'):
+                    doc_text = f"Document Type: {result.metadata['document_type']}\n{doc_text}"
+                documents.append(doc_text)
+            
+            # Call Cohere Rerank API
+            response = self.cohere_client.rerank(
+                model="rerank-v3.5",
+                query=query,
+                documents=documents,
+                top_n=top_n,
+                max_tokens_per_doc=4096
+            )
+            
+            # Map reranked results back to SearchResult objects
+            reranked_results = []
+            for rerank_result in response.results:
+                original_result = results[rerank_result.index]
+                # Update score with Cohere relevance score
+                original_result.score = rerank_result.relevance_score
+                original_result.search_type = "reranked"
+                reranked_results.append(original_result)
+            
+            logger.debug(f"Reranked {len(results)} results to top {len(reranked_results)}")
+            return reranked_results
+            
+        except Exception as e:
+            logger.error(f"Error in Cohere reranking: {str(e)}")
+            # Fallback to original results
+            return results[:top_n]
+    
     async def hybrid_search(
         self, 
-        folder_name: str, 
+        collection_name: str, 
         query: str,
         query_embedding: List[float],
-        limit: int = 5
+        limit: int = 20,
+        final_limit: int = 4,
+        enable_reranking: bool = True
     ) -> List[SearchResult]:
-        """Perform hybrid search in folder-specific collection"""
-        collection_name = self.ensure_collection_exists(folder_name)
+        """Perform comprehensive hybrid search with RRF and optional Cohere reranking
         
-        # Perform search
-        search_results = await self.async_client.search(
-            collection_name=collection_name,
-            query_vector=models.NamedVector(
-                name="semantic",
-                vector=query_embedding
-            ),
-            limit=limit
-        )
-        
-        # Convert to SearchResult
-        results = []
-        for hit in search_results:
-            payload = hit.payload or {}
-            results.append(SearchResult(
-                id=hit.id,
-                score=hit.score,
-                content=payload.get("content", ""),
-                metadata=payload
-            ))
-        
-        return results
+        Args:
+            collection_name: Name of the collection to search
+            query: Original text query
+            query_embedding: Dense vector for semantic search
+            limit: Number of results to retrieve for RRF (default 20)
+            final_limit: Final number of results to return (default 4)
+            enable_reranking: Whether to use Cohere reranking (default True)
+            
+        Returns:
+            List of reranked SearchResult objects
+        """
+        try:
+            # Ensure collection exists
+            if not self.client.collection_exists(collection_name):
+                logger.error(f"Collection {collection_name} does not exist")
+                return []
+            
+            # Generate sparse vectors for keyword and citation search
+            sparse_vectors = self.sparse_encoder.encode_query(query)
+            keywords_sparse = sparse_vectors.get('keywords', {})
+            citations_sparse = sparse_vectors.get('citations', {})
+            
+            # 1. Semantic search using dense vectors
+            semantic_results = self.search_documents(
+                collection_name=collection_name,
+                query_embedding=query_embedding,
+                limit=limit,
+                threshold=0.0  # Lower threshold for RRF
+            )
+            
+            # 2. Keyword search using sparse vectors
+            keyword_results = []
+            if keywords_sparse:
+                try:
+                    keyword_search_results = self.client.search(
+                        collection_name=collection_name,
+                        query_vector=models.NamedSparseVector(
+                            name="keywords",
+                            vector=models.SparseVector(
+                                indices=list(keywords_sparse.keys()),
+                                values=list(keywords_sparse.values())
+                            )
+                        ),
+                        limit=limit,
+                        with_payload=True,
+                        with_vectors=False
+                    )
+                    
+                    for point in keyword_search_results:
+                        keyword_results.append(SearchResult(
+                            id=str(point.id),
+                            content=point.payload.get("content", ""),
+                            case_name=point.payload.get("case_name", ""),
+                            document_id=point.payload.get("document_id", ""),
+                            score=point.score,
+                            metadata=point.payload,
+                            search_type="keyword"
+                        ))
+                except Exception as e:
+                    logger.warning(f"Keyword search failed: {str(e)}")
+            
+            # 3. Citation search using sparse vectors
+            citation_results = []
+            if citations_sparse:
+                try:
+                    citation_search_results = self.client.search(
+                        collection_name=collection_name,
+                        query_vector=models.NamedSparseVector(
+                            name="citations",
+                            vector=models.SparseVector(
+                                indices=list(citations_sparse.keys()),
+                                values=list(citations_sparse.values())
+                            )
+                        ),
+                        limit=limit,
+                        with_payload=True,
+                        with_vectors=False
+                    )
+                    
+                    for point in citation_search_results:
+                        citation_results.append(SearchResult(
+                            id=str(point.id),
+                            content=point.payload.get("content", ""),
+                            case_name=point.payload.get("case_name", ""),
+                            document_id=point.payload.get("document_id", ""),
+                            score=point.score,
+                            metadata=point.payload,
+                            search_type="citation"
+                        ))
+                except Exception as e:
+                    logger.warning(f"Citation search failed: {str(e)}")
+            
+            # 4. Apply Reciprocal Rank Fusion
+            search_lists = [semantic_results]
+            if keyword_results:
+                search_lists.append(keyword_results)
+            if citation_results:
+                search_lists.append(citation_results)
+            
+            fused_results = self.reciprocal_rank_fusion(*search_lists)
+            
+            # Take top results for reranking
+            top_results = fused_results[:limit]
+            
+            # 5. Optional Cohere reranking
+            if enable_reranking and self.cohere_client and len(top_results) > final_limit:
+                final_results = await self.cohere_rerank(query, top_results, final_limit)
+            else:
+                final_results = top_results[:final_limit]
+            
+            logger.info(f"Hybrid search completed: {len(semantic_results)} semantic, {len(keyword_results)} keyword, {len(citation_results)} citation -> {len(final_results)} final")
+            return final_results
+            
+        except Exception as e:
+            logger.error(f"Error in hybrid search: {str(e)}")
+            # Fallback to semantic search only
+            return self.search_documents(
+                collection_name=collection_name,
+                query_embedding=query_embedding,
+                limit=final_limit
+            )
     
     def _process_results(self, results):
         # Convert to SearchResult objects

@@ -63,6 +63,13 @@ class OpenAIConfig:
     context_model: str = os.getenv("CONTEXT_LLM_MODEL", "gpt-3.5-turbo")
 
 @dataclass
+class CohereConfig:
+    """Cohere API configuration for reranking"""
+    api_key: str = os.getenv("COHERE_API_KEY", "")
+    rerank_model: str = "rerank-v3.5"
+    max_tokens_per_doc: int = 4096
+
+@dataclass
 class ChunkingConfig:
     """Document chunking configuration"""
     target_chunk_size: int = 1200  # Increased for better context
@@ -111,6 +118,7 @@ class Settings:
         self.box = BoxConfig()
         self.qdrant = QdrantConfig()
         self.openai = OpenAIConfig()
+        self.cohere = CohereConfig()
         self.chunking = ChunkingConfig()
         self.processing = ProcessingConfig()
         self.vector = VectorConfig()
@@ -135,6 +143,7 @@ class Settings:
             f"  box={self.box},\n"
             f"  qdrant={self.qdrant},\n"
             f"  openai={self.openai},\n"
+            f"  cohere={self.cohere},\n"
             f"  chunking={self.chunking},\n"
             f"  processing={self.processing},\n"
             f"  vector={self.vector},\n"

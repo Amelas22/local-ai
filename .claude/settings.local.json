@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(find:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "WebFetch(domain:qdrant.tech)",
+      "WebFetch(domain:docs.cohere.com)",
+      "Bash(python:*)"
     ],
     "deny": []
   }

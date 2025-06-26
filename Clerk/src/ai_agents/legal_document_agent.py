@@ -40,7 +40,7 @@ class LegalResponse(BaseModel):
 @dataclass
 class LegalContext:
     """Context for legal document queries"""
-    case_name: str
+    database_name: str
     user_id: str
     query_timestamp: datetime
     vector_store: QdrantVectorStore
@@ -85,10 +85,10 @@ async def search_case_documents(
     date_range: Optional[str] = None
 ) -> str:
     """
-    Search for relevant documents in the current case.
+    Search for relevant documents using hybrid search with semantic, keyword, and citation matching.
     
     Args:
-        ctx: The run context containing case information
+        ctx: The run context containing database information
         query: The search query
         document_type: Optional filter for document type (e.g., "motion", "deposition", "medical_record")
         date_range: Optional date range filter (e.g., "2023-01-01 to 2023-12-31")
@@ -97,40 +97,35 @@ async def search_case_documents(
         Formatted search results with document excerpts and metadata
     """
     try:
-        # Validate case access
-        validate_case_access(ctx.deps.case_name)
-        
-        logger.info(f"Searching documents for case: {ctx.deps.case_name}, query: {query}")
+        logger.info(f"Searching documents for database: {ctx.deps.database_name}, query: {query}")
         
         # Generate embedding for the query
         query_embedding, token_count = ctx.deps.embedding_generator.generate_embedding(query)
         
-        # Build filters
-        filters = {}
-        if document_type:
-            filters['document_type'] = document_type
-        
-        # Search with strict case isolation
-        search_results = ctx.deps.vector_store.search_case_documents(
-            case_name=ctx.deps.case_name,
+        # Use hybrid search with reranking
+        search_results = await ctx.deps.vector_store.hybrid_search(
+            collection_name="documents",
+            query=query,
             query_embedding=query_embedding,
-            limit=10,
-            threshold=0.7,
-            filters=filters
+            limit=20,
+            final_limit=5,
+            enable_reranking=True
         )
         
         if not search_results:
-            return f"No relevant documents found for query: '{query}' in case {ctx.deps.case_name}"
+            return f"No relevant documents found for query: '{query}' in database {ctx.deps.database_name}"
         
         # Format results for the AI
         formatted_results = []
-        for i, result in enumerate(search_results[:5]):  # Limit to top 5 for context window
+        for i, result in enumerate(search_results):  # Already limited by final_limit
             source_info = f"""
-SOURCE {i+1}:
+SOURCE {i+1} ({result.search_type.upper()} SEARCH):
 Document: {result.metadata.get('document_name', 'Unknown')}
-Document ID: {result.metadata.get('document_id', 'Unknown')}
+Document ID: {result.document_id}
+Case: {result.case_name}
 Page: {result.metadata.get('page_number', 'N/A')}
-Relevance Score: {result.similarity_score:.3f}
+Relevance Score: {result.score:.3f}
+Search Type: {result.search_type}
 Content: {result.content}
 
 ---
@@ -159,27 +154,34 @@ async def get_document_details(
         Detailed document information
     """
     try:
-        # Validate case access
-        validate_case_access(ctx.deps.case_name)
-        
-        # Get document metadata and content
-        document_info = ctx.deps.vector_store.get_document_metadata(
-            case_name=ctx.deps.case_name,
-            document_id=document_id
+        # Search for document by ID to get metadata
+        search_results = await ctx.deps.vector_store.hybrid_search(
+            collection_name="documents",
+            query=f"document_id:{document_id}",
+            query_embedding=ctx.deps.embedding_generator.generate_embedding(document_id),
+            limit=1,
+            final_limit=1,
+            enable_reranking=False
         )
         
-        if not document_info:
-            return f"Document {document_id} not found in case {ctx.deps.case_name}"
+        if not search_results:
+            return f"Document {document_id} not found in database {ctx.deps.database_name}"
+        
+        result = search_results[0]
+        metadata = result.metadata
         
         return f"""
 DOCUMENT DETAILS:
-ID: {document_info.get('document_id')}
-Name: {document_info.get('document_name')}
-Type: {document_info.get('document_type')}
-Date Filed: {document_info.get('date_filed')}
-Pages: {document_info.get('total_pages')}
-Size: {document_info.get('file_size')}
-Path: {document_info.get('file_path')}
+ID: {result.document_id}
+Name: {metadata.get('document_name', 'Unknown')}
+Type: {metadata.get('document_type', 'Unknown')}
+Case: {result.case_name}
+Date Filed: {metadata.get('date_filed', 'Unknown')}
+Pages: {metadata.get('page_count', 'Unknown')}
+Size: {metadata.get('file_size', 'Unknown')}
+Path: {metadata.get('document_path', 'Unknown')}
+Subfolder: {metadata.get('subfolder', 'Unknown')}
+Indexed: {metadata.get('indexed_at', 'Unknown')}
 """
         
     except Exception as e:
@@ -189,17 +191,17 @@ Path: {document_info.get('file_path')}
 class LegalDocumentAgent:
     """Main class for the Legal Document AI Agent"""
     
-    def __init__(self, allowed_case_name: str = "Cerrtio v Test"):
+    def __init__(self, database_name: str = "cerrtio_v_test"):
         """
-        Initialize the legal document agent with strict case access control.
+        Initialize the legal document agent with database-specific access.
         
         Args:
-            allowed_case_name: The only case this agent is allowed to access
+            database_name: The database name for case-specific collection access
         """
-        self.allowed_case_name = allowed_case_name
-        self.vector_store = QdrantVectorStore()
+        self.database_name = database_name
+        self.vector_store = QdrantVectorStore(database_name=database_name)
         self.embedding_generator = EmbeddingGenerator()
-        logger.info(f"Legal Document Agent initialized for case: {allowed_case_name}")
+        logger.info(f"Legal Document Agent initialized for database: {database_name}")
     
     def index_document(self, document: Dict[str, Any], folder_name: str):
         """Index a document in the vector database with folder-based isolation"""
@@ -236,13 +238,9 @@ class LegalDocumentAgent:
             Structured legal response with sources and confidence
         """
         try:
-            # Validate case access
-            if not validate_case_access(self.allowed_case_name):
-                raise ValueError(f"Access denied to case: {self.allowed_case_name}")
-            
             # Create legal context
             legal_context = LegalContext(
-                case_name=self.allowed_case_name,
+                database_name=self.database_name,
                 user_id=user_id,
                 query_timestamp=datetime.now(),
                 vector_store=self.vector_store,
@@ -264,7 +262,7 @@ class LegalDocumentAgent:
                 ]
             
             # Log the interaction for audit purposes
-            logger.info(f"Query processed for user {user_id} in case {self.allowed_case_name}")
+            logger.info(f"Query processed for user {user_id} in database {self.database_name}")
             logger.debug(f"Query: {user_query[:100]}...")
             logger.debug(f"Sources found: {len(result.data.sources)}")
             
@@ -296,7 +294,7 @@ class LegalDocumentAgent:
         """
         try:
             # Get case statistics first
-            case_stats = self.vector_store.get_case_statistics(self.allowed_case_name)
+            case_stats = self.vector_store.get_folder_statistics(self.database_name)
             
             summary_query = """
             Provide a comprehensive overview of this case including:
@@ -331,18 +329,14 @@ class LegalDocumentAgent:
             self.vector_store.client.get_collections()
             vector_store_healthy = True
             
-            # Check case access
-            case_accessible = validate_case_access(self.allowed_case_name)
-            
-            # Get case statistics
-            case_stats = self.vector_store.get_case_statistics(self.allowed_case_name)
+            # Get database statistics
+            db_stats = self.vector_store.get_folder_statistics(self.database_name)
             
             return {
-                "status": "healthy" if vector_store_healthy and case_accessible else "unhealthy",
-                "allowed_case": self.allowed_case_name,
-                "case_accessible": case_accessible,
+                "status": "healthy" if vector_store_healthy else "unhealthy",
+                "database_name": self.database_name,
                 "vector_store_healthy": vector_store_healthy,
-                "case_statistics": case_stats,
+                "database_statistics": db_stats,
                 "timestamp": datetime.now().isoformat()
             }
             
@@ -354,5 +348,5 @@ class LegalDocumentAgent:
                 "timestamp": datetime.now().isoformat()
             }
 
-# Singleton instance for the allowed case
-legal_document_agent = LegalDocumentAgent("Cerrtio v Test")
+# Singleton instance for the default database
+legal_document_agent = LegalDocumentAgent("cerrtio_v_test")

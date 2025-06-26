@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
     # Initialize components
     try:
         document_injector = DocumentInjector(enable_cost_tracking=True)
-        vector_store = QdrantVectorStore()
+        vector_store = QdrantVectorStore()  # Default instance for legacy endpoints
         embedding_generator = EmbeddingGenerator()
         
         # Test connections
@@ -89,6 +89,13 @@ class SearchRequest(BaseModel):
     query: str = Field(..., description="Search query")
     limit: int = Field(10, ge=1, le=50, description="Maximum results to return")
     use_hybrid: bool = Field(True, description="Use hybrid search")
+
+class HybridSearchRequest(BaseModel):
+    query: str = Field(..., description="Search query")
+    database_name: str = Field(..., description="Database name for case-specific collection")
+    limit: int = Field(default=20, description="Number of results for RRF fusion")
+    final_limit: int = Field(default=4, description="Final number of results to return")
+    enable_reranking: bool = Field(default=True, description="Enable Cohere reranking")
 
 class HealthResponse(BaseModel):
     status: str
@@ -228,6 +235,61 @@ async def list_cases():
     except Exception as e:
         logger.error(f"Error listing cases: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to list cases: {str(e)}")
+
+# Hybrid search endpoint for n8n integration
+@app.post("/hybrid-search")
+async def hybrid_search_endpoint(request: HybridSearchRequest):
+    """Hybrid search endpoint for n8n workflow integration
+    
+    Performs semantic + keyword + citation search with RRF fusion and Cohere reranking
+    """
+    try:
+        # Initialize vector store with database-specific routing
+        case_vector_store = QdrantVectorStore(database_name=request.database_name)
+        
+        # Generate query embedding
+        query_embedding = embedding_generator.generate_embedding(request.query)
+        
+        # Perform hybrid search with RRF and reranking
+        results = await case_vector_store.hybrid_search(
+            collection_name="documents",  # Standard collection name
+            query=request.query,
+            query_embedding=query_embedding,
+            limit=request.limit,
+            final_limit=request.final_limit,
+            enable_reranking=request.enable_reranking
+        )
+        
+        # Format results for n8n consumption
+        formatted_results = []
+        for result in results:
+            formatted_results.append({
+                "id": result.id,
+                "content": result.content,
+                "score": result.score,
+                "search_type": result.search_type,
+                "document_id": result.document_id,
+                "case_name": result.case_name,
+                "metadata": result.metadata
+            })
+        
+        return {
+            "query": request.query,
+            "database_name": request.database_name,
+            "results": formatted_results,
+            "count": len(formatted_results),
+            "search_pipeline": {
+                "semantic_search": True,
+                "keyword_search": True,
+                "citation_search": True,
+                "rrf_fusion": True,
+                "cohere_reranking": request.enable_reranking
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Hybrid search error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Hybrid search failed: {str(e)}")
 
 # AI query endpoint (using the legal document agent)
 @app.post("/ai/query")
