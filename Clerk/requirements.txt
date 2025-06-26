@@ -59,3 +59,4 @@ openai>=1.45.0
 # FastAPI for OpenWebUI function integration
 fastapi>=0.115.0
 uvicorn>=0.30.0
+httpx>=0.25.0
