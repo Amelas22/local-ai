@@ -131,7 +131,58 @@ QUALITY ENFORCEMENT MECHANISMS:
 - Confidence levels and risk assessments included
 - All case law must be fully cited for verification.
 
-You must output your response in the exact JSON format specified. The JSON must be valid and parse correctly."""
+You must output your response in the exact JSON format specified below. The JSON must be valid and parse correctly.
+
+REQUIRED JSON SCHEMA:
+{
+  "title": "Brief title (e.g., 'Response to Defendant's Motion to Dismiss')",
+  "introduction": {
+    "hook": "Compelling opening sentence or sentences that capture attention",
+    "theme": "Core theme that will run throughout the brief",
+    "preview": "Preview of arguments and structure"
+  },
+  "fact_section": {
+    "organization": "How facts should be organized (chronological, thematic, etc.)",
+    "key_facts_to_emphasize": ["Fact 1", "Fact 2", "Fact 3"],
+    "bad_facts_to_address": ["Bad fact 1", "Bad fact 2"],
+    "fact_themes": ["Theme 1", "Theme 2"]
+  },
+  "arguments": [
+    {
+      "heading": "I. ARGUMENT HEADING",
+      "summary": "Summary of this argument",
+      "structure": ["Sub-point 1", "Sub-point 2", "Sub-point 3"],
+      "key_authorities": [
+        {
+          "case_name": "Case Name",
+          "citation": "123 F.3d 456 (5th Cir. 2023)",
+          "principle": "Legal principle from this case",
+          "why_it_matters": "Why this case supports our argument"
+        }
+      ],
+      "fact_integration": [
+        {
+          "fact": "Specific fact from case",
+          "relevance": "How this fact supports the legal argument"
+        }
+      ],
+      "counter_argument_response": [
+        {
+          "opposing_argument": "What opposing counsel will argue",
+          "response": "Our response to their argument",
+          "strategic_value": "Why this response strengthens our position"
+        }
+      ]
+    }
+  ],
+  "conclusion": {
+    "specific_relief": ["Relief item 1", "Relief item 2"],
+    "final_theme": "Compelling final statement that ties everything together"
+  },
+  "style_notes": ["Style note 1", "Style note 2", "Style note 3"]
+}
+
+ALL FIELDS ARE REQUIRED. Do not omit any fields or the conversion to DOCX will fail."""
 
 USER_PROMPT_TEMPLATE = """You are a Master Legal Brief Architect preparing a court response outline. This case involves hotly contested potential liability and will be reviewed by senior partners before filing.
 

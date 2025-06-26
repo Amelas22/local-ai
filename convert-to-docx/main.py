@@ -308,6 +308,49 @@ def health_check():
 @app.post("/generate-outline/")
 async def generate_outline(request: Request):
     data = await request.json()
+    
+    # Validate required fields before processing
+    required_fields = ['title', 'introduction', 'fact_section', 'arguments', 'conclusion', 'style_notes']
+    missing_fields = []
+    
+    for field in required_fields:
+        if field not in data:
+            missing_fields.append(field)
+    
+    if missing_fields:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Missing required fields: {missing_fields}. Please ensure all fields are present in the JSON."
+        )
+    
+    # Validate nested required fields
+    if 'introduction' in data:
+        intro_fields = ['hook', 'theme', 'preview']
+        missing_intro = [f for f in intro_fields if f not in data['introduction']]
+        if missing_intro:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Missing introduction fields: {missing_intro}"
+            )
+    
+    if 'fact_section' in data:
+        fact_fields = ['organization', 'key_facts_to_emphasize', 'bad_facts_to_address', 'fact_themes']
+        missing_facts = [f for f in fact_fields if f not in data['fact_section']]
+        if missing_facts:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Missing fact_section fields: {missing_facts}"
+            )
+    
+    if 'conclusion' in data:
+        conclusion_fields = ['specific_relief', 'final_theme']
+        missing_conclusion = [f for f in conclusion_fields if f not in data['conclusion']]
+        if missing_conclusion:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Missing conclusion fields: {missing_conclusion}"
+            )
+    
     doc = Document()
     set_doc_style(doc)
 
