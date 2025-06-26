@@ -5,6 +5,7 @@ Provides HTTP API endpoints for document processing and search
 
 import logging
 import io
+import aiohttp
 from typing import List, Dict, Any, Optional, BinaryIO
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
@@ -314,19 +315,28 @@ async def upload_file_to_box(
 
 @app.post("/generate-and-upload-outline")
 async def generate_and_upload_outline(
+    background_tasks: BackgroundTasks,
     motion_text: str = Form(...),
     counter_arguments: str = Form(...),
-    folder_id: str = Form("327679822937"),  # Default to your folder
-    reasoning_effort: Optional[str] = Form("high")
+    folder_id: str = Form("327679822937"),
+    reasoning_effort: str = Form("high")
 ):
     """Generate legal outline and upload directly to Box"""
+    
+    # Validate inputs
+    if not motion_text or not counter_arguments:
+        raise HTTPException(status_code=400, detail="Motion text and counter arguments are required")
     
     # Call outline drafter service
     outline_drafter_url = os.getenv("OUTLINE_DRAFTER_URL", "http://outline-drafter:8000")
     
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=600)  # 10 minute timeout for o3 model
+    
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         try:
-            # Generate outline
+            logger.info(f"Calling outline drafter service at {outline_drafter_url}")
+            
+            # Generate outline with Box upload
             async with session.post(
                 f"{outline_drafter_url}/generate-outline-docx",
                 json={
@@ -337,25 +347,79 @@ async def generate_and_upload_outline(
                     "box_folder_id": folder_id
                 }
             ) as response:
+                logger.info(f"Outline drafter response status: {response.status}")
+                
                 if response.status == 200:
+                    # Get DOCX content
+                    docx_bytes = await response.read()
+                    
                     # Get metadata from header
-                    metadata = json.loads(response.headers.get('X-Metadata', '{}'))
+                    metadata_str = response.headers.get('X-Metadata', '{}')
+                    try:
+                        metadata = json.loads(metadata_str)
+                    except:
+                        metadata = {}
                     
-                    return {
-                        "status": "success",
-                        "message": "Outline generated and uploaded to Box",
-                        "box_file_id": metadata.get("box_upload", {}).get("file_id"),
-                        "box_web_link": metadata.get("box_upload", {}).get("web_link"),
-                        "generation_metadata": metadata
-                    }
+                    # Check if Box upload was successful
+                    box_upload = metadata.get("box_upload", {})
+                    
+                    if box_upload.get("file_id"):
+                        return {
+                            "status": "success",
+                            "message": "Outline generated and uploaded to Box",
+                            "box_file_id": box_upload.get("file_id"),
+                            "box_web_link": box_upload.get("web_link"),
+                            "folder_id": box_upload.get("folder_id", folder_id),
+                            "generation_metadata": metadata
+                        }
+                    else:
+                        # Box upload might have failed, but we have the DOCX
+                        # Try to upload it ourselves
+                        logger.warning("Box upload not found in metadata, attempting direct upload")
+                        
+                        # Upload the DOCX we received
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        filename = f"legal_outline_{timestamp}.docx"
+                        
+                        file_stream = io.BytesIO(docx_bytes)
+                        uploaded_file = document_injector.box_client.upload_file(
+                            file_stream=file_stream,
+                            file_name=filename,
+                            parent_folder_id=folder_id,
+                            description=f"Legal outline generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                        )
+                        
+                        return {
+                            "status": "success",
+                            "message": "Outline generated and uploaded to Box",
+                            "box_file_id": uploaded_file.id,
+                            "box_web_link": f"https://app.box.com/file/{uploaded_file.id}",
+                            "folder_id": folder_id,
+                            "generation_metadata": metadata
+                        }
                 else:
-                    error_data = await response.json()
-                    raise HTTPException(status_code=response.status, detail=error_data.get("error"))
+                    # Try to get error details
+                    try:
+                        error_data = await response.json()
+                        error_msg = error_data.get("error", error_data.get("detail", "Unknown error"))
+                    except:
+                        error_msg = await response.text()
                     
+                    logger.error(f"Outline drafter error: {error_msg}")
+                    raise HTTPException(status_code=response.status, detail=f"Outline generation failed: {error_msg}")
+                    
+        except asyncio.TimeoutError:
+            logger.error("Outline generation timed out")
+            raise HTTPException(status_code=504, detail="Outline generation timed out")
+        except aiohttp.ClientError as e:
+            logger.error(f"HTTP client error: {e}")
+            raise HTTPException(status_code=502, detail=f"Error connecting to outline service: {str(e)}")
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
         except Exception as e:
-            logger.error(f"Error in generate and upload workflow: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-            
+            logger.error(f"Unexpected error in generate and upload workflow: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
 @app.get("/")
 async def root():
     """Root endpoint"""
