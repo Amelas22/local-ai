@@ -1,34 +1,55 @@
-FROM python:3.11-slim
+# Stage 1: Build dependencies in a clean virtual environment
+FROM python:3.11-slim as builder
 
-# Install system dependencies
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
 RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    git \
-    curl \
     build-essential \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
-WORKDIR /app
-
-# Copy requirements first for better caching
-COPY requirements.txt .
+# Create and activate virtual environment
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3 -m venv $VIRTUAL_ENV
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # Download spaCy language model
 RUN python -m spacy download en_core_web_sm
 
-# Copy the Clerk application code
-COPY . .
+# Stage 2: Final production container
+FROM python:3.11-slim as production
 
-# Create necessary directories
-RUN mkdir -p logs reports scripts/cache
+ENV PATH="/opt/venv/bin:$PATH"
 
-# Set Python path to include the app directory
-ENV PYTHONPATH=/app:$PYTHONPATH
+# Copy the virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
 
-# Default command (can be overridden)
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Create non-root user
+RUN groupadd -r appuser && useradd --no-log-init -r -g appuser appuser
+
+# Set working directory and copy app files
+WORKDIR /app
+COPY --chown=appuser:appuser . /app/
+
+# Install curl for health checks
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl && rm -rf /var/lib/apt/lists/*
+
+# Health check (adjust endpoint if needed)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+USER appuser
+
+EXPOSE 8000
+
+# Launch with Gunicorn and UvicornWorker
+CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "main:app", "--bind", "0.0.0.0:8000"]
