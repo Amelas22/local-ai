@@ -235,7 +235,7 @@ class BoxClient:
             
             # Add description if provided
             if description:
-                uploaded_file.update_info({'description': description})
+                uploaded_file.update_info(description=description)
             
             return uploaded_file
             
