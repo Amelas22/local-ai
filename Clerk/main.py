@@ -6,6 +6,10 @@ Provides HTTP API endpoints for document processing and search
 import logging
 import io
 import aiohttp
+import asyncio
+import os
+import json
+
 from typing import List, Dict, Any, Optional, BinaryIO
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
