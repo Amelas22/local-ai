@@ -38,7 +38,8 @@ logHandler = logging.StreamHandler()
 formatter = jsonlogger.JsonFormatter()
 logHandler.setFormatter(formatter)
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+logger.setLevel(getattr(logging, log_level, logging.INFO))
 logger.addHandler(logHandler)
 
 # Initialize OpenAI client with async support
@@ -52,11 +53,11 @@ client = AsyncOpenAI(
 encoding = tiktoken.encoding_for_model("gpt-4")  # Use gpt-4 encoding as fallback
 
 # Configuration
-MODEL_NAME = os.getenv("OPENAI_MODEL", "o3-2025-04-16")  # Default to o3, configurable
+MODEL_NAME = os.getenv("OPENAI_MODEL", "o3-2025-01-16")  # Default to o3, configurable
 MAX_COMPLETION_TOKENS = int(os.getenv("MAX_COMPLETION_TOKENS", "50000"))  # o3 supports up to 100k
 MAX_INPUT_TOKENS = int(os.getenv("MAX_INPUT_TOKENS", "100000"))  # Safety limit
 REASONING_EFFORT = os.getenv("REASONING_EFFORT", "high").lower()  # low, medium, or high for o3
-DOCX_CONVERTER_URL = os.getenv("DOCX_CONVERTER_URL", "http://doc-converter:8000")
+DOCX_CONVERTER_URL = os.getenv("DOCX_CONVERTER_URL", "http://localhost:8000")
 API_TIMEOUT = int(os.getenv("API_TIMEOUT", "600"))
 
 # Validate reasoning effort
@@ -256,26 +257,48 @@ async def convert_outline_to_docx(outline_data: Dict[str, Any]) -> bytes:
     Raises:
         HTTPException: If conversion fails
     """
-    logger.info("Converting outline to DOCX...")
+    logger.info(f"Converting outline to DOCX... Outline has {len(outline_data.get('arguments', []))} arguments")
     
     timeout = aiohttp.ClientTimeout(total=API_TIMEOUT)
     
     async with aiohttp.ClientSession(timeout=timeout) as session:
         try:
-            async with session.post(
-                f"{DOCX_CONVERTER_URL}/generate-outline/",
-                json=outline_data
-            ) as response:
+            url = f"{DOCX_CONVERTER_URL}/generate-outline/"
+            logger.debug(f"Calling DOCX converter at: {url}")
+            
+            async with session.post(url, json=outline_data) as response:
+                logger.info(f"DOCX converter response status: {response.status}, content-type: {response.content_type}")
+                
                 if response.status != 200:
                     error_text = await response.text()
-                    logger.error(f"DOCX conversion failed: {error_text}")
+                    logger.error(f"DOCX conversion failed with status {response.status}: {error_text}")
                     raise HTTPException(
                         status_code=500,
                         detail=f"DOCX conversion failed: {error_text}"
                     )
                 
+                # Verify we got binary content
+                content_type = response.content_type
+                if "application/json" in content_type:
+                    # Got JSON error response instead of DOCX
+                    error_data = await response.json()
+                    logger.error(f"DOCX converter returned JSON error: {error_data}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"DOCX converter error: {error_data}"
+                    )
+                
                 docx_bytes = await response.read()
-                logger.info("Outline converted to DOCX successfully")
+                logger.info(f"Outline converted to DOCX successfully. Size: {len(docx_bytes)} bytes")
+                
+                # Verify it's actually a DOCX file (starts with PK)
+                if len(docx_bytes) > 2 and docx_bytes[0:2] != b'PK':
+                    logger.error(f"Invalid DOCX file received. First bytes: {docx_bytes[:10]}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Invalid DOCX file received from converter"
+                    )
+                
                 return docx_bytes
                 
         except asyncio.TimeoutError:
@@ -290,8 +313,11 @@ async def convert_outline_to_docx(outline_data: Dict[str, Any]) -> bytes:
                 status_code=502,
                 detail=f"Error connecting to DOCX converter service: {str(e)}"
             )
+        except HTTPException:
+            # Re-raise HTTP exceptions
+            raise
         except Exception as e:
-            logger.error(f"Unexpected error during DOCX conversion: {e}")
+            logger.error(f"Unexpected error during DOCX conversion: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500,
                 detail=f"Unexpected error during DOCX conversion: {str(e)}"
@@ -497,7 +523,7 @@ async def health_check():
         "docx_converter_url": DOCX_CONVERTER_URL
     }
 
-@app.post("/generate-outline")
+@app.post("/generate-outline", response_model=None)  # Disable automatic response model
 async def generate_outline(
     request: OutlineRequest,
     background_tasks: BackgroundTasks,
@@ -513,23 +539,38 @@ async def generate_outline(
     1. Set Accept header to 'application/json'
     2. Set output_format to 'json' in request body
     """
+    # Determine output format
+    output_format = request.output_format
+    if output_format is None:
+        # Check Accept header - be more explicit about checking
+        accept_lower = accept.lower()
+        if "application/json" in accept_lower or "text/json" in accept_lower or "*/*" not in accept_lower and "application/vnd.openxmlformats" not in accept_lower:
+            output_format = "json"
+        else:
+            output_format = "docx"
+    
+    logger.info(f"Generate outline request - Format: {output_format}, Accept: {accept}")
+    
     try:
-        # Determine output format based on Accept header or request parameter
-        output_format = request.output_format
-        if output_format is None:
-            # Check Accept header
-            if "application/json" in accept:
-                output_format = "json"
-            else:
-                output_format = "docx"
-        
         # Validate token limits
         total_input_tokens = count_tokens(request.motion_text + request.counter_arguments)
         if total_input_tokens > MAX_INPUT_TOKENS:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Input too large: {total_input_tokens} tokens (max {MAX_INPUT_TOKENS:,})"
-            )
+            # For DOCX format, still return error as JSON for proper error handling
+            if output_format == "docx":
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "error": f"Input too large: {total_input_tokens} tokens (max {MAX_INPUT_TOKENS:,})",
+                        "status_code": 400,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Input too large: {total_input_tokens} tokens (max {MAX_INPUT_TOKENS:,})"
+                )
         
         # Generate outline
         result = await generate_outline_with_openai(
@@ -556,24 +597,41 @@ async def generate_outline(
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"legal_outline_{timestamp}.docx"
             
+            logger.info(f"Returning DOCX file: {filename}, size: {len(docx_bytes)} bytes")
+            
             return Response(
                 content=docx_bytes,
                 media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 headers={
                     "Content-Disposition": f'attachment; filename="{filename}"',
-                    "X-Metadata": json.dumps(result["metadata"])  # Include metadata in header
+                    "Content-Length": str(len(docx_bytes)),
+                    "X-Metadata": json.dumps(result["metadata"]),  # Include metadata in header
+                    "X-Output-Format": "docx"  # Explicit format indicator
                 }
             )
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Unexpected error in generate_outline: {e}")
-        return OutlineResponse(
-            success=False,
-            error=f"Failed to generate outline: {str(e)}",
-            metadata={"error_type": type(e).__name__}
-        )
+        logger.error(f"Unexpected error in generate_outline: {e}", exc_info=True)
+        
+        # For DOCX requests, return error as JSON with proper status code
+        if output_format == "docx":
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "error": f"Failed to generate outline: {str(e)}",
+                    "error_type": type(e).__name__,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        else:
+            return OutlineResponse(
+                success=False,
+                error=f"Failed to generate outline: {str(e)}",
+                metadata={"error_type": type(e).__name__}
+            )
 
 @app.post("/generate-outline-json", response_model=OutlineResponse)
 async def generate_outline_json(
@@ -587,6 +645,86 @@ async def generate_outline_json(
     """
     request.output_format = "json"
     return await generate_outline(request, background_tasks, accept="application/json")
+
+@app.post("/generate-outline-docx", response_model=None)
+async def generate_outline_docx(
+    request: OutlineRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    Generate outline and always return DOCX file.
+    
+    This endpoint always returns a binary DOCX file, perfect for n8n integration.
+    """
+    request.output_format = "docx"
+    
+    # Force DOCX generation
+    try:
+        # Validate token limits
+        total_input_tokens = count_tokens(request.motion_text + request.counter_arguments)
+        if total_input_tokens > MAX_INPUT_TOKENS:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": f"Input too large: {total_input_tokens} tokens (max {MAX_INPUT_TOKENS:,})",
+                    "status_code": 400,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        
+        # Generate outline with forced DOCX output
+        result = await generate_outline_with_openai(
+            motion_text=request.motion_text,
+            counter_arguments=request.counter_arguments,
+            background_tasks=background_tasks,
+            reasoning_effort=request.reasoning_effort,
+            output_format="docx"
+        )
+        
+        # Handle case where it fell back to JSON due to error
+        if "outline" in result and "docx_bytes" not in result:
+            logger.error("DOCX generation failed, got JSON instead")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "error": "DOCX generation failed",
+                    "metadata": result.get("metadata", {}),
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        
+        # Return DOCX
+        docx_bytes = result["docx_bytes"]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"legal_outline_{timestamp}.docx"
+        
+        logger.info(f"Returning DOCX file via dedicated endpoint: {filename}, size: {len(docx_bytes)} bytes")
+        
+        return Response(
+            content=docx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": str(len(docx_bytes)),
+                "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "X-Metadata": json.dumps(result["metadata"]),
+                "X-Output-Format": "docx"
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in generate_outline_docx: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": f"Failed to generate DOCX: {str(e)}",
+                "error_type": type(e).__name__,
+                "timestamp": datetime.now().isoformat()
+            }
+        )
 
 @app.post("/validate-outline")
 async def validate_outline(outline_data: Dict[str, Any]):
