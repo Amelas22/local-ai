@@ -1,0 +1,44 @@
+# Ignore logs directory to avoid permission conflicts
+logs/
+*.log
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Environment files (security)
+.env.local
+.env.production
+
+# Reports
+reports/
+cost_report_*.json
+cost_report_*.xlsx

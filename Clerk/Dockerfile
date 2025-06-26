@@ -41,8 +41,9 @@ COPY --chown=appuser:appuser . /app/
 
 # Create logs directory and set proper permissions
 RUN mkdir -p /app/logs && \
-    chown -R appuser:appuser /app/logs && \
-    chmod -R 755 /app/logs
+    chown -R appuser:appuser /app && \
+    chmod -R 755 /app && \
+    chmod -R 777 /app/logs
 
 # Install curl for health checks
 RUN apt-get update && apt-get install -y --no-install-recommends \
