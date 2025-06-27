@@ -223,8 +223,7 @@ Focus on creating a research roadmap for each argument."""
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.1,
-                response_format={"type": "json_object"},
-                max_tokens=15000
+                response_format={"type": "json_object"}
             )
             
             # Parse the response
@@ -473,8 +472,7 @@ Focus on creating a research roadmap for each argument."""
         try:
             response = await self.client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
-                messages=[{"role": "user", "content": "test"}],
-                max_tokens=10
+                messages=[{"role": "user", "content": "test"}]
             )
             return True
         except:
