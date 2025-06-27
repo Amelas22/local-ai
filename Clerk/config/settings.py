@@ -67,7 +67,6 @@ class CohereConfig:
     """Cohere API configuration for reranking"""
     api_key: str = os.getenv("COHERE_API_KEY", "")
     rerank_model: str = "rerank-v3.5"
-    max_tokens_per_doc: int = 4096
 
 @dataclass
 class ChunkingConfig:

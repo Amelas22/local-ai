@@ -572,8 +572,7 @@ class QdrantVectorStore:
                 model="rerank-v3.5",
                 query=query,
                 documents=documents,
-                top_n=min(top_n, len(documents)),  # Ensure top_n doesn't exceed document count
-                max_tokens_per_doc=4096
+                top_n=min(top_n, len(documents))
             )
             
             # Map reranked results back to SearchResult objects
