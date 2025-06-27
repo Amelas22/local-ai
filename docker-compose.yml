@@ -115,6 +115,11 @@ services:
       - QDRANT_GRPC_PORT=6334
       - QDRANT_HTTPS=false
       
+      # Motion Drafting Configuration
+      - MOTION_PRIMARY_MODEL=${MOTION_PRIMARY_MODEL}
+      - MOTION_REVIEW_MODEL=${MOTION_REVIEW_MODEL}
+      - MOTION_CACHE_SIZE_MB=${MOTION_CACHE_SIZE_MB}
+      
       # Other settings
       - ENABLE_COST_TRACKING=${ENABLE_COST_TRACKING:-true}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}

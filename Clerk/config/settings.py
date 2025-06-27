@@ -102,6 +102,16 @@ class VectorConfig:
     quantization: bool = True
 
 @dataclass
+class MotionDraftingConfig:
+    """Motion drafting configuration"""
+    primary_model: str = "claude-sonnet-4-20250514"
+    review_model: str = "claude-opus-4-20250514"
+    words_per_page: int = 250
+    max_expansion_cycles: int = 5
+    min_confidence_threshold: float = 0.7
+    cache_ttl_seconds: int = 3600
+
+@dataclass
 class CostConfig:
     """API cost tracking configuration"""
     enable_tracking: bool = True

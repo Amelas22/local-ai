@@ -5,6 +5,7 @@ asyncio>=3.4.3
 
 # Box SDK
 boxsdk[jwt]>=3.9.0
+docx>=0.8.11
 
 # Document processing
 PyPDF2>=3.0.0
