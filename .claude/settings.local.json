@@ -5,7 +5,8 @@
       "Bash(grep:*)",
       "WebFetch(domain:qdrant.tech)",
       "WebFetch(domain:docs.cohere.com)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(sed:*)"
     ],
     "deny": []
   }

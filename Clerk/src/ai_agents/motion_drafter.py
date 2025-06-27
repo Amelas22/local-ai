@@ -844,7 +844,7 @@ Previous Sections Summary:
 {cumulative_context.get('summary', 'This is the first section.')}
 
 Key Citations Already Used:
-{', '.join(list(cumulative_context.get('citations_used', set())[:10]))}
+{', '.join(list(cumulative_context.get('citations_used', set()))[:10])}
 
 CRITICAL INSTRUCTIONS:
 1. This is a COMPREHENSIVE legal document, not a summary
