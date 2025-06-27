@@ -554,9 +554,7 @@ class QdrantVectorStore:
                     logger.info(f"Created minimal collection: {collection_name}")
             
             # Generate sparse vectors for keyword and citation search
-            sparse_vectors = self.sparse_encoder.encode_query(query)
-            keywords_sparse = sparse_vectors.get('keywords', {})
-            citations_sparse = sparse_vectors.get('citations', {})
+            keywords_sparse, citations_sparse = self.sparse_encoder.encode_for_hybrid_search(query)
             
             # 1. Semantic search using dense vectors
             semantic_results = self.search_documents(

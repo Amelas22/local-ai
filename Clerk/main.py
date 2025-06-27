@@ -244,15 +244,15 @@ async def hybrid_search_endpoint(request: HybridSearchRequest):
     Performs semantic + keyword + citation search with RRF fusion and Cohere reranking
     """
     try:
-        # Initialize vector store with database-specific routing
-        case_vector_store = QdrantVectorStore(database_name=request.database_name)
+        # Initialize vector store (database_name is used as collection name in hybrid search)
+        case_vector_store = QdrantVectorStore()
         
         # Generate query embedding
         query_embedding = embedding_generator.generate_embedding(request.query)
         
         # Perform hybrid search with RRF and reranking
         results = await case_vector_store.hybrid_search(
-            collection_name="documents",  # Standard collection name
+            collection_name=request.database_name,  # Use database_name as collection name
             query=request.query,
             query_embedding=query_embedding,
             limit=request.limit,
