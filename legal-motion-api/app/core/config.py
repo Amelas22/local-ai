@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     
     # OpenAI Configuration
     OPENAI_API_KEY: str
-    OPENAI_MODEL: str = "gpt-4.1"
+    OPENAI_MODEL: str = "o3-2025-04-16"
     
     # Rate Limiting
     RATE_LIMIT_REQUESTS: int = 100

@@ -109,7 +109,7 @@ OPENAI_PRICING = {
         "input_per_1k": 0.0025,     # $0.01 per 1K input tokens
         "output_per_1k": 0.01     # $0.03 per 1K output tokens
     },
-    "o3": {
+    "o3-2025-04-16": {
         "input_per_1k": 0.002,     # $0.01 per 1K input tokens
         "output_per_1k": 0.008     # $0.03 per 1K output tokens
     },
