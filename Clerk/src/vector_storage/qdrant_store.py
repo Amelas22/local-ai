@@ -8,7 +8,7 @@ import asyncio
 import uuid
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import re
 import hashlib
 import cohere
@@ -32,14 +32,33 @@ logger = get_logger(__name__)
 
 @dataclass
 class SearchResult:
-    """Result from vector search"""
+    """Result from vector search with ranking tracking"""
     id: str
     content: str
     case_name: str
     document_id: str
     score: float
     metadata: Dict[str, Any]
-    search_type: str = "vector"  # "vector", "keyword", or "hybrid"
+    search_type: str = "vector"  # "vector", "keyword", "citation", "hybrid", "reranked"
+    
+    # Ranking tracking fields
+    ranking_history: Dict[str, Optional[int]] = field(default_factory=lambda: {
+        "semantic_rank": None,
+        "keyword_rank": None,
+        "citation_rank": None,
+        "rrf_rank": None,
+        "final_rank": None
+    })
+    
+    # Score tracking fields
+    score_history: Dict[str, Optional[float]] = field(default_factory=lambda: {
+        "semantic_score": None,
+        "keyword_score": None,
+        "citation_score": None,
+        "rrf_score": None,
+        "cohere_score": None
+    })
+
 
 
 class QdrantVectorStore:
@@ -471,15 +490,15 @@ class QdrantVectorStore:
             logger.error(f"Error searching documents: {str(e)}")
             raise
     
-    def reciprocal_rank_fusion(self, *result_lists, k: int = 60) -> List[SearchResult]:
-        """Combine multiple result lists using Reciprocal Rank Fusion
+    def reciprocal_rank_fusion_with_tracking(self, *result_lists, k: int = 60) -> List[SearchResult]:
+        """Combine multiple result lists using Reciprocal Rank Fusion while preserving ranking history
         
         Args:
             result_lists: Multiple lists of SearchResult objects
             k: RRF parameter (typically 60)
             
         Returns:
-            Fused and ranked list of SearchResult objects
+            Fused and ranked list of SearchResult objects with preserved ranking history
         """
         # Track scores for each document
         doc_scores = defaultdict(float)
@@ -491,9 +510,26 @@ class QdrantVectorStore:
                 rrf_score = 1.0 / (k + rank)
                 doc_scores[result.id] += rrf_score
                 
-                # Store the result object (prefer higher original scores)
-                if result.id not in doc_objects or result.score > doc_objects[result.id].score:
+                # Store or merge the result object
+                if result.id not in doc_objects:
                     doc_objects[result.id] = result
+                else:
+                    # Merge ranking history from different search types
+                    existing = doc_objects[result.id]
+                    for key, value in result.ranking_history.items():
+                        if value is not None:
+                            existing.ranking_history[key] = value
+                    for key, value in result.score_history.items():
+                        if value is not None:
+                            existing.score_history[key] = value
+                    # Keep the result with the highest individual score
+                    if result.score > existing.score:
+                        # Preserve merged ranking history
+                        merged_ranking = existing.ranking_history.copy()
+                        merged_scores = existing.score_history.copy()
+                        doc_objects[result.id] = result
+                        doc_objects[result.id].ranking_history.update(merged_ranking)
+                        doc_objects[result.id].score_history.update(merged_scores)
         
         # Sort by RRF score and create final results
         fused_results = []
@@ -506,8 +542,8 @@ class QdrantVectorStore:
         
         return fused_results
     
-    async def cohere_rerank(self, query: str, results: List[SearchResult], top_n: int = 4) -> List[SearchResult]:
-        """Rerank results using Cohere Rerank v3.5
+    async def cohere_rerank_with_tracking(self, query: str, results: List[SearchResult], top_n: int = 4) -> List[SearchResult]:
+        """Rerank results using Cohere Rerank v3.5 while preserving ranking history
         
         Args:
             query: Original search query
@@ -515,7 +551,7 @@ class QdrantVectorStore:
             top_n: Number of top results to return
             
         Returns:
-            Reranked list of SearchResult objects
+            Reranked list of SearchResult objects with preserved ranking history
         """
         if not self.cohere_client or not results:
             logger.warning("Cohere client not available or no results to rerank")
@@ -536,7 +572,8 @@ class QdrantVectorStore:
                 model="rerank-v3.5",
                 query=query,
                 documents=documents,
-                top_n=top_n
+                top_n=min(top_n, len(documents)),  # Ensure top_n doesn't exceed document count
+                max_tokens_per_doc=4096
             )
             
             # Map reranked results back to SearchResult objects
@@ -546,6 +583,7 @@ class QdrantVectorStore:
                 # Update score with Cohere relevance score
                 original_result.score = rerank_result.relevance_score
                 original_result.search_type = "reranked"
+                original_result.score_history["cohere_score"] = rerank_result.relevance_score
                 reranked_results.append(original_result)
             
             logger.debug(f"Reranked {len(results)} results to top {len(reranked_results)}")
@@ -567,6 +605,8 @@ class QdrantVectorStore:
     ) -> List[SearchResult]:
         """Perform comprehensive hybrid search with RRF and optional Cohere reranking
         
+        Now includes ranking tracking at each stage of the pipeline.
+        
         Args:
             collection_name: Name of the collection to search
             query: Original text query
@@ -576,7 +616,7 @@ class QdrantVectorStore:
             enable_reranking: Whether to use Cohere reranking (default True)
             
         Returns:
-            List of reranked SearchResult objects
+            List of reranked SearchResult objects with ranking history
         """
         try:
             # Ensure collection exists - create if it doesn't
@@ -603,6 +643,12 @@ class QdrantVectorStore:
                     limit=limit,
                     threshold=0.0  # Lower threshold for RRF
                 )
+                
+                # Add ranking information
+                for rank, result in enumerate(semantic_results, 1):
+                    result.ranking_history["semantic_rank"] = rank
+                    result.score_history["semantic_score"] = result.score
+                
                 logger.debug(f"Semantic search returned {len(semantic_results)} results")
             except Exception as e:
                 logger.error(f"Semantic search failed: {str(e)}")
@@ -641,8 +687,8 @@ class QdrantVectorStore:
                             with_vectors=False
                         )
                         
-                        for point in keyword_search_results:
-                            keyword_results.append(SearchResult(
+                        for rank, point in enumerate(keyword_search_results, 1):
+                            result = SearchResult(
                                 id=str(point.id),
                                 content=point.payload.get("content", ""),
                                 case_name=point.payload.get("case_name", ""),
@@ -650,7 +696,11 @@ class QdrantVectorStore:
                                 score=point.score,
                                 metadata=point.payload,
                                 search_type="keyword"
-                            ))
+                            )
+                            result.ranking_history["keyword_rank"] = rank
+                            result.score_history["keyword_score"] = point.score
+                            keyword_results.append(result)
+                        
                         logger.debug(f"Keyword search returned {len(keyword_results)} results")
                     else:
                         logger.warning("Invalid sparse vector data for keyword search")
@@ -682,8 +732,8 @@ class QdrantVectorStore:
                             with_vectors=False
                         )
                         
-                        for point in citation_search_results:
-                            citation_results.append(SearchResult(
+                        for rank, point in enumerate(citation_search_results, 1):
+                            result = SearchResult(
                                 id=str(point.id),
                                 content=point.payload.get("content", ""),
                                 case_name=point.payload.get("case_name", ""),
@@ -691,7 +741,11 @@ class QdrantVectorStore:
                                 score=point.score,
                                 metadata=point.payload,
                                 search_type="citation"
-                            ))
+                            )
+                            result.ranking_history["citation_rank"] = rank
+                            result.score_history["citation_score"] = point.score
+                            citation_results.append(result)
+                        
                         logger.debug(f"Citation search returned {len(citation_results)} results")
                     else:
                         logger.warning("Invalid sparse vector data for citation search")
@@ -700,25 +754,46 @@ class QdrantVectorStore:
             else:
                 logger.debug("Skipping citation search - no sparse vector support or empty vectors")
             
-            # 4. Apply Reciprocal Rank Fusion
+            # 4. Apply Reciprocal Rank Fusion with ranking tracking
             search_lists = [semantic_results]
             if keyword_results:
                 search_lists.append(keyword_results)
             if citation_results:
                 search_lists.append(citation_results)
             
-            fused_results = self.reciprocal_rank_fusion(*search_lists)
+            fused_results = self.reciprocal_rank_fusion_with_tracking(*search_lists)
+            
+            # Add RRF ranking
+            for rank, result in enumerate(fused_results, 1):
+                result.ranking_history["rrf_rank"] = rank
+                result.score_history["rrf_score"] = result.score
             
             # Take top results for reranking
             top_results = fused_results[:limit]
             
             # 5. Optional Cohere reranking
             if enable_reranking and self.cohere_client and len(top_results) > final_limit:
-                final_results = await self.cohere_rerank(query, top_results, final_limit)
+                final_results = await self.cohere_rerank_with_tracking(query, top_results, final_limit)
             else:
                 final_results = top_results[:final_limit]
             
+            # Add final ranking
+            for rank, result in enumerate(final_results, 1):
+                result.ranking_history["final_rank"] = rank
+            
+            # Log ranking journey for top results
             logger.info(f"Hybrid search completed: {len(semantic_results)} semantic, {len(keyword_results)} keyword, {len(citation_results)} citation -> {len(final_results)} final")
+            
+            for i, result in enumerate(final_results[:3], 1):  # Log top 3
+                logger.debug(
+                    f"Result {i} ranking journey: "
+                    f"Semantic #{result.ranking_history.get('semantic_rank', 'N/A')}, "
+                    f"Keyword #{result.ranking_history.get('keyword_rank', 'N/A')}, "
+                    f"Citation #{result.ranking_history.get('citation_rank', 'N/A')} -> "
+                    f"RRF #{result.ranking_history.get('rrf_rank', 'N/A')} -> "
+                    f"Final #{result.ranking_history.get('final_rank', 'N/A')}"
+                )
+            
             return final_results
             
         except Exception as e:

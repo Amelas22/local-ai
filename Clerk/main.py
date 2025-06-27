@@ -241,26 +241,27 @@ async def list_cases():
 async def hybrid_search_endpoint(request: HybridSearchRequest):
     """Hybrid search endpoint for n8n workflow integration
     
-    Performs semantic + keyword + citation search with RRF fusion and Cohere reranking
+    Performs semantic + keyword + citation search with RRF fusion and Cohere reranking.
+    Now includes detailed ranking history for each result.
     """
     try:
         # Initialize vector store (database_name is used as collection name in hybrid search)
         case_vector_store = QdrantVectorStore()
         
-        # Generate query embedding (returns tuple of embedding and token count)
+        # Generate query embedding - properly unpack the tuple
         query_embedding, token_count = embedding_generator.generate_embedding(request.query)
         
         # Perform hybrid search with RRF and reranking
         results = await case_vector_store.hybrid_search(
             collection_name=request.database_name,  # Use database_name as collection name
             query=request.query,
-            query_embedding=query_embedding,  
+            query_embedding=query_embedding,  # Now passing just the embedding vector
             limit=request.limit,
             final_limit=request.final_limit,
             enable_reranking=request.enable_reranking
         )
         
-        # Format results for n8n consumption
+        # Format results for n8n consumption with ranking history
         formatted_results = []
         for result in results:
             formatted_results.append({
@@ -270,8 +271,27 @@ async def hybrid_search_endpoint(request: HybridSearchRequest):
                 "search_type": result.search_type,
                 "document_id": result.document_id,
                 "case_name": result.case_name,
-                "metadata": result.metadata
+                "metadata": result.metadata,
+                # Add ranking history
+                "ranking_journey": {
+                    "semantic_rank": result.ranking_history.get("semantic_rank"),
+                    "keyword_rank": result.ranking_history.get("keyword_rank"),
+                    "citation_rank": result.ranking_history.get("citation_rank"),
+                    "rrf_rank": result.ranking_history.get("rrf_rank"),
+                    "final_rank": result.ranking_history.get("final_rank")
+                },
+                # Add score history
+                "score_journey": {
+                    "semantic_score": result.score_history.get("semantic_score"),
+                    "keyword_score": result.score_history.get("keyword_score"),
+                    "citation_score": result.score_history.get("citation_score"),
+                    "rrf_score": result.score_history.get("rrf_score"),
+                    "cohere_score": result.score_history.get("cohere_score")
+                }
             })
+        
+        # Calculate ranking statistics for the response
+        ranking_stats = calculate_ranking_statistics(formatted_results)
         
         return {
             "query": request.query,
@@ -284,12 +304,74 @@ async def hybrid_search_endpoint(request: HybridSearchRequest):
                 "citation_search": True,
                 "rrf_fusion": True,
                 "cohere_reranking": request.enable_reranking
-            }
+            },
+            "ranking_statistics": ranking_stats
         }
         
     except Exception as e:
         logger.error(f"Hybrid search error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Hybrid search failed: {str(e)}")
+
+
+def calculate_ranking_statistics(results: List[Dict]) -> Dict[str, Any]:
+    """Calculate statistics about ranking changes through the pipeline"""
+    
+    stats = {
+        "average_rank_changes": {},
+        "ranking_improvements": {},
+        "cohere_impact": None
+    }
+    
+    if not results:
+        return stats
+    
+    # Calculate average rank changes
+    semantic_to_rrf = []
+    rrf_to_final = []
+    semantic_to_final = []
+    
+    for result in results:
+        journey = result["ranking_journey"]
+        
+        # Semantic to RRF change
+        if journey.get("semantic_rank") and journey.get("rrf_rank"):
+            change = journey["semantic_rank"] - journey["rrf_rank"]
+            semantic_to_rrf.append(change)
+        
+        # RRF to final change
+        if journey.get("rrf_rank") and journey.get("final_rank"):
+            change = journey["rrf_rank"] - journey["final_rank"]
+            rrf_to_final.append(change)
+        
+        # Semantic to final change
+        if journey.get("semantic_rank") and journey.get("final_rank"):
+            change = journey["semantic_rank"] - journey["final_rank"]
+            semantic_to_final.append(change)
+    
+    # Calculate averages
+    if semantic_to_rrf:
+        stats["average_rank_changes"]["semantic_to_rrf"] = sum(semantic_to_rrf) / len(semantic_to_rrf)
+    if rrf_to_final:
+        stats["average_rank_changes"]["rrf_to_final"] = sum(rrf_to_final) / len(rrf_to_final)
+    if semantic_to_final:
+        stats["average_rank_changes"]["semantic_to_final"] = sum(semantic_to_final) / len(semantic_to_final)
+    
+    # Calculate how many results improved their ranking
+    stats["ranking_improvements"]["improved_by_rrf"] = sum(1 for x in semantic_to_rrf if x > 0)
+    stats["ranking_improvements"]["improved_by_reranking"] = sum(1 for x in rrf_to_final if x > 0)
+    stats["ranking_improvements"]["improved_overall"] = sum(1 for x in semantic_to_final if x > 0)
+    
+    # Analyze Cohere impact if available
+    cohere_scores = [r["score_journey"].get("cohere_score") for r in results if r["score_journey"].get("cohere_score") is not None]
+    if cohere_scores:
+        stats["cohere_impact"] = {
+            "average_confidence": sum(cohere_scores) / len(cohere_scores),
+            "min_confidence": min(cohere_scores),
+            "max_confidence": max(cohere_scores),
+            "results_reranked": len(cohere_scores)
+        }
+    
+    return stats
 
 # AI query endpoint (using the legal document agent)
 @app.post("/ai/query")
