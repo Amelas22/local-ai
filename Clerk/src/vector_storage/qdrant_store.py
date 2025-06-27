@@ -657,7 +657,8 @@ class QdrantVectorStore:
             # Check if collection supports sparse vectors
             try:
                 collection_info = self.client.get_collection(collection_name)
-                has_sparse_vectors = hasattr(collection_info.config, 'sparse_vectors_config') and collection_info.config.sparse_vectors_config
+                params = collection_info.config.params
+                has_sparse_vectors = bool(getattr(params, "sparse_vectors", None))
                 logger.debug(f"Collection {collection_name} sparse vector support: {has_sparse_vectors}")
             except Exception as e:
                 logger.warning(f"Could not check collection info: {str(e)}")
