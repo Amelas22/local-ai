@@ -247,14 +247,14 @@ async def hybrid_search_endpoint(request: HybridSearchRequest):
         # Initialize vector store (database_name is used as collection name in hybrid search)
         case_vector_store = QdrantVectorStore()
         
-        # Generate query embedding
-        query_embedding = embedding_generator.generate_embedding(request.query)
+        # Generate query embedding (returns tuple of embedding and token count)
+        query_embedding, token_count = embedding_generator.generate_embedding(request.query)
         
         # Perform hybrid search with RRF and reranking
         results = await case_vector_store.hybrid_search(
             collection_name=request.database_name,  # Use database_name as collection name
             query=request.query,
-            query_embedding=query_embedding,
+            query_embedding=query_embedding,  
             limit=request.limit,
             final_limit=request.final_limit,
             enable_reranking=request.enable_reranking
