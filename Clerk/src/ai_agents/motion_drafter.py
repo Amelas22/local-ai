@@ -651,6 +651,10 @@ Output JSON with:
         for query_type, queries in search_queries.items():
             for query in queries:
                 try:
+                    # Skip empty queries
+                    if not query or not query.strip():
+                        continue
+                        
                     # Generate embedding for the query
                     query_embedding, _ = self.embedding_generator.generate_embedding(query)
                     
@@ -696,7 +700,7 @@ Output JSON with:
         context["themes"] = self._extract_case_themes(context)
         
         # Cache the context
-        await motion_cache.set("case_context", context, ttl=7200, database_name=database_name)
+        await motion_cache.set("case_context", context, ttl=7200, **{"database_name": database_name})
         
         logger.info(f"Retrieved comprehensive context from {database_name}: {len(context['legal_authorities'])} authorities, "
                    f"{len(context['case_facts'])} facts, {len(context['expert_reports'])} expert reports, "
