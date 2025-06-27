@@ -9,19 +9,21 @@ import aiohttp
 import asyncio
 import os
 import json
+import tempfile
 
 from typing import List, Dict, Any, Optional, BinaryIO
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, File, UploadFile, Form
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field
 
 from src.document_injector import DocumentInjector
 from src.vector_storage.qdrant_store import QdrantVectorStore
 from src.vector_storage.embeddings import EmbeddingGenerator
 from src.ai_agents.legal_document_agent import legal_document_agent
+from src.ai_agents.motion_drafter import motion_drafter, DocumentLength
 from src.utils.logger import setup_logging
 from config.settings import settings
 
@@ -114,6 +116,30 @@ class UploadResponse(BaseModel):
     file_name: Optional[str] = None
     web_link: Optional[str] = None
     details: Optional[Dict[str, Any]] = None
+
+# Motion drafting models
+class MotionDraftingRequest(BaseModel):
+    outline: Dict[str, Any] = Field(..., description="Motion outline JSON from outline generation phase")
+    target_length: str = Field("MEDIUM", description="Target length: SHORT (15-20 pages), MEDIUM (20-30 pages), LONG (30-40 pages), COMPREHENSIVE (35-50 pages)")
+    motion_title: Optional[str] = Field(None, description="Title for the motion. If not provided, will be extracted from outline")
+    database_name: str = Field(..., description="Database name containing case documents")
+    export_format: Optional[str] = Field("docx", description="Export format: docx, json, or both")
+    upload_to_box: bool = Field(False, description="Whether to upload the drafted motion to Box")
+    box_folder_id: Optional[str] = Field(None, description="Box folder ID for upload (required if upload_to_box is True)")
+
+class MotionDraftingResponse(BaseModel):
+    status: str
+    message: str
+    draft_id: str
+    title: str
+    total_pages: int
+    total_words: int
+    quality_score: float
+    export_links: Dict[str, str] = Field(default_factory=dict)
+    box_file_id: Optional[str] = None
+    box_web_link: Optional[str] = None
+    review_notes: List[str] = Field(default_factory=list)
+    quality_metrics: Dict[str, float] = Field(default_factory=dict)
 
 # Health check endpoint
 @app.get("/health", response_model=HealthResponse)
@@ -568,6 +594,161 @@ async def generate_and_upload_outline(
             logger.error(f"Unexpected error in generate and upload workflow: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
+# Motion drafting endpoint
+@app.post("/draft-motion", response_model=MotionDraftingResponse)
+async def draft_motion(request: MotionDraftingRequest):
+    """
+    Draft a complete legal motion from an outline
+    
+    This endpoint takes a structured outline and generates a comprehensive 15-50 page legal motion
+    using section-by-section generation with quality control mechanisms.
+    """
+    try:
+        logger.info(f"Starting motion draft for database: {request.database_name}")
+        
+        # Parse target length
+        length_map = {
+            "SHORT": DocumentLength.SHORT,
+            "MEDIUM": DocumentLength.MEDIUM,
+            "LONG": DocumentLength.LONG,
+            "COMPREHENSIVE": DocumentLength.COMPREHENSIVE
+        }
+        target_length = length_map.get(request.target_length.upper(), DocumentLength.MEDIUM)
+        
+        # Generate draft ID for tracking
+        draft_id = f"draft_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{os.urandom(4).hex()}"
+        
+        # Pass database name to motion drafter for fact retrieval
+        motion_draft = await motion_drafter.draft_motion(
+            outline=request.outline,
+            database_name=request.database_name,  # Pass database name instead of case name
+            target_length=target_length,
+            motion_title=request.motion_title
+        )
+        
+        # Prepare response
+        response = MotionDraftingResponse(
+            status="success",
+            message=f"Motion drafted successfully: {motion_draft.total_page_estimate} pages",
+            draft_id=draft_id,
+            title=motion_draft.title,
+            total_pages=motion_draft.total_page_estimate,
+            total_words=motion_draft.total_word_count,
+            quality_score=motion_draft.coherence_score,
+            review_notes=motion_draft.review_notes,
+            quality_metrics=motion_draft.quality_metrics
+        )
+        
+        # Handle export formats
+        if request.export_format in ["docx", "both"]:
+            # Export to DOCX
+            with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp_file:
+                docx_path = tmp_file.name
+                motion_drafter.export_to_docx(motion_draft, docx_path)
+                
+                # If upload to Box requested
+                if request.upload_to_box and request.box_folder_id:
+                    try:
+                        with open(docx_path, 'rb') as f:
+                            uploaded_file = document_injector.box_client.upload_file(
+                                file_stream=f,
+                                file_name=f"{motion_draft.title}_{draft_id}.docx",
+                                parent_folder_id=request.box_folder_id,
+                                description=f"AI-drafted motion created on {motion_draft.creation_timestamp}"
+                            )
+                        
+                        response.box_file_id = uploaded_file.id
+                        response.box_web_link = f"https://app.box.com/file/{uploaded_file.id}"
+                        logger.info(f"Motion uploaded to Box: {uploaded_file.id}")
+                    except Exception as e:
+                        logger.error(f"Failed to upload to Box: {str(e)}")
+                        response.review_notes.append(f"Box upload failed: {str(e)}")
+                
+                # Store path for download link
+                response.export_links["docx"] = f"/download-draft/{draft_id}/docx"
+        
+        if request.export_format in ["json", "both"]:
+            # Store JSON representation
+            response.export_links["json"] = f"/download-draft/{draft_id}/json"
+        
+        # Store draft data temporarily (in production, use persistent storage)
+        # For now, we'll keep it in memory for a limited time
+        if not hasattr(app, 'draft_storage'):
+            app.draft_storage = {}
+        
+        app.draft_storage[draft_id] = {
+            "motion_draft": motion_draft,
+            "docx_path": docx_path if request.export_format in ["docx", "both"] else None,
+            "created_at": datetime.utcnow()
+        }
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error drafting motion: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Motion drafting failed: {str(e)}")
+
+@app.get("/download-draft/{draft_id}/{format}")
+async def download_draft(draft_id: str, format: str):
+    """Download a drafted motion in the specified format"""
+    
+    if not hasattr(app, 'draft_storage') or draft_id not in app.draft_storage:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    
+    draft_data = app.draft_storage[draft_id]
+    
+    # Clean up old drafts (older than 1 hour)
+    cutoff_time = datetime.utcnow() - timedelta(hours=1)
+    for old_id, old_data in list(app.draft_storage.items()):
+        if old_data["created_at"] < cutoff_time:
+            if old_data.get("docx_path") and os.path.exists(old_data["docx_path"]):
+                os.remove(old_data["docx_path"])
+            del app.draft_storage[old_id]
+    
+    if format == "docx":
+        if not draft_data.get("docx_path") or not os.path.exists(draft_data["docx_path"]):
+            raise HTTPException(status_code=404, detail="DOCX file not found")
+        
+        return FileResponse(
+            draft_data["docx_path"],
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            filename=f"{draft_data['motion_draft'].title}.docx"
+        )
+    
+    elif format == "json":
+        # Convert motion draft to JSON
+        motion_dict = {
+            "title": draft_data["motion_draft"].title,
+            "case_name": draft_data["motion_draft"].case_name,
+            "total_pages": draft_data["motion_draft"].total_page_estimate,
+            "total_words": draft_data["motion_draft"].total_word_count,
+            "creation_timestamp": draft_data["motion_draft"].creation_timestamp.isoformat(),
+            "coherence_score": draft_data["motion_draft"].coherence_score,
+            "quality_metrics": draft_data["motion_draft"].quality_metrics,
+            "review_notes": draft_data["motion_draft"].review_notes,
+            "citation_index": draft_data["motion_draft"].citation_index,
+            "sections": []
+        }
+        
+        for section in draft_data["motion_draft"].sections:
+            section_dict = {
+                "id": section.outline_section.id,
+                "title": section.outline_section.title,
+                "type": section.outline_section.section_type.value,
+                "content": section.content,
+                "word_count": section.word_count,
+                "citations_used": section.citations_used,
+                "confidence_score": section.confidence_score,
+                "needs_revision": section.needs_revision,
+                "revision_notes": section.revision_notes
+            }
+            motion_dict["sections"].append(section_dict)
+        
+        return JSONResponse(content=motion_dict)
+    
+    else:
+        raise HTTPException(status_code=400, detail="Invalid format. Use 'docx' or 'json'")
+
 @app.get("/")
 async def root():
     """Root endpoint"""
@@ -580,6 +761,7 @@ async def root():
             "/search",
             "/cases",
             "/ai/query",
+            "/draft-motion",
             "/docs"
         ]
     }
