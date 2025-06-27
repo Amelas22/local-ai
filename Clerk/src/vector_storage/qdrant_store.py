@@ -388,6 +388,12 @@ class QdrantVectorStore:
             List of search results with similarity scores
         """
         try:
+            # Validate inputs
+            if not isinstance(query_embedding, (list, tuple)) or not query_embedding:
+                raise ValueError(f"query_embedding must be a non-empty list, got: {type(query_embedding)}")
+            
+            logger.debug(f"Searching collection '{collection_name}' with embedding of length {len(query_embedding)}")
+            
             # Build filter if provided
             query_filter = None
             if filters:
@@ -400,17 +406,50 @@ class QdrantVectorStore:
                         )
                     )
                 query_filter = Filter(must=conditions)
+                logger.debug(f"Applied filters: {filters}")
             
-            # Perform search
-            results = self.client.search(
-                collection_name=collection_name,
-                query_vector=query_embedding,
-                query_filter=query_filter,
-                limit=limit,
-                score_threshold=threshold,
-                with_payload=True,
-                with_vectors=False  # Don't return vectors to save bandwidth
-            )
+            # Check if collection has multiple vector configurations
+            try:
+                collection_info = self.client.get_collection(collection_name)
+                has_multiple_vectors = isinstance(collection_info.config.params.vectors, dict)
+                
+                if has_multiple_vectors:
+                    # Use named vector for hybrid collections
+                    results = self.client.search(
+                        collection_name=collection_name,
+                        query_vector=models.NamedVector(
+                            name="semantic",
+                            vector=query_embedding
+                        ),
+                        query_filter=query_filter,
+                        limit=limit,
+                        score_threshold=threshold,
+                        with_payload=True,
+                        with_vectors=False
+                    )
+                else:
+                    # Use regular vector for standard collections
+                    results = self.client.search(
+                        collection_name=collection_name,
+                        query_vector=query_embedding,
+                        query_filter=query_filter,
+                        limit=limit,
+                        score_threshold=threshold,
+                        with_payload=True,
+                        with_vectors=False
+                    )
+            except Exception as e:
+                logger.warning(f"Could not determine collection vector config, using default: {str(e)}")
+                # Fallback to regular search
+                results = self.client.search(
+                    collection_name=collection_name,
+                    query_vector=query_embedding,
+                    query_filter=query_filter,
+                    limit=limit,
+                    score_threshold=threshold,
+                    with_payload=True,
+                    with_vectors=False
+                )
             
             # Convert to SearchResult objects
             search_results = []
@@ -557,74 +596,110 @@ class QdrantVectorStore:
             keywords_sparse, citations_sparse = self.sparse_encoder.encode_for_hybrid_search(query)
             
             # 1. Semantic search using dense vectors
-            semantic_results = self.search_documents(
-                collection_name=collection_name,
-                query_embedding=query_embedding,
-                limit=limit,
-                threshold=0.0  # Lower threshold for RRF
-            )
+            semantic_results = []
+            try:
+                semantic_results = self.search_documents(
+                    collection_name=collection_name,
+                    query_embedding=query_embedding,
+                    limit=limit,
+                    threshold=0.0  # Lower threshold for RRF
+                )
+                logger.debug(f"Semantic search returned {len(semantic_results)} results")
+            except Exception as e:
+                logger.error(f"Semantic search failed: {str(e)}")
+                # If semantic search fails, return empty results
+                return []
             
-            # 2. Keyword search using sparse vectors
+            # Check if collection supports sparse vectors
+            try:
+                collection_info = self.client.get_collection(collection_name)
+                has_sparse_vectors = hasattr(collection_info.config, 'sparse_vectors_config') and collection_info.config.sparse_vectors_config
+                logger.debug(f"Collection {collection_name} sparse vector support: {has_sparse_vectors}")
+            except Exception as e:
+                logger.warning(f"Could not check collection info: {str(e)}")
+                has_sparse_vectors = False
+            
+            # 2. Keyword search using sparse vectors (only if supported)
             keyword_results = []
-            if keywords_sparse:
+            if keywords_sparse and has_sparse_vectors:
                 try:
-                    keyword_search_results = self.client.search(
-                        collection_name=collection_name,
-                        query_vector=models.NamedSparseVector(
-                            name="keywords",
-                            vector=models.SparseVector(
-                                indices=list(keywords_sparse.keys()),
-                                values=list(keywords_sparse.values())
-                            )
-                        ),
-                        limit=limit,
-                        with_payload=True,
-                        with_vectors=False
-                    )
+                    # Ensure we have valid indices and values
+                    indices = [int(k) for k in keywords_sparse.keys()]
+                    values = [float(v) for v in keywords_sparse.values()]
                     
-                    for point in keyword_search_results:
-                        keyword_results.append(SearchResult(
-                            id=str(point.id),
-                            content=point.payload.get("content", ""),
-                            case_name=point.payload.get("case_name", ""),
-                            document_id=point.payload.get("document_id", ""),
-                            score=point.score,
-                            metadata=point.payload,
-                            search_type="keyword"
-                        ))
+                    if indices and values and len(indices) == len(values):
+                        keyword_search_results = self.client.search(
+                            collection_name=collection_name,
+                            query_vector=models.NamedSparseVector(
+                                name="keywords",
+                                vector=models.SparseVector(
+                                    indices=indices,
+                                    values=values
+                                )
+                            ),
+                            limit=limit,
+                            with_payload=True,
+                            with_vectors=False
+                        )
+                        
+                        for point in keyword_search_results:
+                            keyword_results.append(SearchResult(
+                                id=str(point.id),
+                                content=point.payload.get("content", ""),
+                                case_name=point.payload.get("case_name", ""),
+                                document_id=point.payload.get("document_id", ""),
+                                score=point.score,
+                                metadata=point.payload,
+                                search_type="keyword"
+                            ))
+                        logger.debug(f"Keyword search returned {len(keyword_results)} results")
+                    else:
+                        logger.warning("Invalid sparse vector data for keyword search")
                 except Exception as e:
                     logger.warning(f"Keyword search failed: {str(e)}")
+            else:
+                logger.debug("Skipping keyword search - no sparse vector support or empty vectors")
             
-            # 3. Citation search using sparse vectors
+            # 3. Citation search using sparse vectors (only if supported)
             citation_results = []
-            if citations_sparse:
+            if citations_sparse and has_sparse_vectors:
                 try:
-                    citation_search_results = self.client.search(
-                        collection_name=collection_name,
-                        query_vector=models.NamedSparseVector(
-                            name="citations",
-                            vector=models.SparseVector(
-                                indices=list(citations_sparse.keys()),
-                                values=list(citations_sparse.values())
-                            )
-                        ),
-                        limit=limit,
-                        with_payload=True,
-                        with_vectors=False
-                    )
+                    # Ensure we have valid indices and values
+                    indices = [int(k) for k in citations_sparse.keys()]
+                    values = [float(v) for v in citations_sparse.values()]
                     
-                    for point in citation_search_results:
-                        citation_results.append(SearchResult(
-                            id=str(point.id),
-                            content=point.payload.get("content", ""),
-                            case_name=point.payload.get("case_name", ""),
-                            document_id=point.payload.get("document_id", ""),
-                            score=point.score,
-                            metadata=point.payload,
-                            search_type="citation"
-                        ))
+                    if indices and values and len(indices) == len(values):
+                        citation_search_results = self.client.search(
+                            collection_name=collection_name,
+                            query_vector=models.NamedSparseVector(
+                                name="citations",
+                                vector=models.SparseVector(
+                                    indices=indices,
+                                    values=values
+                                )
+                            ),
+                            limit=limit,
+                            with_payload=True,
+                            with_vectors=False
+                        )
+                        
+                        for point in citation_search_results:
+                            citation_results.append(SearchResult(
+                                id=str(point.id),
+                                content=point.payload.get("content", ""),
+                                case_name=point.payload.get("case_name", ""),
+                                document_id=point.payload.get("document_id", ""),
+                                score=point.score,
+                                metadata=point.payload,
+                                search_type="citation"
+                            ))
+                        logger.debug(f"Citation search returned {len(citation_results)} results")
+                    else:
+                        logger.warning("Invalid sparse vector data for citation search")
                 except Exception as e:
                     logger.warning(f"Citation search failed: {str(e)}")
+            else:
+                logger.debug("Skipping citation search - no sparse vector support or empty vectors")
             
             # 4. Apply Reciprocal Rank Fusion
             search_lists = [semantic_results]
