@@ -412,7 +412,7 @@ Output JSON with:
                 logger.info(f"Drafting section {i+1}/{len(outline_sections)}: {section.title}")
                 
                 # Build cumulative context
-                cumulative_context = await self._build_cumulative_context(
+                cumulative_context = self._build_cumulative_context(
                     drafted_sections, 
                     case_context
                 )
