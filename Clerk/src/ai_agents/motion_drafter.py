@@ -22,6 +22,7 @@ import tiktoken
 from src.vector_storage.qdrant_store import QdrantVectorStore
 from src.vector_storage.embeddings import EmbeddingGenerator
 from src.ai_agents.motion_cache_manager import motion_cache, context_cache, cache_result
+from src.utils.timeout_monitor import TimeoutMonitor, ProgressTracker, timeout_monitored
 from config.settings import settings
 from config.agent_settings import agent_settings
 
@@ -373,9 +374,21 @@ Output JSON with:
             Complete MotionDraft object
         """
         try:
-            logger.info(f"Starting enhanced motion draft for database: {database_name}")
+            start_time = datetime.utcnow()
+            logger.info(f"[MOTION_DRAFTER] Starting enhanced motion draft for database: {database_name} at {start_time}")
+            logger.info(f"[MOTION_DRAFTER] Target length: {target_length}, Motion title: {motion_title}")
+            logger.info(f"[MOTION_DRAFTER] Outline keys: {list(outline.keys())}")
+            
+            # Initialize timeout monitor and progress tracker
+            timeout_monitor = TimeoutMonitor(
+                operation_name=f"Motion Drafting ({database_name})",
+                warning_threshold=60,  # 1 minute warning
+                critical_threshold=120  # 2 minute critical warning
+            )
+            timeout_monitor.log_progress("Motion drafting started")
             
             # Initialize document context
+            logger.info(f"[MOTION_DRAFTER] Initializing document context")
             self.document_context = {
                 "themes": outline.get("themes", []),
                 "key_arguments": [],
@@ -384,48 +397,104 @@ Output JSON with:
                 "fact_chronology": [],
                 "database_name": database_name  # Store for reference
             }
+            logger.info(f"[MOTION_DRAFTER] Document themes: {self.document_context['themes']}")
             
             # Parse outline with enhanced structure
+            logger.info(f"[MOTION_DRAFTER] Parsing outline structure")
+            timeout_monitor.log_progress("Parsing outline structure")
             outline_sections = self._parse_enhanced_outline(outline, target_length)
+            logger.info(f"[MOTION_DRAFTER] Parsed {len(outline_sections)} sections from outline")
+            for i, section in enumerate(outline_sections):
+                logger.info(f"[MOTION_DRAFTER] Section {i+1}: {section.title} (target: {section.target_length} words)")
+            
+            # Initialize progress tracker for sections
+            progress_tracker = ProgressTracker(
+                total_steps=len(outline_sections) + 4,  # sections + context + review + consistency + finalization
+                operation_name=f"Motion Drafting ({database_name})"
+            )
             
             # Retrieve comprehensive case context directly from database
+            logger.info(f"[MOTION_DRAFTER] Retrieving case context from database: {database_name}")
+            context_start_time = datetime.utcnow()
+            timeout_monitor.log_progress("Retrieving case context", {"database": database_name})
+            progress_tracker.next_step("Retrieving case context", f"Database: {database_name}")
+            
             case_context = await self._retrieve_enhanced_case_context(database_name, outline_sections)
+            
+            context_end_time = datetime.utcnow()
+            logger.info(f"[MOTION_DRAFTER] Case context retrieval completed in {context_end_time - context_start_time}")
+            logger.info(f"[MOTION_DRAFTER] Retrieved context: {len(case_context.get('case_facts', []))} facts, {len(case_context.get('legal_authorities', []))} authorities")
+            timeout_monitor.log_progress("Case context retrieved", {
+                "facts": len(case_context.get('case_facts', [])),
+                "authorities": len(case_context.get('legal_authorities', []))
+            })
             
             # Store initial context in cache
             motion_id = f"{database_name}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
-            await context_cache.store_section_context(
-                motion_id=motion_id,
-                section_id="initial_context",
-                context={
-                    "case_context": case_context,
-                    "themes": self.document_context["themes"],
-                    "outline": outline,
-                    "database_name": database_name
-                }
-            )
+            logger.info(f"[MOTION_DRAFTER] Storing initial context in cache with motion_id: {motion_id}")
+            try:
+                await context_cache.store_section_context(
+                    motion_id=motion_id,
+                    section_id="initial_context",
+                    context={
+                        "case_context": case_context,
+                        "themes": self.document_context["themes"],
+                        "outline": outline,
+                        "database_name": database_name
+                    }
+                )
+                logger.info(f"[MOTION_DRAFTER] Context cached successfully")
+            except Exception as e:
+                logger.warning(f"[MOTION_DRAFTER] Failed to cache context: {str(e)}")
             
             # Draft sections with progressive context building
+            logger.info(f"[MOTION_DRAFTER] Starting section drafting process")
             drafted_sections = []
             total_words = 0
+            sections_start_time = datetime.utcnow()
             
             for i, section in enumerate(outline_sections):
-                logger.info(f"Drafting section {i+1}/{len(outline_sections)}: {section.title}")
+                section_start_time = datetime.utcnow()
+                logger.info(f"[MOTION_DRAFTER] === Drafting section {i+1}/{len(outline_sections)}: {section.title} ===")
+                logger.info(f"[MOTION_DRAFTER] Section target length: {section.target_length} words")
+                logger.info(f"[MOTION_DRAFTER] Section type: {section.section_type.value}")
+                
+                # Update progress tracking
+                timeout_monitor.log_progress(f"Drafting section {i+1}: {section.title}", {
+                    "section_type": section.section_type.value,
+                    "target_length": section.target_length
+                })
+                progress_tracker.next_step(f"Section {i+1}: {section.title}", 
+                                         f"Type: {section.section_type.value}, Target: {section.target_length} words")
                 
                 # Build cumulative context
+                logger.info(f"[MOTION_DRAFTER] Building cumulative context for section {i+1}")
                 cumulative_context = self._build_cumulative_context(
                     drafted_sections, 
                     case_context
                 )
+                logger.info(f"[MOTION_DRAFTER] Cumulative context: {len(cumulative_context.get('citations_used', set()))} citations used so far")
                 
                 # Draft with Chain-of-Thought approach
+                logger.info(f"[MOTION_DRAFTER] Starting Chain-of-Thought drafting for section {i+1}")
+                cot_start_time = datetime.utcnow()
                 drafted_section = await self._draft_section_with_cot(
                     section,
                     case_context,
                     cumulative_context
                 )
+                cot_end_time = datetime.utcnow()
+                logger.info(f"[MOTION_DRAFTER] CoT drafting completed in {cot_end_time - cot_start_time}")
+                logger.info(f"[MOTION_DRAFTER] Initial draft: {drafted_section.word_count} words, confidence: {drafted_section.confidence_score:.2f}")
                 
                 # Expand to meet length requirements
+                logger.info(f"[MOTION_DRAFTER] Checking if expansion needed (current: {drafted_section.word_count}, target: {section.target_length})")
+                expansion_cycles = 0
                 while drafted_section.word_count < section.target_length * 0.9:
+                    expansion_cycles += 1
+                    logger.info(f"[MOTION_DRAFTER] Starting expansion cycle {expansion_cycles} for section {i+1}")
+                    expansion_start_time = datetime.utcnow()
+                    
                     drafted_section = await self._expand_section_intelligently(
                         drafted_section,
                         section.target_length,
@@ -433,51 +502,90 @@ Output JSON with:
                         cumulative_context
                     )
                     
+                    expansion_end_time = datetime.utcnow()
+                    logger.info(f"[MOTION_DRAFTER] Expansion cycle {expansion_cycles} completed in {expansion_end_time - expansion_start_time}")
+                    logger.info(f"[MOTION_DRAFTER] After expansion: {drafted_section.word_count} words")
+                    
                     if drafted_section.expansion_cycles >= self.max_expansion_cycles:
-                        logger.warning(f"Max expansion cycles reached for {section.title}")
+                        logger.warning(f"[MOTION_DRAFTER] Max expansion cycles ({self.max_expansion_cycles}) reached for {section.title}")
                         break
                 
                 # Generate sophisticated transitions
+                logger.info(f"[MOTION_DRAFTER] Generating transitions for section {i+1}")
                 if i > 0:
+                    logger.info(f"[MOTION_DRAFTER] Creating transition from previous section")
+                    transition_start_time = datetime.utcnow()
                     transition_from_previous = await self._create_sophisticated_transition(
                         drafted_sections[-1],
                         drafted_section
                     )
                     drafted_section.transitions["from_previous"] = transition_from_previous
+                    transition_end_time = datetime.utcnow()
+                    logger.info(f"[MOTION_DRAFTER] Transition from previous created in {transition_end_time - transition_start_time}")
                 
                 if i < len(outline_sections) - 1:
+                    logger.info(f"[MOTION_DRAFTER] Creating preview transition to next section")
                     # Preview transition to next section
+                    preview_start_time = datetime.utcnow()
                     transition_to_next = await self._preview_next_section(
                         drafted_section,
                         outline_sections[i + 1]
                     )
                     drafted_section.transitions["to_next"] = transition_to_next
+                    preview_end_time = datetime.utcnow()
+                    logger.info(f"[MOTION_DRAFTER] Preview transition created in {preview_end_time - preview_start_time}")
                 
                 # Check section consistency
+                logger.info(f"[MOTION_DRAFTER] Checking section consistency for section {i+1}")
+                consistency_start_time = datetime.utcnow()
                 consistency_issues = await self._check_section_consistency(
                     drafted_section,
                     drafted_sections,
                     self.document_context
                 )
+                consistency_end_time = datetime.utcnow()
+                logger.info(f"[MOTION_DRAFTER] Consistency check completed in {consistency_end_time - consistency_start_time}")
                 
                 if consistency_issues:
+                    logger.info(f"[MOTION_DRAFTER] Found {len(consistency_issues)} consistency issues, resolving...")
+                    resolve_start_time = datetime.utcnow()
                     drafted_section = await self._resolve_consistency_issues(
                         drafted_section,
                         consistency_issues
                     )
+                    resolve_end_time = datetime.utcnow()
+                    logger.info(f"[MOTION_DRAFTER] Consistency issues resolved in {resolve_end_time - resolve_start_time}")
+                else:
+                    logger.info(f"[MOTION_DRAFTER] No consistency issues found")
                 
                 drafted_sections.append(drafted_section)
                 total_words += drafted_section.word_count
                 
                 # Update document context
+                logger.info(f"[MOTION_DRAFTER] Updating document context")
                 self._update_document_context(drafted_section)
+                
+                section_end_time = datetime.utcnow()
+                section_duration = section_end_time - section_start_time
+                logger.info(f"[MOTION_DRAFTER] === Section {i+1} completed in {section_duration} ===")
+                logger.info(f"[MOTION_DRAFTER] Section stats: {drafted_section.word_count} words, {len(drafted_section.citations_used)} citations")
+                logger.info(f"[MOTION_DRAFTER] Running totals: {total_words} total words across {len(drafted_sections)} sections")
+            
+            sections_end_time = datetime.utcnow()
+            sections_duration = sections_end_time - sections_start_time
+            logger.info(f"[MOTION_DRAFTER] All sections drafted in {sections_duration}")
             
             # Create motion draft
+            logger.info(f"[MOTION_DRAFTER] Creating motion draft object")
             # Use database name as case name for display, or extract from outline
             display_case_name = outline.get("case_name", database_name.replace("_", " ").title())
+            generated_title = motion_title or self._generate_motion_title(outline)
+            
+            logger.info(f"[MOTION_DRAFTER] Motion title: {generated_title}")
+            logger.info(f"[MOTION_DRAFTER] Case name: {display_case_name}")
             
             motion_draft = MotionDraft(
-                title=motion_title or self._generate_motion_title(outline),
+                title=generated_title,
                 case_name=display_case_name,
                 sections=drafted_sections,
                 total_word_count=total_words,
@@ -486,22 +594,80 @@ Output JSON with:
                 outline_source=outline
             )
             
+            logger.info(f"[MOTION_DRAFTER] Motion draft created: {motion_draft.total_page_estimate} pages, {motion_draft.total_word_count} words")
+            
             # Comprehensive review process
+            logger.info(f"[MOTION_DRAFTER] Starting comprehensive review process")
+            review_start_time = datetime.utcnow()
+            timeout_monitor.log_progress("Starting comprehensive review")
+            progress_tracker.next_step("Comprehensive review", "Checking quality, citations, consistency")
+            
             motion_draft = await self._comprehensive_review_process(motion_draft, case_context)
             
+            review_end_time = datetime.utcnow()
+            logger.info(f"[MOTION_DRAFTER] Comprehensive review completed in {review_end_time - review_start_time}")
+            timeout_monitor.log_progress("Comprehensive review completed")
+            
             # Final consistency check
+            logger.info(f"[MOTION_DRAFTER] Starting final consistency pass")
+            consistency_start_time = datetime.utcnow()
+            timeout_monitor.log_progress("Final consistency check")
+            progress_tracker.next_step("Final consistency check", "Document-wide consistency verification")
+            
             motion_draft = await self._final_consistency_pass(motion_draft)
             
-            # Build citation index
-            motion_draft.citation_index = self._build_citation_index(motion_draft)
+            consistency_end_time = datetime.utcnow()
+            logger.info(f"[MOTION_DRAFTER] Final consistency pass completed in {consistency_end_time - consistency_start_time}")
+            timeout_monitor.log_progress("Final consistency check completed")
             
-            logger.info(f"Completed enhanced motion draft: {motion_draft.total_page_estimate} pages, "
-                       f"Quality score: {motion_draft.coherence_score:.2f}")
+            # Build citation index
+            logger.info(f"[MOTION_DRAFTER] Building citation index")
+            timeout_monitor.log_progress("Building citation index")
+            progress_tracker.next_step("Finalization", "Building citation index and final cleanup")
+            
+            motion_draft.citation_index = self._build_citation_index(motion_draft)
+            logger.info(f"[MOTION_DRAFTER] Citation index built: {len(motion_draft.citation_index)} unique citations")
+            
+            # Finalize monitoring
+            end_time = datetime.utcnow()
+            total_duration = end_time - start_time
+            timeout_monitor.log_progress("Motion drafting completed", {
+                "total_pages": motion_draft.total_page_estimate,
+                "total_words": motion_draft.total_word_count,
+                "quality_score": motion_draft.coherence_score,
+                "sections": len(motion_draft.sections),
+                "citations": len(motion_draft.citation_index)
+            })
+            timeout_monitor.finish(success=True)
+            progress_tracker.finish()
+            
+            logger.info(f"[MOTION_DRAFTER] === MOTION DRAFTING COMPLETED ====")
+            logger.info(f"[MOTION_DRAFTER] Total duration: {total_duration}")
+            logger.info(f"[MOTION_DRAFTER] Final stats: {motion_draft.total_page_estimate} pages, {motion_draft.total_word_count} words")
+            logger.info(f"[MOTION_DRAFTER] Quality score: {motion_draft.coherence_score:.2f}")
+            logger.info(f"[MOTION_DRAFTER] Sections: {len(motion_draft.sections)}")
+            logger.info(f"[MOTION_DRAFTER] Citations: {len(motion_draft.citation_index)}")
             
             return motion_draft
             
         except Exception as e:
-            logger.error(f"Error in enhanced motion drafting: {str(e)}")
+            error_time = datetime.utcnow()
+            error_duration = error_time - start_time if 'start_time' in locals() else 'unknown'
+            logger.error(f"[MOTION_DRAFTER] ERROR in enhanced motion drafting after {error_duration}: {str(e)}", exc_info=True)
+            logger.error(f"[MOTION_DRAFTER] Database: {database_name}, Target length: {target_length}")
+            logger.error(f"[MOTION_DRAFTER] Outline keys: {list(outline.keys()) if outline else 'None'}")
+            if 'drafted_sections' in locals():
+                logger.error(f"[MOTION_DRAFTER] Sections completed before error: {len(drafted_sections)}")
+            
+            # Log timeout monitoring summary on error
+            if 'timeout_monitor' in locals():
+                summary = timeout_monitor.get_summary()
+                logger.error(f"[MOTION_DRAFTER] Timeout monitor summary: {summary}")
+                timeout_monitor.finish(success=False)
+            
+            if 'progress_tracker' in locals():
+                logger.error(f"[MOTION_DRAFTER] Progress when error occurred: {progress_tracker.current_step}/{progress_tracker.total_steps}")
+            
             raise
     
     def _parse_enhanced_outline(self, outline: Dict[str, Any], target_length: DocumentLength) -> List[OutlineSection]:
@@ -1141,10 +1307,11 @@ Provide comprehensive feedback as JSON."""
                 )
             
         except Exception as e:
-            logger.error(f"Error parsing review results: {str(e)}")
+            logger.error(f"[REVIEW] Error parsing review results: {str(e)}", exc_info=True)
             motion_draft.coherence_score = 0.7
             motion_draft.review_notes = ["Review completed with parsing errors"]
         
+        logger.info(f"[REVIEW] Comprehensive review process completed")
         return motion_draft
     
     async def _final_consistency_pass(self, motion_draft: MotionDraft) -> MotionDraft:

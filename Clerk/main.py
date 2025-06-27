@@ -685,7 +685,14 @@ async def draft_motion(request: MotionDraftingRequest):
         return response
         
     except Exception as e:
-        logger.error(f"Error drafting motion: {str(e)}")
+        error_time = datetime.utcnow()
+        total_time = error_time - start_time if 'start_time' in locals() else 'unknown'
+        logger.error(f"Error drafting motion after {total_time}: {str(e)}", exc_info=True)
+        
+        # Log additional context for debugging
+        logger.error(f"Request details - database: {request.database_name}, target_length: {request.target_length}")
+        logger.error(f"Outline sections count: {len(request.outline.get('sections', request.outline.get('arguments', [])))}")
+        
         raise HTTPException(status_code=500, detail=f"Motion drafting failed: {str(e)}")
 
 @app.get("/download-draft/{draft_id}/{format}")
