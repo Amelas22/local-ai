@@ -660,7 +660,7 @@ Output JSON with:
                         query=query,
                         query_embedding=query_embedding,
                         limit=10,
-                        enable_reranking=True
+                        enable_reranking=False  # Disable reranking for context retrieval
                     )
                     
                     # Categorize results
