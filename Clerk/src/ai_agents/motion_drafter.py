@@ -107,7 +107,7 @@ class EnhancedMotionDraftingAgent:
         """Initialize the enhanced motion drafting agent"""
         self.vector_store = QdrantVectorStore()
         self.embedding_generator = EmbeddingGenerator()
-        self.openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        self.openai_client = AsyncOpenAI(api_key=settings.openai.api_key)
         
         # Initialize AI agents with enhanced prompts
         self.section_writer = self._create_enhanced_section_writer()
