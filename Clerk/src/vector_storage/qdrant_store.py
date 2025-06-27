@@ -66,7 +66,8 @@ class QdrantVectorStore:
             url=base_url,
             api_key=self.config.api_key,
             prefer_grpc=self.config.prefer_grpc,
-            timeout=self.config.timeout
+            timeout=self.config.timeout,
+            check_compatibility=False  # Skip version check for Docker/Cloud setups
         )
         
         # Initialize async client for batch operations
@@ -74,7 +75,8 @@ class QdrantVectorStore:
             url=base_url,
             api_key=self.config.api_key,
             prefer_grpc=self.config.prefer_grpc,
-            timeout=self.config.timeout
+            timeout=self.config.timeout,
+            check_compatibility=False  # Skip version check for Docker/Cloud setups
         )
         
         # Initialize sparse encoder for hybrid search
@@ -539,10 +541,17 @@ class QdrantVectorStore:
             List of reranked SearchResult objects
         """
         try:
-            # Ensure collection exists
+            # Ensure collection exists - create if it doesn't
             if not self.client.collection_exists(collection_name):
-                logger.error(f"Collection {collection_name} does not exist")
-                return []
+                logger.warning(f"Collection {collection_name} does not exist. Creating it...")
+                try:
+                    self.create_collection(collection_name)
+                    logger.info(f"Successfully created collection: {collection_name}")
+                except Exception as create_error:
+                    logger.error(f"Failed to create collection {collection_name}: {str(create_error)}")
+                    # Try creating with minimal configuration as fallback
+                    self._create_minimal_collection(collection_name)
+                    logger.info(f"Created minimal collection: {collection_name}")
             
             # Generate sparse vectors for keyword and citation search
             sparse_vectors = self.sparse_encoder.encode_query(query)
