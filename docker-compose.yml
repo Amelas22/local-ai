@@ -105,8 +105,9 @@ services:
       - BOX_PRIVATE_KEY=${BOX_PRIVATE_KEY}
       - BOX_PASSPHRASE=${BOX_PASSPHRASE}
       - COHERE_API_KEY=${COHERE_API_KEY}
-      # OpenAI Configuration
+      # LLM Configuration
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - CONTEXT_LLM_MODEL=${CONTEXT_LLM_MODEL:-gpt-4o-mini}
       
       # Qdrant Configuration (internal Docker network)

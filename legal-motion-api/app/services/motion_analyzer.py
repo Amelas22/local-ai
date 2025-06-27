@@ -34,7 +34,7 @@ class EnhancedMotionAnalyzer:
             return
             
         try:
-            self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+            self.client = AsyncOpenAI(api_key=settings.openai.api_key)
             self._initialized = True
             logger.info("Enhanced motion analyzer initialized successfully")
             
