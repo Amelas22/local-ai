@@ -149,6 +149,7 @@ class AISettings(BaseSettings):
     max_tokens: int = Field(4000, env="AI_MAX_TOKENS")
     embedding_model: str = Field("text-embedding-3-small", env="EMBEDDING_MODEL")
     embedding_dimensions: int = Field(1536, env="EMBEDDING_DIMENSIONS")
+    api_key: str = os.getenv("OPENAI_API_KEY", "")
     
     class Config:
         env_prefix = "AI_"
