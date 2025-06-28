@@ -1,0 +1,133 @@
+[
+    {
+      "title": "Plaintiff’s Opposition to Defendant PFG’s Motion in Limine and Motion to Strike Count II",
+      "sections": [
+        {
+          "type": "introduction",
+          "heading": "Introduction",
+          "content": [
+            {
+              "type": "field",
+              "label": "Hook",
+              "value": "Option 1:  \"Florida law has long recognized that when a corporation chooses profit over safety, the courthouse—not the loading dock—is where accountability begins.\"  ||  Option 2:  \"This motion asks the Court to blindfold the jury to PFG’s own conduct and pretend that an 80,000-pound truck drives itself.\"  ||  Option 3:  \"If corporate policy decisions are irrelevant to highway safety, then Mallory v. O’Neil would have been decided the other way—and thousands of Floridians would be less safe today.\"  ||  Option 4:  \"The dangerous-instrumentality doctrine is a floor, not a ceiling, on an owner’s responsibility; PFG seeks to turn it into a shield against scrutiny.\"  ||  Option 5:  \"Justice cannot be done when the most probative evidence is locked outside the courtroom at the defendant’s request.\""
+            },
+            {
+              "type": "field",
+              "label": "Theme",
+              "value": "Primary Theme—\"Safety Policies vs. Safety Practices\": PFG’s written commitment to safety was systematically overridden by corporate directives that prioritized speed and profits, creating a separate and antecedent cause of the crash.  Secondary Theme—\"Full Story, Full Accountability\": Florida’s comparative-fault system demands that the jury hear the full story of both the driver’s negligence and the company’s independent breaches so that fault can be allocated fairly.  Alternate Theme—\"Corporate Culpability and Deterrence\": Count II is the only vehicle through which punitive damages can deter repeat misconduct that endangers Florida highways."
+            },
+            {
+              "type": "field",
+              "label": "Preview",
+              "value": "This opposition proceeds in five sections.  First, it demonstrates that Count II is not duplicative of Count III because Florida recognizes independent duties of hiring, supervision, training, and maintenance (Argument I).  Second, it shows why Clooney v. Geeting, on which PFG relies, does not bar a direct-negligence claim at the pleading or trial stages and has been limited by modern precedent such as Jones v. Vasilias (Argument II).  Third, it explains that the dangerous-instrumentality doctrine addresses only the duty of safe operation and cannot swallow antecedent corporate duties (Argument III).  Fourth, it establishes that Rule 403 does not warrant exclusion of highly probative corporate-fault evidence, which is central to causation and punitive damages (Argument IV).  Fifth, it confirms that Florida’s comparative-fault statute requires, rather than forbids, apportionment of fault between PFG’s corporate negligence and Destin’s driving negligence (Argument V).  Each argument weaves record evidence—deposition testimony, internal emails, maintenance logs, and expert opinions—into controlling case law so the Court can rule decisively and efficiently in Plaintiff’s favor."
+            }
+          ]
+        },
+        {
+          "type": "facts",
+          "heading": "Statement of Facts",
+          "content": [
+            {
+              "type": "field",
+              "label": "Organization",
+              "value": "Begin with a chronological narrative (2019–2022) to show how PFG’s safety shortcuts accumulated, then pivot to a thematic breakdown (Hiring, Training, Maintenance, Routing/Telematics) that maps directly onto the legal elements of Count II."
+            },
+            {
+              "type": "list",
+              "label": "Key Facts to Emphasize",
+              "items": [
+                "PFG truncated its driver background checks to three years despite FMCSA guidance and its own written policy requiring a five-year review (Kenneth Cosby Dep. 16:17-24; Safety Manual PT002065).",
+                "Internal emails (Angel.Ruiz@pfgc.com, Bates 00345-00350) instructed dispatch and safety staff to override telematics alerts and defer maintenance during peak seasons to meet delivery quotas.",
+                "Maintenance ticket #MNT-4567 documented brake-fade complaints on the very truck involved in the crash; the ticket was closed without inspection months before the fatal collision (Safety Incident Log #2021-05-05-TC).",
+                "An internal HR audit (PT00589) found 27 % of driver qualification files incomplete, including Destin’s missing defensive-driving and hours-of-service training records.",
+                "Expert Reza Vaghar, Ph.D., P.E., will testify that PFG’s 30-day A-check maintenance interval was routinely skipped for box trucks, leading to accelerated brake wear that contributed to the crash."
+              ]
+            },
+            {
+              "type": "list",
+              "label": "Bad Facts to Address",
+              "items": [
+                "PFG has admitted vicarious liability for Destin’s negligence, allowing them to argue that direct negligence is unnecessary.",
+                "Older case law (Clooney v. Geeting) contains language suggesting negligent-supervision claims can be redundant where vicarious liability is uncontested."
+              ]
+            },
+            {
+              "type": "list",
+              "label": "Fact Themes",
+              "items": [
+                "Corporate Policy vs. On-the-Ground Practice",
+                "Systemic Safety Failures Preceding Driver Error"
+              ]
+            },
+            {
+              "type": "paragraph",
+              "text": "ARGUMENT I – Count II States a Legally Distinct Claim for PFG’s Own Negligence and Is Not Duplicative of Count III"
+            },
+            {
+              "type": "field",
+              "label": "Summary",
+              "value": "Florida jurisprudence has, for seventy years, recognized two parallel but distinct avenues of tort liability for motor carriers: (a) vicarious liability for a driver’s on-road negligence, and (b) direct liability for the carrier’s own breaches of hiring, supervision, training, routing, and maintenance duties.  Mallory v. O’Neil, 69 So. 2d 313 (Fla. 1954), adopted Restatement §§ 213 and 317, expressly preserving employer negligence claims even when respondeat superior applies.  Subsequent decisions—including Delaurentos v. Peguero, 47 So. 3d 879 (Fla. 3d DCA 2010) and Jones v. Vasilias, 359 So. 3d 10 (Fla. 4th DCA 2023)—confirm that negligent entrustment, hiring, and supervision impose separate duties, support separate remedies (including punitive damages), and may expand liability beyond the dangerous-instrumentality doctrine’s baseline.  The facts here mirror those cases: PFG overrode telematics, ignored brake warnings, compressed background checks, and eliminated safety budgets—choices wholly independent of Destin’s moment-by-moment driving.  Grobman v. Posey, on which PFG relies, concerned a credentialing claim with no independent breach; it did not abolish active-negligence theories and is distinguishable because Plaintiff pleads concrete, antecedent misconduct.  Because Count II targets corporate decisions that existed before Destin ever turned the key, it is neither redundant nor irrelevant.  At the very least, the presence of disputed material facts makes striking or dismissing Count II the antithesis of judicial economy and would invite reversible error under Exhibit Icons, LLC v. XP Companies, LLC, 609 F. Supp. 2d 1282 (S.D. Fla. 2009)."
+            },
+            {
+              "type": "list",
+              "label": "Structure",
+              "items": [
+                "A. Florida recognizes concurrent vicarious and direct-negligence theories (Mallory, Restatement).",
+                "B. Grobman and Clooney are limited to cases with no independent breach; this case alleges multiple independent breaches.",
+                "C. Distinct duties mean distinct evidence—routing algorithms, maintenance logs, DQF omissions—none required for Count III.",
+                "D. Separate remedies, including punitive damages and uncapped liability, attach only to Count II.",
+                "E. Striking Count II would contravene Rule 12(f)’s admonition against drastic pre-trial remedies."
+              ]
+            },
+            {
+              "type": "list",
+              "label": "Key Authorities",
+              "items": [
+                "Mallory v. O’Neil – 69 So. 2d 313 (Fla. 1954): Employer may be directly liable for negligent hiring, supervision, or entrustment even when vicarious liability is admitted. (Binding Supreme Court precedent that forecloses PFG’s ‘duplicative’ argument.)",
+                "Delaurentos v. Peguero – 47 So. 3d 879 (Fla. 3d DCA 2010): Negligent entrustment claims survive statutory caps and are distinct from dangerous-instrumentality liability. (Confirms separate duty and separate damages exposure.)",
+                "Exhibit Icons, LLC v. XP Companies, LLC – 609 F. Supp. 2d 1282 (S.D. Fla. 2009): Motions to strike duplicative counts are disfavored; differing theories and remedies warrant separate pleadings. (Procedural authority cautioning against the relief PFG seeks.)"
+              ]
+            },
+            {
+              "type": "list",
+              "label": "Fact Integration",
+              "items": [
+                "Dispatch emails ordered telematics overrides during peak seasons. – Demonstrates a corporate-level breach unrelated to Destin’s driving.",
+                "Brake-failure ticket #MNT-4567 closed without inspection months before crash. – Shows negligent maintenance decisions preceding the event.",
+                "PFG’s three-year look-back policy contradicted FMCSA five-year guidance. – Evidence of negligent hiring/supervision independent of driver conduct."
+              ]
+            },
+            {
+              "type": "list",
+              "label": "Counter-Argument Response",
+              "items": [
+                "Count II adds no new liability because dangerous-instrumentality already imposes a non-delegable duty. → The non-delegable duty covers safe operation, not antecedent decisions about hiring, maintenance, or routing; those duties arise from separate common-law and regulatory sources. (Re-frames the duty analysis so the Court can easily distinguish the counts.)"
+              ]
+            },
+        {
+          "type": "conclusion",
+          "heading": "Conclusion",
+          "content": [
+            {
+              "type": "list",
+              "label": "Specific Relief",
+              "items": [
+                "Deny Defendant PFG’s Motion in Limine in its entirety.",
+                "Deny Defendant’s request to strike or dismiss Count II of the Amended Complaint."
+              ]
+            },
+            {
+              "type": "field",
+              "label": "Final Theme",
+              "value": "The Florida Supreme Court has been clear: when a corporation’s own choices endanger the public, courts must allow juries to consider those choices.  Count II, supported by concrete evidence and binding precedent, is the mechanism for that accountability.  Excluding it—or the evidence that proves it—would reward systemic negligence and erode the deterrent purpose of tort law.  Justice, fairness, and the law all point in the same direction: PFG’s motion must be denied."
+            }
+          ]
+        }
+      ],
+      "style_notes": [
+        "Adopt a confident but respectful tone; emphasize binding precedent before distinguishing adverse cases.",
+        "Use vivid but precise verbs (\"overrode,\" \"truncated,\" \"ignored\") to highlight conscious corporate choices.",
+        "Integrate factual story-telling into every legal section so the judge never loses sight of real-world consequences."
+      ]
+    }
+  ]

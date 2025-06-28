@@ -24,6 +24,7 @@ from src.vector_storage.qdrant_store import QdrantVectorStore
 from src.vector_storage.embeddings import EmbeddingGenerator
 from src.ai_agents.legal_document_agent import legal_document_agent
 from src.ai_agents.motion_drafter import motion_drafter, DocumentLength
+from src.ai_agents.outline_cache_manager import outline_cache
 from src.utils.logger import setup_logging
 from config.settings import settings
 
@@ -117,6 +118,17 @@ class UploadResponse(BaseModel):
     web_link: Optional[str] = None
     details: Optional[Dict[str, Any]] = None
 
+# Add this model for cached requests
+class CachedMotionDraftingRequest(BaseModel):
+    outline_id: str  # ID of cached outline
+    database_name: str
+    target_length: str = "MEDIUM"
+    motion_title: Optional[str] = None
+    opposing_motion_text: Optional[str] = None
+    export_format: str = "json"
+    upload_to_box: bool = False
+    box_folder_id: Optional[str] = None
+
 # Motion drafting models
 class MotionDraftingRequest(BaseModel):
     """Enhanced request model for motion drafting"""
@@ -142,6 +154,8 @@ class MotionDraftingResponse(BaseModel):
     box_web_link: Optional[str] = None
     review_notes: List[str] = Field(default_factory=list)
     quality_metrics: Dict[str, float] = Field(default_factory=dict)
+    processing_time_seconds: Optional[float] = None
+    outline_id: Optional[str] = None
 
 # Health check endpoint
 @app.get("/health", response_model=HealthResponse)
@@ -733,6 +747,215 @@ async def draft_motion(request: MotionDraftingRequest):
         logger.error(f"Outline sections count: {len(request.outline.get('sections', request.outline.get('arguments', [])))}")
         
         raise HTTPException(status_code=500, detail=f"Motion drafting failed: {str(e)}")
+
+@app.post("/draft-motion-cached", response_model=MotionDraftingResponse)
+async def draft_motion_cached(request: MotionDraftingRequest):
+    """
+    Draft a motion using intelligent outline caching
+    """
+    start_time = datetime.utcnow()
+    
+    try:
+        logger.info(f"Starting cached motion draft for database: {request.database_name}")
+        
+        # First, cache the outline
+        outline_data = request.outline
+        
+        # Handle list wrapper if present
+        if isinstance(outline_data, list) and len(outline_data) > 0:
+            outline_data = outline_data[0]
+        
+        # Log outline info
+        logger.info(f"Outline type: {type(outline_data)}")
+        logger.info(f"Outline keys: {list(outline_data.keys())}")
+        sections_count = len(outline_data.get("sections", []))
+        logger.info(f"Sections count: {sections_count}")
+        
+        # Cache the outline
+        outline_id = await outline_cache.cache_outline(outline_data, request.database_name)
+        logger.info(f"Cached outline with ID: {outline_id}")
+        
+        # Get cache stats
+        cache_stats = await outline_cache.get_cache_stats()
+        logger.info(f"Cache stats: {cache_stats}")
+        
+        # Convert target_length to enum
+        try:
+            target_length_enum = DocumentLength[request.target_length]
+        except KeyError:
+            logger.warning(f"Invalid target_length '{request.target_length}', defaulting to MEDIUM")
+            target_length_enum = DocumentLength.MEDIUM
+        
+        # Use the new cached drafting method
+        motion_draft = await motion_drafter.draft_motion_with_cache(
+            outline=outline_data,
+            database_name=request.database_name,
+            target_length=target_length_enum,
+            motion_title=request.motion_title,
+            opposing_motion_text=request.opposing_motion_text,
+            outline_id=outline_id
+        )
+        
+        # Generate draft ID
+        draft_id = f"{request.database_name}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        
+        # Prepare response
+        response = MotionDraftingResponse(
+            status="success",
+            message=f"Motion drafted successfully: {motion_draft.total_page_estimate} pages",
+            draft_id=draft_id,
+            title=motion_draft.title,
+            total_pages=motion_draft.total_page_estimate,
+            total_words=motion_draft.total_word_count,
+            quality_score=motion_draft.coherence_score,
+            review_notes=motion_draft.review_notes,
+            quality_metrics=motion_draft.quality_metrics,
+            outline_id=outline_id  # Include for reference
+        )
+        
+        # Handle export formats (same as before)
+        if request.export_format in ["docx", "both"]:
+            with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp_file:
+                docx_path = tmp_file.name
+                motion_drafter.export_to_docx(motion_draft, docx_path)
+                
+                if request.upload_to_box and request.box_folder_id:
+                    try:
+                        with open(docx_path, 'rb') as f:
+                            uploaded_file = document_injector.box_client.upload_file(
+                                file_stream=f,
+                                file_name=f"{motion_draft.title}_{draft_id}.docx",
+                                parent_folder_id=request.box_folder_id,
+                                description=f"AI-drafted motion created on {motion_draft.creation_timestamp}"
+                            )
+                        
+                        response.box_file_id = uploaded_file.id
+                        response.box_web_link = f"https://app.box.com/file/{uploaded_file.id}"
+                        logger.info(f"Motion uploaded to Box: {uploaded_file.id}")
+                    except Exception as e:
+                        logger.error(f"Failed to upload to Box: {str(e)}")
+                        response.review_notes.append(f"Box upload failed: {str(e)}")
+                
+                response.export_links["docx"] = f"/download-draft/{draft_id}/docx"
+        
+        if request.export_format in ["json", "both"]:
+            response.export_links["json"] = f"/download-draft/{draft_id}/json"
+        
+        # Store draft data
+        if not hasattr(app, 'draft_storage'):
+            app.draft_storage = {}
+        
+        app.draft_storage[draft_id] = {
+            "motion_draft": motion_draft,
+            "docx_path": docx_path if request.export_format in ["docx", "both"] else None,
+            "created_at": datetime.utcnow(),
+            "outline_id": outline_id
+        }
+        
+        # Calculate duration
+        duration = datetime.utcnow() - start_time
+        logger.info(f"Motion drafting completed in {duration}")
+        response.processing_time_seconds = duration.total_seconds()
+        
+        return response
+        
+    except Exception as e:
+        error_time = datetime.utcnow()
+        duration = error_time - start_time
+        logger.error(f"Error drafting motion after {duration}: {str(e)}", exc_info=True)
+        
+        raise HTTPException(status_code=500, detail=f"Motion drafting failed: {str(e)}")
+
+
+# Add endpoint to use already cached outline
+@app.post("/draft-motion-from-cache", response_model=MotionDraftingResponse)
+async def draft_motion_from_cache(request: CachedMotionDraftingRequest):
+    """
+    Draft a motion from an already cached outline
+    """
+    try:
+        logger.info(f"Drafting from cached outline: {request.outline_id}")
+        
+        # Retrieve outline from cache
+        outline_data = await outline_cache.get_outline(request.outline_id)
+        if not outline_data:
+            raise HTTPException(status_code=404, detail=f"Outline {request.outline_id} not found in cache")
+        
+        # Convert target_length to enum
+        try:
+            target_length_enum = DocumentLength[request.target_length]
+        except KeyError:
+            target_length_enum = DocumentLength.MEDIUM
+        
+        # Draft using cached outline
+        motion_draft = await motion_drafter.draft_motion_with_cache(
+            outline=outline_data,
+            database_name=request.database_name,
+            target_length=target_length_enum,
+            motion_title=request.motion_title,
+            opposing_motion_text=request.opposing_motion_text,
+            outline_id=request.outline_id
+        )
+        
+        # Rest is same as above...
+        draft_id = f"{request.database_name}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        
+        response = MotionDraftingResponse(
+            status="success",
+            message=f"Motion drafted successfully from cache: {motion_draft.total_page_estimate} pages",
+            draft_id=draft_id,
+            title=motion_draft.title,
+            total_pages=motion_draft.total_page_estimate,
+            total_words=motion_draft.total_word_count,
+            quality_score=motion_draft.coherence_score,
+            review_notes=motion_draft.review_notes,
+            quality_metrics=motion_draft.quality_metrics,
+            outline_id=request.outline_id
+        )
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error drafting from cache: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Motion drafting failed: {str(e)}")
+
+
+# Add endpoint to check outline cache status
+@app.get("/outline-cache/status")
+async def get_outline_cache_status():
+    """Get status of the outline cache"""
+    try:
+        stats = await outline_cache.get_cache_stats()
+        return {
+            "status": "ok",
+            "cache_stats": stats
+        }
+    except Exception as e:
+        logger.error(f"Error getting cache status: {str(e)}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
+# Add endpoint to get outline metadata
+@app.get("/outline-cache/{outline_id}")
+async def get_cached_outline_info(outline_id: str):
+    """Get information about a cached outline"""
+    try:
+        metadata = await outline_cache.get_outline_metadata(outline_id)
+        if not metadata:
+            raise HTTPException(status_code=404, detail="Outline not found in cache")
+        
+        structure = await outline_cache.get_outline_structure(outline_id)
+        
+        return {
+            "metadata": metadata,
+            "structure": structure
+        }
+    except Exception as e:
+        logger.error(f"Error getting outline info: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/download-draft/{draft_id}/{format}")
 async def download_draft(draft_id: str, format: str):
