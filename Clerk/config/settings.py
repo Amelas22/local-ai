@@ -112,16 +112,14 @@ class DocumentProcessingSettings(BaseSettings):
     retry_delay: int = Field(5, env="PROCESSING_RETRY_DELAY")
     max_file_size_mb: int = Field(100, env="MAX_FILE_SIZE_MB")
     supported_file_types: str = Field(".pdf,.txt,.docx", env="SUPPORTED_FILE_TYPES")
-    supported_extensions: Tuple[str, ...] = Field((".pdf",), env="SUPPORTED_EXTENSIONS")
     ocr_enabled: bool = Field(False, env="OCR_ENABLED")
     
     class Config:
         env_prefix = "DOC_"
     
-    @computed_field
     @property
     def supported_extensions(self) -> list[str]:
-        """Get list of supported file extensions"""
+        """Get list of supported file extensions from the comma-separated env var."""
         return [ext.strip() for ext in self.supported_file_types.split(",")]
     
     @property
