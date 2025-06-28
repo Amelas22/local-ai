@@ -645,7 +645,7 @@ async def draft_motion(request: MotionDraftingRequest):
         motion_draft = await motion_drafter.draft_motion(
             outline=cleaned_outline,
             database_name=request.database_name,
-            target_length=target_length,
+            target_length=request.target_length,
             motion_title=request.motion_title,
             opposing_motion_text=request.opposing_motion_text
         )
