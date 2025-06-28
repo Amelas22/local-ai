@@ -4,7 +4,7 @@ Handles environment variables and configuration management
 """
 
 import os
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, tuple
 from pydantic_settings import BaseSettings
 from pydantic import Field, validator, computed_field
 from pathlib import Path
