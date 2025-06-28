@@ -63,7 +63,8 @@ class QdrantSettings(BaseSettings):
         return f"{protocol}://{self.host}:{self.port}"
 
 
-class BoxSettings(BaseSettings):
+@dataclass
+class BoxConfig:
     """Box API configuration"""
     client_id: str = os.getenv("BOX_CLIENT_ID", "")
     client_secret: str = os.getenv("BOX_CLIENT_SECRET", "")
@@ -72,8 +73,11 @@ class BoxSettings(BaseSettings):
     private_key: str = os.getenv("BOX_PRIVATE_KEY", "").replace("\\n", "\n")
     passphrase: str = os.getenv("BOX_PASSPHRASE", "")
     
-    class Config:
-        env_prefix = "BOX_"
+    def __post_init__(self):
+        """Validate configuration after initialization"""
+        if self.private_key and not self.private_key.startswith('-----BEGIN'):
+            raise ValueError("BOX_PRIVATE_KEY must be a valid PEM-formatted private key")
+
 
 
 class DatabaseSettings(BaseSettings):
@@ -280,7 +284,7 @@ class Settings(BaseSettings):
 # Create global settings instance
 settings = Settings()
 
-BoxConfig = BoxSettings
+BoxSettings = BoxConfig
 QdrantConfig = QdrantSettings
 OpenAIConfig = OpenAISettings
 ChunkingConfig = DocumentProcessingSettings
