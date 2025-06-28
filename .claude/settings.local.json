@@ -6,7 +6,9 @@
       "WebFetch(domain:qdrant.tech)",
       "WebFetch(domain:docs.cohere.com)",
       "Bash(python:*)",
-      "Bash(sed:*)"
+      "Bash(sed:*)",
+      "Bash(rm:*)",
+      "Bash(true)"
     ],
     "deny": []
   }

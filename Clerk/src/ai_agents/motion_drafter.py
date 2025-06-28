@@ -1,6 +1,6 @@
 """
-AI Motion Drafting Agent - Enhanced Version with Direct Database Access
-Implements section-by-section legal motion generation following best practices
+AI Motion Drafting Agent - Enhanced Version with Database Fix and Firm Knowledge Integration
+Implements section-by-section legal motion generation with improved database access
 """
 
 import asyncio
@@ -19,10 +19,12 @@ import tiktoken
 from src.vector_storage.qdrant_store import QdrantVectorStore
 from src.vector_storage.embeddings import EmbeddingGenerator
 from src.ai_agents.outline_cache_manager import outline_cache
+from src.ai_agents.rag_research_agent import rag_research_agent, ResearchRequest
 from src.utils.timeout_monitor import TimeoutMonitor, ProgressTracker
 from config.settings import settings
 
-logger = logging.getLogger(__name__)
+# Use the same logger as the main API to ensure messages are visible
+logger = logging.getLogger("clerk_api")
 
 
 class SectionType(Enum):
@@ -98,7 +100,7 @@ class MotionDraft:
     
 
 class EnhancedMotionDraftingAgent:
-    """Enhanced AI agent for drafting legal motions with direct database access"""
+    """Enhanced AI agent for drafting legal motions with fixed database access and firm knowledge"""
     
     def __init__(self):
         """Initialize the enhanced motion drafting agent"""
@@ -141,53 +143,43 @@ class EnhancedMotionDraftingAgent:
             # Use primary model for section writing
             agent = Agent(
                 self.primary_model,
-                system_prompt="""You are an expert legal writer specializing in comprehensive motion drafting.
+                system_prompt="""You are an expert legal writer specializing in professional legal motion drafting.
 
-## AUDIENCE
-You are writing for a trial court judge who needs detailed legal analysis, not summaries.
-The document will be reviewed by opposing counsel looking for weaknesses.
-Your writing must be authoritative, precise, and persuasive.
+## WRITING STYLE REQUIREMENTS
+- Write in clear, direct, professional legal style
+- Use active voice and strong declarative statements
+- Be persuasive but not overly academic or verbose
+- Get directly to the point without excessive introductory language
+- Use concrete facts and specific evidence rather than abstract principles
 
-## BACKGROUND
-You are drafting sections of formal legal motions (15-40 pages) that will be filed in court.
-Each section must contribute substantive content to reach the target length.
-This is NOT a brief or summary - it requires comprehensive analysis.
+## STRUCTURE & FORMAT
+1. Start with clear topic sentences that state your position
+2. Support with specific facts, case law, and evidence
+3. Use proper legal citations in Bluebook format
+4. Apply law directly to facts with precision
+5. Address counterarguments concisely
+6. End with clear conclusions
 
-## CONSTRAINTS
-1. Use formal legal writing style appropriate for court filings
-2. Follow IRAC/CRAC structure (Issue, Rule, Application, Conclusion)
-3. All citations must be in proper Bluebook format
-4. Never create fictional citations - only use provided authorities
-5. Maintain consistent terminology throughout
-6. Each section must meet its target word count
+## CONTENT FOCUS
+- Emphasize FACTS and EVIDENCE from the case record
+- Include specific dates, documents, regulations, and testimony
+- Reference concrete evidence like maintenance logs, camera footage, violations
+- Cite specific regulatory standards (FMCSR, OSHA, etc.)
+- Use case precedent to support legal arguments
 
-## DETAILED PARAMETERS
-- Write comprehensively, not concisely
-- Develop each point with multiple paragraphs of analysis
-- Include detailed factual application to legal standards
-- Address counterarguments preemptively
-- Use topic sentences and smooth transitions
-- Incorporate policy considerations where relevant
-- Analyze case law holdings in detail
-- Apply multi-factor tests thoroughly
+## TONE GUIDELINES
+- Professional and authoritative but not pompous
+- Confident in legal positions
+- Factual and evidence-based
+- Directly address the court
+- Avoid unnecessary complexity or academic flourishes
 
-## EVALUATION CRITERIA
-Your output will be evaluated on:
-1. Completeness - Did you address all outline points?
-2. Depth - Is the analysis thorough and detailed?
-3. Length - Does it meet the target word count?
-4. Legal accuracy - Are citations and law correctly stated?
-5. Persuasiveness - Is the argument compelling?
-6. Coherence - Does it flow logically?
+## EXAMPLES OF GOOD LEGAL WRITING
+- "NATS installed inward facing and outward facing onboard cameras in NATS's trucks to monitor both travelling activities and driver activities while driving their tractor-trailers."
+- "The post-crash Driver/Vehicle Examination Report issued by South Carolina State Transport Police notes an out of service violation for FMCSR 395.8(e)(1)"
+- "Florida's system of comparative fault mandates that, when apportioning fault, the jury considers all acts of negligence that contributed to injuries or death"
 
-## CHAIN-OF-THOUGHT PROCESS
-Before writing, think through:
-1. What is the core legal issue this section addresses?
-2. What are the relevant legal standards and elements?
-3. How do the facts of our case apply to each element?
-4. What would opposing counsel argue?
-5. How can we preemptively counter those arguments?
-6. What policy reasons support our position?""",
+Your writing should be substantive but efficient, professional but accessible.""",
                 result_type=str
             )
             logger.info("Section writer agent created successfully")
@@ -240,6 +232,39 @@ Before writing, think through:
         else:
             return SectionType.ARGUMENT
 
+    def _deduplicate_sections(self, outline_structure: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Deduplicate sections by type to prevent multiple conclusions"""
+        seen_types = {}
+        deduplicated = []
+        
+        for section in outline_structure:
+            section_type = section.get("type", "standard")
+            heading = section.get("heading", "").lower()
+            
+            # Determine actual section type
+            if "conclusion" in heading:
+                section_type = "conclusion"
+            elif "introduction" in heading:
+                section_type = "introduction"
+            elif "facts" in heading:
+                section_type = "facts"
+            elif "prayer" in heading or "relief" in heading:
+                section_type = "prayer"
+            
+            # For conclusion and prayer sections, only keep the first one
+            if section_type in ["conclusion", "prayer", "introduction"]:
+                if section_type not in seen_types:
+                    seen_types[section_type] = True
+                    deduplicated.append(section)
+                else:
+                    logger.warning(f"Skipping duplicate {section_type} section: {section.get('heading')}")
+            else:
+                # Keep all argument and fact sections
+                deduplicated.append(section)
+        
+        logger.info(f"Deduplicated sections: {len(outline_structure)} -> {len(deduplicated)}")
+        return deduplicated
+
     def _clean_outline_content(self, content: str, max_length: int = 500) -> str:
         """Clean and truncate outline content to prevent token overflow"""
         if not content:
@@ -260,185 +285,286 @@ Before writing, think through:
         
         return content
 
-    def _build_comprehensive_search_queries(self, outline_sections: List[OutlineSection]) -> Dict[str, List[str]]:
-        """Build comprehensive search queries based on outline"""
-        queries = {
-            "legal_authorities": [],
-            "factual_searches": [],
-            "expert_searches": [],
-            "procedural_history": []
-        }
-        
-        # Extract all legal authorities
-        for section in outline_sections:
-            queries["legal_authorities"].extend(section.legal_authorities)
-            for child in section.children:
-                queries["legal_authorities"].extend(child.legal_authorities)
-        
-        # Build factual search queries from ALL content
-        fact_patterns = set()
-        for section in outline_sections:
-            # Extract from ALL key facts
-            for fact in section.key_facts:
-                if isinstance(fact, dict):
-                    fact_patterns.add(fact.get("description", str(fact)))
-                else:
-                    fact_patterns.add(str(fact))
-            
-            # Extract from ALL content points (not just first 3)
-            for point in section.content_points:
-                if isinstance(point, str) and len(point) > 20:  # Skip very short strings
-                    # Extract key phrases from longer content
-                    sentences = point.split('.')
-                    for sentence in sentences[:2]:  # First 2 sentences
-                        if len(sentence) > 20:
-                            fact_patterns.add(sentence.strip())
-        
-        # Remove duplicates and empty strings
-        queries["factual_searches"] = [q for q in list(fact_patterns) if q and len(q) > 10]
-        
-        # Expert-specific searches
-        queries["expert_searches"] = [
-            "expert report",
-            "expert opinion", 
-            "expert analysis",
-            "expert testimony",
-            "expert conclusions"
-        ]
-        
-        # Procedural history searches
-        queries["procedural_history"] = [
-            "complaint filed",
-            "motion to dismiss",
-            "discovery order",
-            "scheduling order",
-            "previous motions"
-        ]
-        
-        logger.info(f"Built search queries: {len(queries['legal_authorities'])} authorities, "
-                f"{len(queries['factual_searches'])} factual searches")
-        
-        return queries
+    # NOTE: Old query building methods removed - now using RAG research agent
 
     async def _retrieve_enhanced_case_context(
         self, 
         database_name: str,
         outline_sections: List[OutlineSection]
     ) -> Dict[str, Any]:
-        """Retrieve comprehensive case context directly from database"""
+        """Retrieve comprehensive case context using RAG research agent"""
         
+        logger.info(f"[CASE_CONTEXT] Starting RAG agent-based context retrieval for {database_name}")
+        logger.info(f"[CASE_CONTEXT] Number of outline sections: {len(outline_sections)}")
+        
+        try:
+            # Step 1: Generate questions from outline sections
+            questions = self._generate_research_questions_from_outline(outline_sections)
+            logger.info(f"[CASE_CONTEXT] Generated {len(questions)} research questions from outline")
+            
+            # Step 2: Create research request
+            research_request = ResearchRequest(
+                questions=questions,
+                database_name=database_name,
+                research_context=f"Motion drafting research for case database '{database_name}' with {len(outline_sections)} sections",
+                section_type="mixed"  # Since we have multiple section types
+            )
+            
+            # Step 3: Execute RAG research with timeout
+            logger.info(f"[CASE_CONTEXT] Executing RAG research with {len(questions)} questions")
+            research_response = await asyncio.wait_for(
+                rag_research_agent.research_questions(research_request),
+                timeout=90.0  # 90 second timeout for RAG research
+            )
+            
+            # Step 4: Convert research response to legacy context format
+            context = self._convert_research_response_to_context(research_response)
+            
+            # Step 5: Add additional processing
+            context["opposing_motion"] = self.document_context.get("opposing_motion_text", "")
+            context["themes"] = self._extract_themes_from_research(research_response)
+            
+            logger.info(f"[CASE_CONTEXT] RAG research completed successfully")
+            logger.info(f"[CASE_CONTEXT] Results: {len(context['legal_authorities'])} legal authorities, "
+                       f"{len(context['case_facts'])} case facts, {len(context['expert_reports'])} expert reports, "
+                       f"{len(context['firm_knowledge'])} firm examples")
+            
+            return context
+            
+        except asyncio.TimeoutError:
+            logger.error(f"[CASE_CONTEXT] RAG research timed out - falling back to minimal context")
+            return self._get_minimal_case_context()
+        except Exception as e:
+            logger.error(f"[CASE_CONTEXT] Error in RAG research: {str(e)}", exc_info=True)
+            return self._get_minimal_case_context()
+    
+    def _generate_research_questions_from_outline(self, outline_sections: List[OutlineSection]) -> List[str]:
+        """Generate research questions from outline sections for RAG agent"""
+        questions = []
+        
+        try:
+            for section in outline_sections:
+                # Process content points to generate questions
+                for content_point in section.content_points[:5]:  # Limit to 5 per section
+                    if not content_point or len(content_point) < 10:
+                        continue
+                    
+                    content_lower = content_point.lower()
+                    
+                    # Generate fact-based questions
+                    if any(keyword in content_lower for keyword in ["evidence", "fact", "document", "record"]):
+                        questions.append(f"What evidence or documentation exists about {content_point[:80]}?")
+                    
+                    # Generate legal precedent questions
+                    if any(keyword in content_lower for keyword in ["court", "case", "precedent", "law", "legal"]):
+                        questions.append(f"What legal precedents or authorities support arguments about {content_point[:80]}?")
+                    
+                    # Generate strategy questions for firm knowledge
+                    if any(keyword in content_lower for keyword in ["argument", "claim", "negligent", "liability"]):
+                        questions.append(f"How do successful motions argue {content_point[:80]}?")
+                
+                # Process legal authorities
+                for authority in section.legal_authorities[:3]:  # Limit to 3 per section
+                    if authority and len(authority) > 5:
+                        questions.append(f"How has {authority} been successfully used in similar legal arguments?")
+                        questions.append(f"What evidence supports the application of {authority} in this case?")
+                
+                # Process key facts
+                for fact_item in section.key_facts[:3]:  # Limit to 3 per section
+                    if isinstance(fact_item, dict):
+                        fact_text = fact_item.get('description', '') or fact_item.get('text', '')
+                    elif isinstance(fact_item, str):
+                        fact_text = fact_item
+                    else:
+                        continue
+                    
+                    if fact_text and len(fact_text) > 10:
+                        questions.append(f"What documentation supports the fact that {fact_text[:80]}?")
+            
+            # Add some general strategic questions
+            questions.extend([
+                "What are the strongest pieces of evidence for negligence claims?",
+                "How do effective motions structure arguments about corporate liability?",
+                "What regulatory violations or compliance issues exist in this case?",
+                "What expert testimony or opinions support the legal claims?"
+            ])
+            
+            # Remove duplicates and limit total
+            unique_questions = list(dict.fromkeys(questions))  # Remove duplicates
+            limited_questions = unique_questions[:25]  # Limit to 25 questions max
+            
+            logger.info(f"[RESEARCH_QUESTIONS] Generated {len(limited_questions)} unique questions from {len(outline_sections)} sections")
+            
+            return limited_questions
+            
+        except Exception as e:
+            logger.error(f"Error generating research questions: {str(e)}")
+            # Return fallback questions
+            return [
+                "What are the main facts and evidence in this case?",
+                "What legal precedents support the claims being made?",
+                "How do successful motions argue similar legal theories?",
+                "What expert testimony or analysis exists?",
+                "What regulatory violations or compliance issues are present?"
+            ]
+    
+    def _convert_research_response_to_context(self, research_response) -> Dict[str, Any]:
+        """Convert RAG research response to legacy context format"""
         context = {
             "case_facts": [],
             "legal_authorities": [],
             "expert_reports": [],
-            "key_documents": [],
-            "medical_records": [],
-            "motion_practice": [],
+            "regulatory_evidence": [],
+            "procedural_documents": [],
             "fact_chronology": [],
             "themes": [],
-            "opposing_motion": self.document_context.get("opposing_motion_text", "")
+            "firm_knowledge": []
         }
         
-        # Build comprehensive search queries
-        search_queries = self._build_comprehensive_search_queries(outline_sections)
-        
-        # LIMIT the number of queries to prevent overload
-        max_queries_per_type = 5
-        
-        for query_type, queries in search_queries.items():
-            # Limit queries
-            limited_queries = queries[:max_queries_per_type]
-            logger.info(f"Processing {len(limited_queries)} queries for {query_type}")
+        try:
+            # Convert case facts
+            for fact in research_response.case_facts:
+                context["case_facts"].append(type('obj', (object,), {
+                    'content': fact["content"],
+                    'metadata': fact["metadata"],
+                    'score': fact["score"]
+                })())
             
-            for query in limited_queries:
-                try:
-                    # Clean and validate query
-                    query = query.strip()
-                    if not query or len(query) < 3:
-                        continue
-                    
-                    # Truncate overly long queries
-                    if len(query) > 200:
-                        query = query[:200]
-                    
-                    logger.debug(f"Searching for: {query[:100]}...")
-                    
-                    # Generate embedding for the query
-                    query_embedding, _ = self.embedding_generator.generate_embedding(query)
-                    
-                    # Perform hybrid search with timeout
-                    results = await asyncio.wait_for(
-                        self.vector_store.hybrid_search(
-                            collection_name=database_name,
-                            query=query,
-                            query_embedding=query_embedding,
-                            limit=5,  # Reduced from 10
-                            enable_reranking=False
-                        ),
-                        timeout=10  # 10 second timeout per search
-                    )
-                    
-                    # Categorize results
-                    for result in results:
-                        if result.score > 0.6:
-                            doc_type = result.metadata.get("document_type", "").lower()
-                            
-                            if "medical" in doc_type:
-                                context["medical_records"].append(result)
-                            elif "expert" in doc_type:
-                                context["expert_reports"].append(result)
-                            elif "motion" in doc_type:
-                                context["motion_practice"].append(result)
-                            elif query_type == "legal_authorities":
-                                context["legal_authorities"].append({
-                                    "citation": query,
-                                    "content": result.content,
-                                    "document": result.metadata.get("document_name", "Unknown"),
-                                    "score": result.score,
-                                    "context": result.metadata.get("context_summary", "")
-                                })
-                            else:
-                                context["case_facts"].append(result)
-                                
-                except Exception as e:
-                    logger.error(f"Error searching for '{query}': {str(e)}")
-                    continue
-        
-        # Build fact chronology
-        context["fact_chronology"] = self._build_fact_chronology(context["case_facts"])
-        
-        # Extract themes
-        context["themes"] = self._extract_case_themes(context)
-        
-        logger.info(f"Retrieved comprehensive context from {database_name}: {len(context['legal_authorities'])} authorities, "
-                   f"{len(context['case_facts'])} facts, {len(context['expert_reports'])} expert reports, "
-                   f"{len(context['medical_records'])} medical records")
+            # Convert legal authorities (keep as dicts for compatibility)
+            context["legal_authorities"] = research_response.legal_precedents
+            
+            # Convert expert reports
+            for expert in research_response.expert_evidence:
+                context["expert_reports"].append(type('obj', (object,), {
+                    'content': expert["content"],
+                    'metadata': expert["metadata"],
+                    'score': expert["score"]
+                })())
+            
+            # Convert regulatory evidence
+            for reg in research_response.regulatory_compliance:
+                context["regulatory_evidence"].append(type('obj', (object,), {
+                    'content': reg["content"],
+                    'metadata': reg["metadata"],
+                    'score': reg["score"]
+                })())
+            
+            # Convert procedural documents
+            for proc in research_response.procedural_history:
+                context["procedural_documents"].append(type('obj', (object,), {
+                    'content': proc["content"],
+                    'metadata': proc["metadata"],
+                    'score': proc["score"]
+                })())
+            
+            # Convert firm knowledge (keep as dicts)
+            context["firm_knowledge"] = research_response.argument_strategies
+            
+            # Build fact chronology from case facts
+            context["fact_chronology"] = self._build_fact_chronology_from_research(research_response.case_facts)
+            
+            logger.info(f"[CONVERT_RESPONSE] Converted research response to legacy context format")
+            
+        except Exception as e:
+            logger.error(f"Error converting research response: {str(e)}")
         
         return context
+    
+    def _extract_themes_from_research(self, research_response) -> List[str]:
+        """Extract themes from RAG research response"""
+        themes = []
+        
+        try:
+            # Analyze all content for common themes
+            all_content = []
+            
+            for category in [research_response.case_facts, research_response.legal_precedents, 
+                           research_response.expert_evidence, research_response.argument_strategies]:
+                for item in category[:5]:  # Limit to prevent overflow
+                    content = item.get("content", "") if isinstance(item, dict) else ""
+                    if content:
+                        all_content.append(content.lower())
+            
+            combined_text = ' '.join(all_content)
+            
+            # Theme detection patterns
+            theme_patterns = {
+                "negligent_hiring": ["hiring", "background", "qualification", "employment"],
+                "negligent_supervision": ["supervision", "monitoring", "oversight", "management"],
+                "safety_violations": ["safety", "violation", "regulation", "compliance"],
+                "maintenance_issues": ["maintenance", "inspection", "repair", "equipment"],
+                "corporate_responsibility": ["corporate", "company", "policy", "procedure"]
+            }
+            
+            for theme, keywords in theme_patterns.items():
+                if sum(1 for kw in keywords if kw in combined_text) >= 2:
+                    themes.append(theme)
+            
+        except Exception as e:
+            logger.error(f"Error extracting themes from research: {str(e)}")
+        
+        return themes[:5]  # Top 5 themes
+    
+    def _build_fact_chronology_from_research(self, case_facts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Build chronology from research case facts"""
+        chronology = []
+        
+        try:
+            for fact in case_facts[:20]:  # Limit processing
+                content = fact.get("content", "")
+                if not content:
+                    continue
+                
+                # Extract dates
+                date_patterns = [
+                    r'(\d{1,2}/\d{1,2}/\d{2,4})',
+                    r'(\w+\s+\d{1,2},\s+\d{4})',
+                    r'(\d{4}-\d{2}-\d{2})'
+                ]
+                
+                for pattern in date_patterns:
+                    dates = re.findall(pattern, content)
+                    for date in dates[:2]:  # Limit dates per fact
+                        chronology.append({
+                            "date": date,
+                            "description": content[:100],
+                            "source": fact.get("source", "Unknown")
+                        })
+                        
+        except Exception as e:
+            logger.debug(f"Error building chronology from research: {e}")
+        
+        return chronology[:15]  # Top 15 events
+
+    # NOTE: Old firm knowledge search methods removed - now handled by RAG research agent
 
     def _build_fact_chronology(self, facts: List[Any]) -> List[Dict[str, Any]]:
         """Build chronological ordering of facts"""
         
         chronology = []
         
-        for fact in facts:
-            content = fact.content if hasattr(fact, 'content') else str(fact)
-            
-            # Extract dates
-            date_patterns = [
-                r'(\d{1,2}/\d{1,2}/\d{2,4})',
-                r'(\w+\s+\d{1,2},\s+\d{4})',
-                r'(\d{4}-\d{2}-\d{2})'
-            ]
-            
-            for pattern in date_patterns:
-                dates = re.findall(pattern, content)
-                for date in dates:
-                    chronology.append({
-                        "date": date,
-                        "description": content[:100],
-                        "source": fact.metadata.get("document_name", "Unknown") if hasattr(fact, 'metadata') else 'Unknown'
-                    })
+        for fact in facts[:50]:  # Limit processing
+            try:
+                content = fact.content if hasattr(fact, 'content') else str(fact)
+                
+                # Extract dates
+                date_patterns = [
+                    r'(\d{1,2}/\d{1,2}/\d{2,4})',
+                    r'(\w+\s+\d{1,2},\s+\d{4})',
+                    r'(\d{4}-\d{2}-\d{2})'
+                ]
+                
+                for pattern in date_patterns:
+                    dates = re.findall(pattern, content)
+                    for date in dates[:2]:  # Limit dates per fact
+                        chronology.append({
+                            "date": date,
+                            "description": content[:100],
+                            "source": fact.metadata.get("document_name", "Unknown") if hasattr(fact, 'metadata') else 'Unknown'
+                        })
+            except Exception as e:
+                logger.debug(f"Error processing fact for chronology: {e}")
+                continue
         
         # Sort by date (simple approach - would need proper date parsing in production)
         return chronology[:20]  # Top 20 events
@@ -448,29 +574,33 @@ Before writing, think through:
         
         themes = []
         
-        # Analyze content for common themes
-        all_content = []
-        for category in ["case_facts", "expert_reports", "legal_authorities"]:
-            for item in context.get(category, [])[:10]:
-                if hasattr(item, 'content'):
-                    all_content.append(item.content)
-                elif isinstance(item, dict):
-                    all_content.append(item.get('content', ''))
-        
-        combined_text = ' '.join(all_content).lower()
-        
-        # Theme detection patterns
-        theme_patterns = {
-            "safety": ["safety", "dangerous", "hazard", "risk", "harm"],
-            "corporate_responsibility": ["corporate", "company", "business", "employer"],
-            "negligence": ["negligent", "breach", "duty", "reasonable care"],
-            "causation": ["caused", "resulted", "led to", "because of"],
-            "damages": ["damages", "injury", "harm", "loss", "suffering"]
-        }
-        
-        for theme, keywords in theme_patterns.items():
-            if sum(1 for kw in keywords if kw in combined_text) >= 2:
-                themes.append(theme)
+        try:
+            # Analyze content for common themes
+            all_content = []
+            for category in ["case_facts", "expert_reports", "legal_authorities"]:
+                for item in context.get(category, [])[:10]:
+                    if hasattr(item, 'content'):
+                        all_content.append(item.content)
+                    elif isinstance(item, dict):
+                        all_content.append(item.get('content', ''))
+            
+            combined_text = ' '.join(all_content).lower()
+            
+            # Theme detection patterns
+            theme_patterns = {
+                "safety": ["safety", "dangerous", "hazard", "risk", "harm"],
+                "corporate_responsibility": ["corporate", "company", "business", "employer"],
+                "negligence": ["negligent", "breach", "duty", "reasonable care"],
+                "causation": ["caused", "resulted", "led to", "because of"],
+                "damages": ["damages", "injury", "harm", "loss", "suffering"]
+            }
+            
+            for theme, keywords in theme_patterns.items():
+                if sum(1 for kw in keywords if kw in combined_text) >= 2:
+                    themes.append(theme)
+                    
+        except Exception as e:
+            logger.error(f"Error extracting themes: {e}")
         
         return themes[:5]  # Top 5 themes
 
@@ -500,198 +630,6 @@ Before writing, think through:
         
         return cleaned_themes[:3]  # Max 3 themes
 
-    def _build_citation_index(self, motion_draft: MotionDraft) -> Dict[str, List[str]]:
-        """Build index of citations to sections using them"""
-        citation_index = {}
-        
-        for section in motion_draft.sections:
-            for citation in section.citations_used:
-                if citation not in citation_index:
-                    citation_index[citation] = []
-                citation_index[citation].append(section.outline_section.id)
-        
-        return citation_index
-
-    def _extract_citations_from_text(self, text: str) -> List[str]:
-        """Extract all citations from text using compiled patterns"""
-        citations = []
-        
-        for pattern in self.citation_patterns:
-            matches = pattern.findall(text)
-            citations.extend(matches)
-        
-        # Clean and deduplicate
-        citations = list(set(citation.strip() for citation in citations))
-        
-        return citations
-
-    def _calculate_section_confidence(
-        self,
-        content: str,
-        section: OutlineSection,
-        word_count: int
-    ) -> float:
-        """Calculate confidence score for section"""
-        score = 0.0
-        max_score = 100.0
-        
-        # Length score (30 points)
-        if word_count >= section.target_length:
-            score += 30
-        else:
-            score += (word_count / section.target_length) * 30
-        
-        # Content points addressed (25 points)
-        points_addressed = sum(
-            1 for point in section.content_points
-            if any(keyword in content.lower() for keyword in point.lower().split()[:5])
-        )
-        if section.content_points:
-            score += (points_addressed / len(section.content_points)) * 25
-        else:
-            score += 25
-        
-        # Citations included (25 points)
-        citations_found = sum(
-            1 for auth in section.legal_authorities
-            if auth in content or auth.replace(" ", "") in content
-        )
-        if section.legal_authorities:
-            score += (citations_found / len(section.legal_authorities)) * 25
-        else:
-            score += 25
-        
-        # Structure quality (20 points)
-        structure_indicators = [
-            "first", "second", "third",
-            "moreover", "furthermore", "additionally",
-            "however", "nevertheless", 
-            "therefore", "accordingly",
-            "issue", "rule", "application", "conclusion"
-        ]
-        structure_score = sum(2 for indicator in structure_indicators if indicator in content.lower())
-        score += min(structure_score, 20)
-        
-        return score / max_score
-
-    def _update_document_context(self, section: DraftedSection):
-        """Update document-wide context with section information"""
-        
-        # Update citations used
-        self.document_context["citations_used"].update(section.citations_used)
-        
-        # Update terminology
-        terms = self._extract_key_terms(section.content)
-        for term in terms:
-            if term not in self.document_context["terminology"]:
-                self.document_context["terminology"][term] = section.outline_section.id
-
-    def _extract_key_terms(self, content: str) -> List[str]:
-        """Extract key legal terms from content"""
-        # Simple implementation - could be enhanced
-        terms = []
-        legal_terms = [
-            "negligence", "liability", "duty", "breach", "damages", "causation",
-            "standard of care", "reasonable person", "proximate cause", "foreseeability"
-        ]
-        
-        content_lower = content.lower()
-        for term in legal_terms:
-            if term in content_lower:
-                terms.append(term)
-        
-        return terms[:5]
-
-    def export_to_docx(self, motion_draft: MotionDraft, output_path: str):
-        """Export motion draft to DOCX format"""
-        from docx import Document
-        from docx.shared import Pt, Inches
-        from docx.enum.text import WD_ALIGN_PARAGRAPH
-        
-        # Create document
-        doc = Document()
-        
-        # Set margins
-        sections = doc.sections
-        for section in sections:
-            section.top_margin = Inches(1)
-            section.bottom_margin = Inches(1) 
-            section.left_margin = Inches(1)
-            section.right_margin = Inches(1)
-        
-        # Add title
-        title = doc.add_heading(motion_draft.title, level=0)
-        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        
-        # Add case caption
-        doc.add_paragraph(motion_draft.case_name)
-        doc.add_paragraph()
-        
-        # Add each section with transitions
-        for i, section in enumerate(motion_draft.sections):
-            # Section heading
-            doc.add_heading(section.outline_section.title, level=1)
-            
-            # Add transition from previous if available
-            if "from_previous" in section.transitions and i > 0:
-                transition_para = doc.add_paragraph(section.transitions["from_previous"])
-                transition_para.style.font.italic = True
-                doc.add_paragraph()
-            
-            # Section content
-            for paragraph in section.content.split('\n\n'):
-                if paragraph.strip():
-                    p = doc.add_paragraph(paragraph)
-                    p.style.font.size = Pt(12)
-                    p.style.font.name = 'Times New Roman'
-            
-            # Add transition to next if available
-            if "to_next" in section.transitions and i < len(motion_draft.sections) - 1:
-                doc.add_paragraph()
-                transition_para = doc.add_paragraph(section.transitions["to_next"])
-                transition_para.style.font.italic = True
-        
-        # Add metadata page
-        doc.add_page_break()
-        doc.add_heading("Document Metadata", level=1)
-        
-        # Basic metadata
-        doc.add_paragraph(f"Total Words: {motion_draft.total_word_count:,}")
-        doc.add_paragraph(f"Estimated Pages: {motion_draft.total_page_estimate}")
-        doc.add_paragraph(f"Created: {motion_draft.creation_timestamp.strftime('%B %d, %Y at %I:%M %p')}")
-        doc.add_paragraph(f"Document Quality Score: {motion_draft.coherence_score:.2%}")
-        
-        # Quality metrics
-        if motion_draft.quality_metrics:
-            doc.add_heading("Quality Metrics", level=2)
-            for metric, score in motion_draft.quality_metrics.items():
-                doc.add_paragraph(f"• {metric.replace('_', ' ').title()}: {score:.2%}")
-        
-        # Citation index
-        if motion_draft.citation_index:
-            doc.add_heading("Citation Index", level=2)
-            doc.add_paragraph(f"Total Unique Citations: {len(motion_draft.citation_index)}")
-            
-            # List top citations
-            sorted_citations = sorted(
-                motion_draft.citation_index.items(),
-                key=lambda x: len(x[1]),
-                reverse=True
-            )[:10]
-            
-            for citation, sections in sorted_citations:
-                doc.add_paragraph(f"• {citation} (used in {len(sections)} sections)")
-        
-        # Review notes
-        if motion_draft.review_notes:
-            doc.add_heading("Review Notes", level=2)
-            for note in motion_draft.review_notes:
-                doc.add_paragraph(f"• {note}")
-        
-        # Save document
-        doc.save(output_path)
-        logger.info(f"Motion exported to {output_path}")
-
     async def draft_motion_with_cache(
         self,
         outline: Dict[str, Any],
@@ -702,7 +640,7 @@ Before writing, think through:
         outline_id: Optional[str] = None  # If already cached
     ) -> MotionDraft:
         """
-        Enhanced motion drafting that caches outline and processes sections individually
+        Enhanced motion drafting with fixed database access and firm knowledge
         """
         start_time = datetime.utcnow()
         logger.info(f"[MOTION_DRAFTER] Starting cached motion draft for database: {database_name}")
@@ -724,13 +662,16 @@ Before writing, think through:
         if not outline_structure:
             raise ValueError(f"Failed to get outline structure for ID: {outline_id}")
         
-        logger.info(f"[MOTION_DRAFTER] Processing {len(outline_structure)} sections")
+        # Deduplicate sections to prevent multiple conclusions
+        outline_structure = self._deduplicate_sections(outline_structure)
+        
+        logger.info(f"[MOTION_DRAFTER] Processing {len(outline_structure)} sections after deduplication")
         
         # Initialize timeout monitor
         timeout_monitor = TimeoutMonitor(
             operation_name=f"Motion Drafting ({database_name})",
             warning_threshold=60,
-            critical_threshold=180  # Increased to 3 minutes
+            critical_threshold=300  # Increased to 5 minutes
         )
         timeout_monitor.log_progress("Cached motion drafting started")
         
@@ -753,17 +694,49 @@ Before writing, think through:
             outline_structure, target_words
         )
         
-        # Retrieve case context once - convert structure back to sections for compatibility
-        logger.info(f"[MOTION_DRAFTER] Retrieving case context")
-        full_outline_sections = await self._convert_structure_to_sections(outline_id, outline_structure)
-        case_context = await self._retrieve_enhanced_case_context(
-            database_name, 
-            full_outline_sections
-        )
+        # Retrieve case context with timeout protection
+        case_context = {}
+        try:
+            logger.info(f"[MOTION_DRAFTER] Starting case context retrieval for database: {database_name}")
+            full_outline_sections = await self._convert_structure_to_sections(outline_id, outline_structure)
+            logger.info(f"[MOTION_DRAFTER] Converted {len(full_outline_sections)} outline sections")
+            
+            # Use longer timeout for context retrieval
+            logger.info(f"[MOTION_DRAFTER] Calling _retrieve_enhanced_case_context with timeout=60s")
+            case_context = await asyncio.wait_for(
+                self._retrieve_enhanced_case_context(database_name, full_outline_sections),
+                timeout=60.0  # 60 second timeout for all context retrieval
+            )
+            logger.info(f"[MOTION_DRAFTER] Case context retrieved successfully")
+        except asyncio.TimeoutError:
+            logger.error("[MOTION_DRAFTER] Timeout retrieving case context - attempting basic search")
+            case_context = self._get_minimal_case_context()
+            # Try to do at least one basic search
+            try:
+                case_context = await self._perform_basic_case_search(database_name)
+            except Exception as search_error:
+                logger.error(f"[MOTION_DRAFTER] Basic search also failed: {search_error}")
+        except Exception as e:
+            logger.error(f"[MOTION_DRAFTER] Error retrieving case context: {str(e)}", exc_info=True)
+            case_context = self._get_minimal_case_context()
+            # Try to do at least one basic search
+            try:
+                case_context = await self._perform_basic_case_search(database_name)
+            except Exception as search_error:
+                logger.error(f"[MOTION_DRAFTER] Basic search also failed: {search_error}")
         
         # Process sections individually
         drafted_sections = []
         total_words = 0
+        
+        # Log case context summary
+        logger.info(f"[MOTION_DRAFTER] Case context summary - "
+                   f"Facts: {len(case_context.get('case_facts', []))}, "
+                   f"Legal Authorities: {len(case_context.get('legal_authorities', []))}, "
+                   f"Expert Reports: {len(case_context.get('expert_reports', []))}, "
+                   f"Regulatory Evidence: {len(case_context.get('regulatory_evidence', []))}, "
+                   f"Firm Knowledge: {len(case_context.get('firm_knowledge', []))}, "
+                   f"Search Status: {case_context.get('search_status', 'completed')}")
         
         for i, section_info in enumerate(outline_structure):
             section_start_time = datetime.utcnow()
@@ -772,32 +745,35 @@ Before writing, think through:
             # Update timeout monitor
             timeout_monitor.log_progress(f"Drafting section {i+1}: {section_info['heading']}")
             
-            # Retrieve only this section from cache
-            section_data = await outline_cache.get_section(outline_id, section_info['index'])
-            if not section_data:
-                logger.error(f"Failed to retrieve section {i} from cache")
-                continue
-            
-            # Create minimal OutlineSection for this section only
-            outline_section = self._create_minimal_outline_section(
-                section_data, 
-                section_info,
-                word_distribution.get(f"section_{i}", 500)
-            )
-            
-            # Build cumulative context (lightweight)
-            cumulative_context = self._build_lightweight_cumulative_context(
-                drafted_sections,
-                case_context
-            )
-            
-            # Draft the section
             try:
-                drafted_section = await self._draft_section_efficiently(
-                    outline_section,
-                    section_data,  # Pass full section data separately
-                    case_context,
-                    cumulative_context
+                # Retrieve only this section from cache
+                section_data = await outline_cache.get_section(outline_id, section_info['index'])
+                if not section_data:
+                    logger.error(f"Failed to retrieve section {i} from cache")
+                    continue
+                
+                # Create minimal OutlineSection for this section only
+                outline_section = self._create_minimal_outline_section(
+                    section_data, 
+                    section_info,
+                    word_distribution.get(f"section_{i}", 500)
+                )
+                
+                # Build cumulative context (lightweight)
+                cumulative_context = self._build_lightweight_cumulative_context(
+                    drafted_sections,
+                    case_context
+                )
+                
+                # Draft the section with longer timeout
+                drafted_section = await asyncio.wait_for(
+                    self._draft_section_efficiently(
+                        outline_section,
+                        section_data,  # Pass full section data separately
+                        case_context,
+                        cumulative_context
+                    ),
+                    timeout=60.0  # 60 seconds per section
                 )
                 
                 # Expand if needed
@@ -818,18 +794,18 @@ Before writing, think through:
                 section_duration = datetime.utcnow() - section_start_time
                 logger.info(f"[MOTION_DRAFTER] Section {i+1} completed in {section_duration}")
                 
-            except Exception as e:
-                logger.error(f"[MOTION_DRAFTER] Error drafting section {i+1}: {str(e)}")
+            except asyncio.TimeoutError:
+                logger.error(f"[MOTION_DRAFTER] Timeout drafting section {i+1}")
                 # Create placeholder section
-                drafted_section = DraftedSection(
-                    outline_section=outline_section,
-                    content=f"[ERROR: Section could not be drafted - {str(e)}]",
-                    word_count=0,
-                    citations_used=[],
-                    citations_verified={},
-                    expansion_cycles=0,
-                    confidence_score=0.0
+                drafted_section = self._create_placeholder_section(outline_section, "Section timed out")
+                drafted_sections.append(drafted_section)
+            except Exception as e:
+                logger.error(f"[MOTION_DRAFTER] Error drafting section {i+1}: {str(e)}", exc_info=True)
+                # Create placeholder section
+                outline_section = self._create_minimal_outline_section(
+                    {"content": []}, section_info, 500
                 )
+                drafted_section = self._create_placeholder_section(outline_section, str(e))
                 drafted_sections.append(drafted_section)
         
         # Create motion draft
@@ -857,6 +833,234 @@ Before writing, think through:
         
         return motion_draft
 
+    def _get_minimal_case_context(self) -> Dict[str, Any]:
+        """Return minimal case context when retrieval fails"""
+        logger.warning("[MOTION_DRAFTER] Using minimal case context - database searches were skipped")
+        return {
+            "case_facts": [],
+            "legal_authorities": [],
+            "expert_reports": [],
+            "key_documents": [],
+            "medical_records": [],
+            "motion_practice": [],
+            "fact_chronology": [],
+            "themes": ["negligence", "liability"],
+            "opposing_motion": "",
+            "firm_knowledge": [],
+            "search_status": "skipped"  # Flag to indicate searches were skipped
+        }
+    
+    async def _perform_basic_case_search(self, database_name: str) -> Dict[str, Any]:
+        """Perform basic RAG search as fallback"""
+        logger.info(f"[BASIC_SEARCH] Attempting basic RAG search on {database_name}")
+        
+        context = self._get_minimal_case_context()
+        basic_rag_queries = [
+            "What are the main facts and circumstances of this case?",
+            "What evidence exists about the cause of the incident?",
+            "What safety violations or negligence occurred?"
+        ]
+        
+        try:
+            for query in basic_rag_queries:
+                logger.info(f"[BASIC_SEARCH] RAG query: {query}")
+                query_embedding, _ = await self.embedding_generator.generate_embedding_async(query)
+                
+                results = await self.vector_store.hybrid_search(
+                    collection_name=database_name,
+                    query=query,
+                    query_embedding=query_embedding,
+                    limit=3,
+                    enable_reranking=False
+                )
+                
+                logger.info(f"[BASIC_SEARCH] Found {len(results)} results")
+                for result in results:
+                    logger.info(f"[BASIC_SEARCH] Result score: {result.score:.3f}")
+                    if result.score > 0.2:  # Low threshold for basic search
+                        context["case_facts"].append(result)
+                        logger.info(f"[BASIC_SEARCH] Added fact: {result.content[:50]}...")
+            
+            context["search_status"] = "basic_completed"
+            logger.info(f"[BASIC_SEARCH] Collected {len(context['case_facts'])} facts from basic search")
+        except Exception as e:
+            logger.error(f"[BASIC_SEARCH] Error: {str(e)}")
+            context["search_status"] = "failed"
+            
+        return context
+
+    def _create_placeholder_section(self, outline_section: OutlineSection, error_msg: str) -> DraftedSection:
+        """Create a placeholder section when drafting fails"""
+        return DraftedSection(
+            outline_section=outline_section,
+            content=f"[Section could not be drafted due to error: {error_msg}]",
+            word_count=0,
+            citations_used=[],
+            citations_verified={},
+            expansion_cycles=0,
+            confidence_score=0.0,
+            needs_revision=True,
+            revision_notes=[f"Section failed to draft: {error_msg}"]
+        )
+
+    async def _draft_section_efficiently(
+        self,
+        outline_section: OutlineSection,
+        full_section_data: Dict[str, Any],
+        case_context: Dict[str, Any],
+        cumulative_context: Dict[str, Any]
+    ) -> DraftedSection:
+        """Draft a section efficiently with case facts and firm knowledge"""
+        
+        try:
+            # Extract the most important content from full section data
+            essential_content = self._extract_essential_content(full_section_data)
+            
+            # Build relevant case facts for this section
+            relevant_facts = self._extract_relevant_facts(
+                outline_section, 
+                case_context.get("case_facts", []),
+                limit=5
+            )
+            
+            # Find relevant firm knowledge examples
+            relevant_examples = self._extract_relevant_firm_examples(
+                outline_section,
+                case_context.get("firm_knowledge", []),
+                limit=2
+            )
+            
+            # Create focused prompt with case facts and firm examples
+            drafting_prompt = f"""Draft this section of the legal motion:
+
+Section: {outline_section.title}
+Type: {outline_section.section_type.value}
+Target Length: {outline_section.target_length} words (MINIMUM)
+
+Key Points to Address:
+{chr(10).join(f"- {point}" for point in essential_content['key_points'][:5])}
+
+Required Authorities:
+{chr(10).join(f"- {auth}" for auth in essential_content['authorities'][:5])}
+
+Relevant Case Facts:
+{chr(10).join(f"- {fact}" for fact in relevant_facts[:5])}
+
+Firm Knowledge Examples:
+{chr(10).join(f"- From {ex['document']}: {ex['content'][:200]}..." for ex in relevant_examples[:2])}
+
+Context from Previous Sections:
+{cumulative_context.get('summary', 'This is the first section.')}
+
+REQUIREMENTS:
+1. Write {outline_section.target_length} words MINIMUM
+2. Use formal legal writing style
+3. Include all required authorities with parentheticals
+4. Incorporate the case facts naturally into your analysis
+5. Apply successful argument structures from firm examples
+6. Develop each point with detailed analysis
+7. Include transitions and topic sentences
+8. Apply IRAC/CRAC structure where appropriate"""
+
+            # Generate content
+            result = await asyncio.wait_for(
+                self.section_writer.run(drafting_prompt),
+                timeout=45  # 45 second timeout per section
+            )
+            
+            content = str(result.data) if hasattr(result, 'data') else str(result)
+            
+            # Create drafted section
+            word_count = len(content.split())
+            return DraftedSection(
+                outline_section=outline_section,
+                content=content,
+                word_count=word_count,
+                citations_used=self._extract_citations_from_text(content),
+                citations_verified={},
+                expansion_cycles=1,
+                confidence_score=self._calculate_section_confidence(
+                    content, outline_section, word_count
+                )
+            )
+            
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout drafting section: {outline_section.title}")
+            raise
+        except Exception as e:
+            logger.error(f"Error drafting section efficiently: {str(e)}")
+            raise
+
+    def _extract_relevant_facts(
+        self, 
+        outline_section: OutlineSection,
+        case_facts: List[Any],
+        limit: int = 5
+    ) -> List[str]:
+        """Extract facts relevant to the current section"""
+        relevant_facts = []
+        
+        try:
+            # Keywords to match based on section type
+            if outline_section.section_type == SectionType.STATEMENT_OF_FACTS:
+                # For facts section, get chronological facts
+                for fact in case_facts[:limit*2]:
+                    if hasattr(fact, 'content'):
+                        relevant_facts.append(fact.content[:200])
+            else:
+                # For other sections, match based on content
+                section_keywords = []
+                for point in outline_section.content_points:
+                    # Extract keywords from content points
+                    words = point.lower().split()
+                    section_keywords.extend([w for w in words if len(w) > 4][:3])
+                
+                # Find facts matching keywords
+                for fact in case_facts:
+                    if hasattr(fact, 'content'):
+                        fact_lower = fact.content.lower()
+                        if any(kw in fact_lower for kw in section_keywords):
+                            relevant_facts.append(fact.content[:200])
+                            if len(relevant_facts) >= limit:
+                                break
+                                
+        except Exception as e:
+            logger.debug(f"Error extracting relevant facts: {e}")
+            
+        return relevant_facts[:limit]
+
+    def _extract_relevant_firm_examples(
+        self,
+        outline_section: OutlineSection,
+        firm_knowledge: List[Dict[str, Any]],
+        limit: int = 2
+    ) -> List[Dict[str, Any]]:
+        """Extract firm knowledge examples relevant to current section"""
+        relevant_examples = []
+        
+        try:
+            # Match based on section type and authorities
+            for example in firm_knowledge:
+                # Check if motion type matches
+                if outline_section.section_type == SectionType.ARGUMENT:
+                    if "argument" in example.get("motion_type", "").lower():
+                        relevant_examples.append(example)
+                
+                # Check if any authorities match
+                for auth in outline_section.legal_authorities:
+                    if auth.lower() in example.get("content", "").lower():
+                        if example not in relevant_examples:
+                            relevant_examples.append(example)
+                            
+                if len(relevant_examples) >= limit:
+                    break
+                    
+        except Exception as e:
+            logger.debug(f"Error extracting firm examples: {e}")
+            
+        return relevant_examples[:limit]
+
+    # Keep all other methods unchanged from the original...
     async def _convert_structure_to_sections(
         self, 
         outline_id: str, 
@@ -864,9 +1068,11 @@ Before writing, think through:
     ) -> List[OutlineSection]:
         """Convert outline structure back to OutlineSection objects for compatibility"""
         sections = []
+        logger.info(f"[CONVERT] Converting {len(outline_structure)} structure items to sections")
         
-        for section_info in outline_structure:
+        for i, section_info in enumerate(outline_structure):
             try:
+                logger.debug(f"[CONVERT] Processing section {i}: {section_info}")
                 # Get the full section data from cache
                 section_data = await outline_cache.get_section(outline_id, section_info['index'])
                 if not section_data:
@@ -940,6 +1146,7 @@ Before writing, think through:
                 logger.warning(f"Error converting section {section_info['index']}: {str(e)}")
                 continue
         
+        logger.info(f"[CONVERT] Successfully converted {len(sections)} sections with content")
         return sections
 
     def _create_minimal_outline_section(
@@ -977,72 +1184,6 @@ Before writing, think through:
             target_length=target_length,
             context_summary=f"Section {section_info['index'] + 1} of {section_info.get('type', 'standard')} type"
         )
-
-    async def _draft_section_efficiently(
-        self,
-        outline_section: OutlineSection,
-        full_section_data: Dict[str, Any],
-        case_context: Dict[str, Any],
-        cumulative_context: Dict[str, Any]
-    ) -> DraftedSection:
-        """Draft a section efficiently without token overflow"""
-        
-        try:
-            # Extract the most important content from full section data
-            essential_content = self._extract_essential_content(full_section_data)
-            
-            # Create focused prompt
-            drafting_prompt = f"""Draft this section of the legal motion:
-
-Section: {outline_section.title}
-Type: {outline_section.section_type.value}
-Target Length: {outline_section.target_length} words (MINIMUM)
-
-Key Points to Address:
-{chr(10).join(f"- {point}" for point in essential_content['key_points'][:5])}
-
-Required Authorities:
-{chr(10).join(f"- {auth}" for auth in essential_content['authorities'][:5])}
-
-Context from Previous Sections:
-{cumulative_context.get('summary', 'This is the first section.')}
-
-REQUIREMENTS:
-1. Write {outline_section.target_length} words MINIMUM
-2. Use formal legal writing style
-3. Include all required authorities with parentheticals
-4. Develop each point with detailed analysis
-5. Include transitions and topic sentences
-6. Apply IRAC/CRAC structure where appropriate"""
-
-            # Generate content
-            result = await asyncio.wait_for(
-                self.section_writer.run(drafting_prompt),
-                timeout=45  # 45 second timeout per section
-            )
-            
-            content = str(result.data) if hasattr(result, 'data') else str(result)
-            
-            # Create drafted section
-            word_count = len(content.split())
-            return DraftedSection(
-                outline_section=outline_section,
-                content=content,
-                word_count=word_count,
-                citations_used=self._extract_citations_from_text(content),
-                citations_verified={},
-                expansion_cycles=1,
-                confidence_score=self._calculate_section_confidence(
-                    content, outline_section, word_count
-                )
-            )
-            
-        except asyncio.TimeoutError:
-            logger.error(f"Timeout drafting section: {outline_section.title}")
-            raise
-        except Exception as e:
-            logger.error(f"Error drafting section efficiently: {str(e)}")
-            raise
 
     def _extract_essential_content(self, section_data: Dict[str, Any]) -> Dict[str, Any]:
         """Extract essential content from section data without overwhelming tokens"""
@@ -1229,8 +1370,13 @@ Provide the COMPLETE expanded section."""
             
             return drafted_section
             
+        except asyncio.TimeoutError:
+            logger.warning(f"Timeout during section expansion for: {drafted_section.outline_section.title}")
+            return drafted_section
         except Exception as e:
-            logger.error(f"Error in efficient expansion: {str(e)}")
+            logger.error(f"Error in efficient expansion for section '{drafted_section.outline_section.title}': {str(e)}", exc_info=True)
+            # Add a note about the expansion failure
+            drafted_section.revision_notes.append(f"Expansion failed: {str(e)[:100]}")
             return drafted_section
 
     def _extract_unused_content(
@@ -1301,6 +1447,198 @@ Provide the COMPLETE expanded section."""
         return (outline.get("title") or 
                 outline.get("motion_title") or 
                 "Legal Motion")
+
+    def _calculate_section_confidence(
+        self,
+        content: str,
+        section: OutlineSection,
+        word_count: int
+    ) -> float:
+        """Calculate confidence score for section"""
+        score = 0.0
+        max_score = 100.0
+        
+        # Length score (30 points)
+        if word_count >= section.target_length:
+            score += 30
+        else:
+            score += (word_count / section.target_length) * 30
+        
+        # Content points addressed (25 points)
+        points_addressed = sum(
+            1 for point in section.content_points
+            if any(keyword in content.lower() for keyword in point.lower().split()[:5])
+        )
+        if section.content_points:
+            score += (points_addressed / len(section.content_points)) * 25
+        else:
+            score += 25
+        
+        # Citations included (25 points)
+        citations_found = sum(
+            1 for auth in section.legal_authorities
+            if auth in content or auth.replace(" ", "") in content
+        )
+        if section.legal_authorities:
+            score += (citations_found / len(section.legal_authorities)) * 25
+        else:
+            score += 25
+        
+        # Structure quality (20 points)
+        structure_indicators = [
+            "first", "second", "third",
+            "moreover", "furthermore", "additionally",
+            "however", "nevertheless", 
+            "therefore", "accordingly",
+            "issue", "rule", "application", "conclusion"
+        ]
+        structure_score = sum(2 for indicator in structure_indicators if indicator in content.lower())
+        score += min(structure_score, 20)
+        
+        return score / max_score
+
+    def _update_document_context(self, section: DraftedSection):
+        """Update document-wide context with section information"""
+        
+        # Update citations used
+        self.document_context["citations_used"].update(section.citations_used)
+        
+        # Update terminology
+        terms = self._extract_key_terms(section.content)
+        for term in terms:
+            if term not in self.document_context["terminology"]:
+                self.document_context["terminology"][term] = section.outline_section.id
+
+    def _extract_key_terms(self, content: str) -> List[str]:
+        """Extract key legal terms from content"""
+        # Simple implementation - could be enhanced
+        terms = []
+        legal_terms = [
+            "negligence", "liability", "duty", "breach", "damages", "causation",
+            "standard of care", "reasonable person", "proximate cause", "foreseeability"
+        ]
+        
+        content_lower = content.lower()
+        for term in legal_terms:
+            if term in content_lower:
+                terms.append(term)
+        
+        return terms[:5]
+
+    def _build_citation_index(self, motion_draft: MotionDraft) -> Dict[str, List[str]]:
+        """Build index of citations to sections using them"""
+        citation_index = {}
+        
+        for section in motion_draft.sections:
+            for citation in section.citations_used:
+                if citation not in citation_index:
+                    citation_index[citation] = []
+                citation_index[citation].append(section.outline_section.id)
+        
+        return citation_index
+
+    def _extract_citations_from_text(self, text: str) -> List[str]:
+        """Extract all citations from text using compiled patterns"""
+        citations = []
+        
+        for pattern in self.citation_patterns:
+            matches = pattern.findall(text)
+            citations.extend(matches)
+        
+        # Clean and deduplicate
+        citations = list(set(citation.strip() for citation in citations))
+        
+        return citations
+
+    def export_to_docx(self, motion_draft: MotionDraft, output_path: str):
+        """Export motion draft to DOCX format"""
+        from docx import Document
+        from docx.shared import Pt, Inches
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        
+        # Create document
+        doc = Document()
+        
+        # Set margins
+        sections = doc.sections
+        for section in sections:
+            section.top_margin = Inches(1)
+            section.bottom_margin = Inches(1) 
+            section.left_margin = Inches(1)
+            section.right_margin = Inches(1)
+        
+        # Add title
+        title = doc.add_heading(motion_draft.title, level=0)
+        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        # Add case caption
+        doc.add_paragraph(motion_draft.case_name)
+        doc.add_paragraph()
+        
+        # Add each section with transitions
+        for i, section in enumerate(motion_draft.sections):
+            # Section heading
+            doc.add_heading(section.outline_section.title, level=1)
+            
+            # Add transition from previous if available
+            if "from_previous" in section.transitions and i > 0:
+                transition_para = doc.add_paragraph(section.transitions["from_previous"])
+                transition_para.style.font.italic = True
+                doc.add_paragraph()
+            
+            # Section content
+            for paragraph in section.content.split('\n\n'):
+                if paragraph.strip():
+                    p = doc.add_paragraph(paragraph)
+                    p.style.font.size = Pt(12)
+                    p.style.font.name = 'Times New Roman'
+            
+            # Add transition to next if available
+            if "to_next" in section.transitions and i < len(motion_draft.sections) - 1:
+                doc.add_paragraph()
+                transition_para = doc.add_paragraph(section.transitions["to_next"])
+                transition_para.style.font.italic = True
+        
+        # Add metadata page
+        doc.add_page_break()
+        doc.add_heading("Document Metadata", level=1)
+        
+        # Basic metadata
+        doc.add_paragraph(f"Total Words: {motion_draft.total_word_count:,}")
+        doc.add_paragraph(f"Estimated Pages: {motion_draft.total_page_estimate}")
+        doc.add_paragraph(f"Created: {motion_draft.creation_timestamp.strftime('%B %d, %Y at %I:%M %p')}")
+        doc.add_paragraph(f"Document Quality Score: {motion_draft.coherence_score:.2%}")
+        
+        # Quality metrics
+        if motion_draft.quality_metrics:
+            doc.add_heading("Quality Metrics", level=2)
+            for metric, score in motion_draft.quality_metrics.items():
+                doc.add_paragraph(f"• {metric.replace('_', ' ').title()}: {score:.2%}")
+        
+        # Citation index
+        if motion_draft.citation_index:
+            doc.add_heading("Citation Index", level=2)
+            doc.add_paragraph(f"Total Unique Citations: {len(motion_draft.citation_index)}")
+            
+            # List top citations
+            sorted_citations = sorted(
+                motion_draft.citation_index.items(),
+                key=lambda x: len(x[1]),
+                reverse=True
+            )[:10]
+            
+            for citation, sections in sorted_citations:
+                doc.add_paragraph(f"• {citation} (used in {len(sections)} sections)")
+        
+        # Review notes
+        if motion_draft.review_notes:
+            doc.add_heading("Review Notes", level=2)
+            for note in motion_draft.review_notes:
+                doc.add_paragraph(f"• {note}")
+        
+        # Save document
+        doc.save(output_path)
+        logger.info(f"Motion exported to {output_path}")
 
 
 # Create global instance

@@ -155,6 +155,7 @@ class AISettings(BaseSettings):
     embedding_dimensions: int = Field(1536, env="EMBEDDING_DIMENSIONS")
     api_key: str = os.getenv("OPENAI_API_KEY", "")
     context_model: str = os.getenv("CONTEXT_LLM_MODEL", "gpt-4.1-mini-2025-04-14")
+    rag_agent_model: str = Field("gpt-4.1-mini-2025-04-14", env="RAG_LLM_AGENT")
     
     class Config:
         env_prefix = "AI_"
