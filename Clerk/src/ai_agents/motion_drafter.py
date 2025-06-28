@@ -879,7 +879,7 @@ Output JSON with:
             section_type=section_type,
             content_points=content_points if content_points else [section_data.get("summary", "")],
             legal_authorities=legal_authorities,
-            target_length=word_distribution.get(f"section_{idx}", target_words // len(outline_sections)),
+            target_length=word_distribution.get(f"section_{idx}", 500),
             hook_options=hook_options,
             themes=themes if themes else self.document_context.get("themes", []),
             key_facts=key_facts,
