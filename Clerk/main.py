@@ -641,11 +641,18 @@ async def draft_motion(request: MotionDraftingRequest):
         
         logger.info(f"Cleaned outline structure")
         
+        # Convert target_length string to DocumentLength enum
+        try:
+            target_length_enum = DocumentLength[request.target_length]
+        except KeyError:
+            logger.warning(f"Invalid target_length '{request.target_length}', defaulting to MEDIUM")
+            target_length_enum = DocumentLength.MEDIUM
+        
         # Continue with the motion drafting...
         motion_draft = await motion_drafter.draft_motion(
             outline=cleaned_outline,
             database_name=request.database_name,
-            target_length=request.target_length,
+            target_length=target_length_enum,
             motion_title=request.motion_title,
             opposing_motion_text=request.opposing_motion_text
         )
