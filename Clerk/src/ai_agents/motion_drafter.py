@@ -275,24 +275,27 @@ Before writing, think through:
             for child in section.children:
                 queries["legal_authorities"].extend(child.legal_authorities)
         
-        # Build factual search queries
+        # Build factual search queries from ALL content
         fact_patterns = set()
         for section in outline_sections:
-            # Extract fact patterns from key facts
+            # Extract from ALL key facts
             for fact in section.key_facts:
                 if isinstance(fact, dict):
-                    fact_patterns.add(fact.get("description", ""))
+                    fact_patterns.add(fact.get("description", str(fact)))
                 else:
                     fact_patterns.add(str(fact))
             
-            # Extract from content points - ensure they're strings
-            for point in section.content_points[:3]:  # Top 3 points
-                if isinstance(point, str):
-                    fact_patterns.add(point)
-                else:
-                    fact_patterns.add(str(point))
+            # Extract from ALL content points (not just first 3)
+            for point in section.content_points:
+                if isinstance(point, str) and len(point) > 20:  # Skip very short strings
+                    # Extract key phrases from longer content
+                    sentences = point.split('.')
+                    for sentence in sentences[:2]:  # First 2 sentences
+                        if len(sentence) > 20:
+                            fact_patterns.add(sentence.strip())
         
-        queries["factual_searches"] = list(fact_patterns)
+        # Remove duplicates and empty strings
+        queries["factual_searches"] = [q for q in list(fact_patterns) if q and len(q) > 10]
         
         # Expert-specific searches
         queries["expert_searches"] = [
@@ -311,6 +314,9 @@ Before writing, think through:
             "scheduling order",
             "previous motions"
         ]
+        
+        logger.info(f"Built search queries: {len(queries['legal_authorities'])} authorities, "
+                f"{len(queries['factual_searches'])} factual searches")
         
         return queries
 
@@ -467,6 +473,32 @@ Before writing, think through:
                 themes.append(theme)
         
         return themes[:5]  # Top 5 themes
+
+    def _extract_themes_from_value(self, value: str) -> List[str]:
+        """Extract themes from a field value string"""
+        if not value:
+            return []
+        
+        themes = []
+        
+        # Handle multi-option format
+        if "||" in value:
+            options = value.split("||")
+            for option in options:
+                option = option.strip()
+                if option.startswith("Option"):
+                    option = option.split(":", 1)[1].strip() if ":" in option else option
+                themes.append(option.strip('"').strip())
+        else:
+            themes.append(value.strip('"').strip())
+        
+        # Clean and filter themes
+        cleaned_themes = []
+        for theme in themes:
+            if theme and len(theme) > 3:  # Skip very short themes
+                cleaned_themes.append(theme[:100])  # Limit length
+        
+        return cleaned_themes[:3]  # Max 3 themes
 
     def _build_citation_index(self, motion_draft: MotionDraft) -> Dict[str, List[str]]:
         """Build index of citations to sections using them"""
@@ -841,31 +873,65 @@ Before writing, think through:
                     logger.warning(f"Could not retrieve section {section_info['index']} from cache")
                     continue
                 
-                # Extract content points safely - handle both strings and dicts
+                # Extract ALL content for search purposes (not just first 3)
                 content_points = []
-                content_items = section_data.get('content', [])[:3]  # Limit to first 3
-                for item in content_items:
-                    if isinstance(item, str):
-                        content_points.append(item)
-                    elif isinstance(item, dict):
-                        # Extract text from dict structure
-                        text = item.get('text', item.get('content', item.get('value', str(item))))
-                        content_points.append(str(text))
-                    else:
-                        content_points.append(str(item))
+                legal_authorities = []
+                key_facts = []
+                themes = []
                 
-                # Create minimal OutlineSection with safe defaults
+                # Process ALL content items for database search
+                for item in section_data.get('content', []):
+                    item_type = item.get('type', '')
+                    
+                    if item_type == 'field':
+                        label = item.get('label', '')
+                        value = item.get('value', '')
+                        
+                        # Clean multi-option values but keep full content
+                        if "||" in value:
+                            options = value.split("||")
+                            # Add first option as primary, but keep others for search
+                            for i, option in enumerate(options[:3]):
+                                clean_option = option.strip()
+                                if clean_option.startswith("Option"):
+                                    clean_option = clean_option.split(":", 1)[1].strip() if ":" in clean_option else clean_option
+                                content_points.append(clean_option.strip('"').strip())
+                        else:
+                            content_points.append(value.strip('"').strip())
+                        
+                        # Special handling for themes
+                        if 'theme' in label.lower():
+                            themes.extend(self._extract_themes_from_value(value))
+                        
+                    elif item_type == 'list':
+                        label = item.get('label', '').lower()
+                        items = item.get('items', [])
+                        
+                        if 'authorit' in label:
+                            legal_authorities.extend(items)
+                        elif 'fact' in label:
+                            key_facts.extend(items)
+                        else:
+                            # Add list items as content points
+                            content_points.extend([str(item) for item in items])
+                    
+                    elif item_type == 'paragraph':
+                        text = item.get('text', '')
+                        if text:
+                            content_points.append(text)
+                
+                # Create OutlineSection with FULL content for search
                 section = OutlineSection(
                     id=f"section_{section_info['index']}",
                     title=section_info.get('heading', f"Section {section_info['index'] + 1}"),
-                    section_type=SectionType.ARGUMENT,  # Default type
-                    content_points=content_points,
-                    legal_authorities=section_data.get('legal_authorities', []),
-                    target_length=500,  # Default target length
+                    section_type=self._determine_section_type(section_info.get('heading', '')),
+                    content_points=content_points,  # Keep ALL content points
+                    legal_authorities=legal_authorities,  # Keep ALL authorities
+                    target_length=500,  # Will be updated later
                     context_summary=section_data.get('summary', ''),
                     hook_options=section_data.get('hook_options', []),
-                    themes=section_data.get('themes', []),
-                    key_facts=section_data.get('key_facts', []),
+                    themes=themes,
+                    key_facts=key_facts,
                     counter_arguments=section_data.get('counter_arguments', [])
                 )
                 sections.append(section)
