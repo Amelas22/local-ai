@@ -6,7 +6,7 @@ Handles environment variables and configuration management
 import os
 from typing import Optional, Dict, Any, Tuple
 from pydantic_settings import BaseSettings
-from pydantic import Field, validator
+from pydantic import Field, validator, computed_field
 from pathlib import Path
 from dotenv import load_dotenv
 from dataclasses import dataclass
@@ -118,6 +118,7 @@ class DocumentProcessingSettings(BaseSettings):
     class Config:
         env_prefix = "DOC_"
     
+    @computed_field
     @property
     def supported_extensions(self) -> list[str]:
         """Get list of supported file extensions"""
