@@ -182,7 +182,7 @@ class Settings(BaseSettings):
     # Sub-configurations
     openai: OpenAISettings = Field(default_factory=OpenAISettings)
     qdrant: QdrantSettings = Field(default_factory=QdrantSettings)
-    box: BoxSettings = Field(default_factory=BoxSettings)
+    box: BoxConfig = Field(default_factory=BoxConfig)
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     cache: CacheSettings = Field(default_factory=CacheSettings)
     security: SecuritySettings = Field(default_factory=lambda: SecuritySettings(secret_key=os.getenv("SECRET_KEY", "dev-secret-key")))
@@ -284,7 +284,6 @@ class Settings(BaseSettings):
 # Create global settings instance
 settings = Settings()
 
-BoxSettings = BoxConfig
 QdrantConfig = QdrantSettings
 OpenAIConfig = OpenAISettings
 ChunkingConfig = DocumentProcessingSettings
