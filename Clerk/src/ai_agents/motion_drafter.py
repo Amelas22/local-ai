@@ -3441,6 +3441,495 @@ Keep it to 2-3 sentences."""
                 outline.get("motion_title") or 
                 "Legal Motion")
 
+    async def draft_proper_legal_motion(
+        self,
+        outline: Dict[str, Any],
+        database_name: str,
+        target_length: DocumentLength = DocumentLength.MEDIUM,
+        motion_title: Optional[str] = None,
+        case_caption: Optional[str] = None,
+        opposing_motion_text: Optional[str] = None
+    ) -> MotionDraft:
+        """
+        Draft a properly structured legal motion that follows standard format
+        """
+        start_time = datetime.utcnow()
+        logger.info(f"[MOTION_DRAFTER] Starting proper legal motion draft for database: {database_name}")
+        
+        # Initialize timeout monitor
+        timeout_monitor = TimeoutMonitor(
+            operation_name=f"Legal Motion Drafting ({database_name})",
+            warning_threshold=60,
+            critical_threshold=180
+        )
+        
+        # Extract case information
+        if not case_caption:
+            case_caption = self._extract_case_caption(outline, database_name)
+        
+        if not motion_title:
+            motion_title = self._extract_motion_title(outline)
+        
+        # Convert to proper structure
+        logger.info("[MOTION_DRAFTER] Converting outline to proper legal structure")
+        proper_structure = self._convert_to_proper_legal_structure(outline, target_length)
+        
+        # Retrieve case context
+        logger.info("[MOTION_DRAFTER] Retrieving case context")
+        case_context = await self._retrieve_enhanced_case_context(
+            database_name, 
+            self._structure_to_outline_sections(proper_structure)
+        )
+        
+        # Initialize document context
+        self.document_context = {
+            "themes": self._extract_themes_from_outline(outline),
+            "key_arguments": [],
+            "terminology": {},
+            "citations_used": set(),
+            "fact_chronology": [],
+            "database_name": database_name,
+            "opposing_motion_text": opposing_motion_text,
+            "case_caption": case_caption,
+            "motion_title": motion_title
+        }
+        
+        # Draft sections in proper order
+        drafted_sections = []
+        total_words = 0
+        
+        # 1. Introduction
+        logger.info("[MOTION_DRAFTER] Drafting INTRODUCTION")
+        intro_section = await self._draft_introduction_section(
+            proper_structure["introduction"],
+            case_context,
+            opposing_motion_text
+        )
+        drafted_sections.append(intro_section)
+        total_words += intro_section.word_count
+        
+        # 2. Statement of Facts (skip if ERROR as mentioned)
+        logger.info("[MOTION_DRAFTER] Drafting STATEMENT OF FACTS")
+        facts_section = await self._draft_facts_section(
+            proper_structure["facts"],
+            case_context
+        )
+        drafted_sections.append(facts_section)
+        total_words += facts_section.word_count
+        
+        # 3. Legal Standard
+        logger.info("[MOTION_DRAFTER] Drafting LEGAL STANDARD")
+        legal_section = await self._draft_legal_standard_section(
+            proper_structure["legal_standard"],
+            case_context
+        )
+        drafted_sections.append(legal_section)
+        total_words += legal_section.word_count
+        
+        # 4. Arguments
+        logger.info("[MOTION_DRAFTER] Drafting ARGUMENT sections")
+        for i, arg_section in enumerate(proper_structure["arguments"]):
+            logger.info(f"[MOTION_DRAFTER] Drafting Argument {i+1}: {arg_section.title}")
+            
+            argument = await self._draft_argument_section_proper(
+                arg_section,
+                case_context,
+                i + 1,
+                len(proper_structure["arguments"])
+            )
+            drafted_sections.append(argument)
+            total_words += argument.word_count
+        
+        # 5. Conclusion
+        logger.info("[MOTION_DRAFTER] Drafting CONCLUSION")
+        conclusion_section = await self._draft_conclusion_section(
+            proper_structure["conclusion"],
+            case_context,
+            drafted_sections
+        )
+        drafted_sections.append(conclusion_section)
+        total_words += conclusion_section.word_count
+        
+        # Create motion draft
+        motion_draft = MotionDraft(
+            title=motion_title,
+            case_name=case_caption,
+            sections=drafted_sections,
+            total_word_count=total_words,
+            total_page_estimate=total_words // self.words_per_page,
+            creation_timestamp=datetime.utcnow(),
+            outline_source=outline
+        )
+        
+        # Quick review
+        motion_draft = await self._quick_legal_review(motion_draft)
+        
+        # Build citation index
+        motion_draft.citation_index = self._build_citation_index(motion_draft)
+        
+        timeout_monitor.finish(success=True)
+        
+        logger.info(f"[MOTION_DRAFTER] Proper legal motion completed: {motion_draft.total_page_estimate} pages")
+        
+        return motion_draft
 
+    def _convert_to_proper_legal_structure(
+        self, 
+        outline: Dict[str, Any], 
+        target_length: DocumentLength
+    ) -> Dict[str, Any]:
+        """Convert outline to proper legal motion structure"""
+        
+        min_pages, max_pages = target_length.value
+        target_words = ((min_pages + max_pages) // 2) * self.words_per_page
+        
+        # Define standard structure with word allocation
+        structure = {
+            "introduction": OutlineSection(
+                id="intro",
+                title="Introduction",
+                section_type=SectionType.INTRODUCTION,
+                content_points=[],
+                legal_authorities=[],
+                target_length=int(target_words * 0.05),  # 5%
+                hook_options=[],
+                themes=[]
+            ),
+            "facts": OutlineSection(
+                id="facts",
+                title="Statement of Facts",
+                section_type=SectionType.STATEMENT_OF_FACTS,
+                content_points=[],
+                legal_authorities=[],
+                target_length=int(target_words * 0.20),  # 20%
+                key_facts=[]
+            ),
+            "legal_standard": OutlineSection(
+                id="legal",
+                title="Legal Standard",
+                section_type=SectionType.LEGAL_STANDARD,
+                content_points=[],
+                legal_authorities=[],
+                target_length=int(target_words * 0.10)  # 10%
+            ),
+            "arguments": [],  # 60% total
+            "conclusion": OutlineSection(
+                id="conclusion",
+                title="Conclusion",
+                section_type=SectionType.CONCLUSION,
+                content_points=[],
+                legal_authorities=[],
+                target_length=int(target_words * 0.05)  # 5%
+            )
+        }
+        
+        # Extract content from outline sections
+        outline_sections = outline.get("sections", [])
+        hooks = []
+        themes = []
+        facts = []
+        authorities = []
+        arguments = []
+        
+        for section in outline_sections:
+            # Parse content
+            for item in section.get("content", []):
+                if item.get("type") == "field":
+                    label = item.get("label", "").lower()
+                    value = item.get("value", "")
+                    
+                    if "hook" in label:
+                        hooks.append(self._extract_clean_value(value))
+                    elif "theme" in label:
+                        themes.extend(self._extract_themes_from_value(value))
+                    elif "fact" in label:
+                        facts.append(value)
+                    elif "authorit" in label:
+                        authorities.append(value)
+            
+            # Check if this is an argument section
+            heading = section.get("heading", "").lower()
+            if not any(skip in heading for skip in ["introduction", "facts", "conclusion", "standard"]):
+                # This is an argument
+                arguments.append({
+                    "title": section.get("heading", f"Argument {len(arguments) + 1}"),
+                    "content": section,
+                    "authorities": self._extract_section_authorities(section)
+                })
+        
+        # Populate structure
+        structure["introduction"].hook_options = hooks[:3]
+        structure["introduction"].themes = themes[:5]
+        structure["facts"].key_facts = facts
+        structure["legal_standard"].legal_authorities = authorities[:10]
+        
+        # Create argument sections
+        argument_words = int(target_words * 0.60)
+        if arguments:
+            words_per_argument = argument_words // len(arguments)
+            for i, arg_data in enumerate(arguments):
+                arg_section = OutlineSection(
+                    id=f"arg_{i}",
+                    title=arg_data["title"],
+                    section_type=SectionType.ARGUMENT,
+                    content_points=[],
+                    legal_authorities=arg_data["authorities"],
+                    target_length=words_per_argument
+                )
+                # Store original content for reference
+                arg_section.context_summary = str(arg_data["content"])
+                structure["arguments"].append(arg_section)
+        
+        return structure
+
+    async def _draft_introduction_section(
+        self,
+        intro_structure: OutlineSection,
+        case_context: Dict[str, Any],
+        opposing_motion_text: Optional[str]
+    ) -> DraftedSection:
+        """Draft proper introduction section"""
+        
+        prompt = f"""Draft the INTRODUCTION section for this legal motion.
+
+    CRITICAL: This is the formal INTRODUCTION section, not a summary or outline.
+
+    Target length: {intro_structure.target_length} words MINIMUM
+
+    Available hooks:
+    {chr(10).join(f"- {hook}" for hook in intro_structure.hook_options[:3])}
+
+    Key themes:
+    {chr(10).join(f"- {theme}" for theme in intro_structure.themes[:5])}
+
+    Motion title: {self.document_context.get('motion_title', 'MOTION')}
+    Case caption: {self.document_context.get('case_caption', '')}
+
+    Requirements:
+    1. Start with "INTRODUCTION" as the section header
+    2. First paragraph: Use one of the hooks to grab attention
+    3. Second paragraph: State what relief is sought
+    4. Third paragraph: Preview main arguments (briefly)
+    5. Optional fourth paragraph: Frame response to opposing motion if applicable
+    6. Use formal legal language throughout
+    7. Do NOT include bullet points or lists
+    8. Write in flowing paragraphs
+
+    Example structure:
+    "INTRODUCTION
+
+    [Hook paragraph that frames the legal issue compellingly]
+
+    [Relief paragraph stating what plaintiff seeks from the court]
+
+    [Preview paragraph briefly mentioning the key arguments to follow]"
+
+    Remember: This is the actual INTRODUCTION section of the motion, not an outline."""
+
+        if opposing_motion_text:
+            prompt += f"\n\nResponding to opposition:\n{opposing_motion_text[:500]}..."
+        
+        result = await self.section_writer.run(prompt)
+        content = str(result.data) if hasattr(result, 'data') else str(result)
+        
+        # Ensure it starts with proper header
+        if not content.strip().startswith("INTRODUCTION"):
+            content = "INTRODUCTION\n\n" + content
+        
+        return DraftedSection(
+            outline_section=intro_structure,
+            content=content,
+            word_count=len(content.split()),
+            citations_used=self._extract_citations_from_text(content),
+            citations_verified={},
+            expansion_cycles=1,
+            confidence_score=0.9
+        )
+
+    async def _draft_argument_section_proper(
+        self,
+        arg_structure: OutlineSection,
+        case_context: Dict[str, Any],
+        arg_number: int,
+        total_args: int
+    ) -> DraftedSection:
+        """Draft a proper argument section"""
+        
+        # Format section header
+        roman = self._to_roman_numeral(arg_number)
+        section_header = f"{roman}. {arg_structure.title.upper()}"
+        
+        prompt = f"""Draft legal argument section: {section_header}
+
+    Target length: {arg_structure.target_length} words MINIMUM
+
+    This is argument {arg_number} of {total_args} in the ARGUMENT portion of the motion.
+
+    Legal authorities for this argument:
+    {chr(10).join(f"- {auth}" for auth in arg_structure.legal_authorities[:7])}
+
+    Requirements:
+    1. Start with the section header: {section_header}
+    2. First paragraph: Clear thesis statement of what this argument proves
+    3. Follow IRAC structure:
+    - Issue: State the specific legal question
+    - Rule: Cite the applicable law with parentheticals
+    - Application: Apply law to facts in detail (multiple paragraphs)
+    - Conclusion: Explain why this supports the relief sought
+    4. Use "Moreover," "Furthermore," "Additionally" to build argument
+    5. Include "Even if" or "Even assuming" for counterarguments
+    6. End with conclusion tying back to requested relief
+    7. Minimum 5-7 substantial paragraphs
+    8. All citations must include parentheticals
+
+    Example structure:
+    "{section_header}
+
+    [Thesis paragraph stating the legal conclusion]
+
+    [Rule paragraph(s) with legal standard and citations]
+
+    [Multiple application paragraphs applying law to facts]
+
+    [Additional analysis with Moreover/Furthermore]
+
+    [Counter-argument paragraph with Even if]
+
+    [Conclusion paragraph tying to relief]"
+
+    Remember: This is a complete legal argument that must be thorough and persuasive."""
+        
+        result = await self.section_writer.run(prompt)
+        content = str(result.data) if hasattr(result, 'data') else str(result)
+        
+        # Ensure proper header
+        if not content.strip().startswith(roman):
+            content = f"{section_header}\n\n{content}"
+        
+        # Expand if needed
+        word_count = len(content.split())
+        if word_count < arg_structure.target_length * 0.9:
+            content = await self._expand_argument_section(
+                content, arg_structure, case_context
+            )
+        
+        return DraftedSection(
+            outline_section=arg_structure,
+            content=content,
+            word_count=len(content.split()),
+            citations_used=self._extract_citations_from_text(content),
+            citations_verified={},
+            expansion_cycles=1,
+            confidence_score=0.85
+        )
+
+    def _to_roman_numeral(self, num: int) -> str:
+        """Convert number to Roman numeral"""
+        values = [(10, 'X'), (9, 'IX'), (5, 'V'), (4, 'IV'), (1, 'I')]
+        result = ''
+        for value, letter in values:
+            count, num = divmod(num, value)
+            result += letter * count
+        return result
+
+    # Add this to export_to_docx method to format properly
+    def export_proper_motion_to_docx(self, motion_draft: MotionDraft, output_path: str):
+        """Export motion with proper legal formatting"""
+        from docx import Document
+        from docx.shared import Pt, Inches
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.enum.style import WD_STYLE_TYPE
+        
+        doc = Document()
+        
+        # Set up styles
+        styles = doc.styles
+        
+        # Create heading style for section headers
+        heading_style = styles.add_style('SectionHeading', WD_STYLE_TYPE.PARAGRAPH)
+        heading_style.font.name = 'Times New Roman'
+        heading_style.font.size = Pt(12)
+        heading_style.font.bold = True
+        heading_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        heading_style.paragraph_format.space_after = Pt(12)
+        
+        # Set margins
+        for section in doc.sections:
+            section.top_margin = Inches(1)
+            section.bottom_margin = Inches(1)
+            section.left_margin = Inches(1.25)
+            section.right_margin = Inches(1)
+        
+        # Add caption
+        caption_lines = motion_draft.case_name.split('\n')
+        for line in caption_lines:
+            p = doc.add_paragraph(line)
+            if "CIRCUIT COURT" in line.upper():
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        doc.add_paragraph()  # Space after caption
+        
+        # Add title
+        title_p = doc.add_paragraph(motion_draft.title)
+        title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        title_p.style.font.bold = True
+        title_p.style.font.size = Pt(14)
+        
+        doc.add_paragraph()  # Space after title
+        
+        # Add each section
+        for section in motion_draft.sections:
+            # Parse content to find section headers
+            lines = section.content.split('\n')
+            
+            for i, line in enumerate(lines):
+                line = line.strip()
+                
+                if not line:
+                    continue
+                    
+                # Check if this is a section header
+                is_header = False
+                if line.upper() == line and len(line) < 50:  # All caps, short
+                    is_header = True
+                elif line.startswith(('I.', 'II.', 'III.', 'IV.', 'V.')):  # Roman numerals
+                    is_header = True
+                
+                if is_header:
+                    p = doc.add_paragraph(line, style='SectionHeading')
+                else:
+                    p = doc.add_paragraph(line)
+                    p.style.font.name = 'Times New Roman'
+                    p.style.font.size = Pt(12)
+                    p.paragraph_format.line_spacing = 2  # Double spaced
+                    p.paragraph_format.first_line_indent = Inches(0.5)
+        
+        # Add signature block
+        doc.add_page_break()
+        doc.add_paragraph("Respectfully submitted,")
+        doc.add_paragraph()
+        doc.add_paragraph("_______________________________")
+        doc.add_paragraph("[ATTORNEY NAME]")
+        doc.add_paragraph("Attorney for Plaintiff")
+        doc.add_paragraph("[FIRM NAME]")
+        doc.add_paragraph("[ADDRESS]")
+        doc.add_paragraph("[PHONE]")
+        doc.add_paragraph("[EMAIL]")
+        doc.add_paragraph("Florida Bar No. [NUMBER]")
+        
+        # Certificate of Service
+        doc.add_paragraph()
+        cert = doc.add_paragraph("CERTIFICATE OF SERVICE")
+        cert.style.font.bold = True
+        cert.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        doc.add_paragraph(
+            "I HEREBY CERTIFY that a true and correct copy of the foregoing was "
+            "served via [METHOD] on [DATE] to all counsel of record."
+        )
+        
+        doc.save(output_path)
+        logger.info(f"Proper motion exported to {output_path}")
+        
 # Create enhanced singleton instance
 motion_drafter = EnhancedMotionDraftingAgent()
