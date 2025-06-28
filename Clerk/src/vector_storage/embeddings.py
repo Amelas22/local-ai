@@ -20,8 +20,8 @@ class EmbeddingGenerator:
     def __init__(self):
         """Initialize embedding generator with OpenAI client"""
         self.client = openai.OpenAI(api_key=settings.openai.api_key)
-        self.model = settings.openai.embedding_model
-        self.dimensions = settings.vector.embedding_dimensions
+        self.model = settings.ai.embedding_model
+        self.dimensions = settings.ai.embedding_dimensions
         
         # Batch settings
         self.max_batch_size = 100  # OpenAI limit

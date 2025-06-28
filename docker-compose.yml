@@ -107,6 +107,7 @@ services:
       - COHERE_API_KEY=${COHERE_API_KEY}
       # LLM Configuration
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=https://api.openai.com/v1
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - CONTEXT_LLM_MODEL=${CONTEXT_LLM_MODEL:-gpt-4o-mini}
       

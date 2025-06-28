@@ -1,66 +1,142 @@
 """
-Configuration settings for the Clerk legal AI system.
-All sensitive values should be set via environment variables.
+Configuration settings for Clerk Legal AI System
+Handles environment variables and configuration management
 """
 
 import os
-from typing import Dict, Any, Optional
-from dataclasses import dataclass
+from typing import Optional, Dict, Any
+from pydantic_settings import BaseSettings
+from pydantic import Field, validator
+from pathlib import Path
 from dotenv import load_dotenv
+from dataclasses import dataclass
 
 # Load environment variables
 load_dotenv()
 
-@dataclass
-class BoxConfig:
-    """Box API configuration"""
-    client_id: str = os.getenv("BOX_CLIENT_ID", "")
-    client_secret: str = os.getenv("BOX_CLIENT_SECRET", "")
-    enterprise_id: str = os.getenv("BOX_ENTERPRISE_ID", "")
-    jwt_key_id: str = os.getenv("BOX_JWT_KEY_ID", "")
-    private_key: str = os.getenv("BOX_PRIVATE_KEY", "").replace("\\n", "\n")
-    passphrase: str = os.getenv("BOX_PASSPHRASE", "")
-    
-    def __post_init__(self):
-        """Validate configuration after initialization"""
-        if self.private_key and not self.private_key.startswith('-----BEGIN'):
-            raise ValueError("BOX_PRIVATE_KEY must be a valid PEM-formatted private key")
 
-@dataclass
-class QdrantConfig:
+class OpenAISettings(BaseSettings):
+    """OpenAI API configuration"""
+    api_key: str = Field(..., env="OPENAI_API_KEY")
+    base_url: Optional[str] = Field(None, env="OPENAI_BASE_URL")
+    organization: Optional[str] = Field(None, env="OPENAI_ORGANIZATION")
+    
+    class Config:
+        env_prefix = "OPENAI_"
+
+
+class QdrantSettings(BaseSettings):
     """Qdrant vector database configuration"""
-    host: str = os.getenv("QDRANT_HOST", "qdrant")
-    port: int = int(os.getenv("QDRANT_PORT", "6333"))
-    grpc_port: int = int(os.getenv("QDRANT_GRPC_PORT", "6334"))
-    api_key: Optional[str] = os.getenv("QDRANT_API_KEY", None)
-    https: bool = os.getenv("QDRANT_HTTPS", "false").lower() == "true"
-    timeout: int = int(os.getenv("QDRANT_TIMEOUT", "60"))
-    prefer_grpc: bool = os.getenv("QDRANT_PREFER_GRPC", "true").lower() == "true"
+    host: str = Field("localhost", env="QDRANT_HOST")
+    port: int = Field(6333, env="QDRANT_PORT")
+    api_key: Optional[str] = Field(None, env="QDRANT_API_KEY")
+    https: bool = Field(False, env="QDRANT_HTTPS")
+    prefer_grpc: bool = Field(False, env="QDRANT_PREFER_GRPC")
+    timeout: int = Field(30, env="QDRANT_TIMEOUT")  # seconds
     
-    # Collection configuration
-    collection_name: str = "legal_documents"
-    hybrid_collection_name: str = "legal_documents_hybrid"
-    registry_collection_name: str = "document_registry"  # For deduplication
-    
-    # Performance settings
-    batch_size: int = 500
-    max_workers: int = 16
-    
-    # Vector configuration
-    embedding_dimensions: int = 1536  # OpenAI text-embedding-3-small
+    class Config:
+        env_prefix = "QDRANT_"
     
     @property
     def url(self) -> str:
-        """Build Qdrant URL"""
+        """Get Qdrant connection URL"""
         protocol = "https" if self.https else "http"
         return f"{protocol}://{self.host}:{self.port}"
 
-@dataclass
-class OpenAIConfig:
-    """OpenAI API configuration"""
-    api_key: str = os.getenv("OPENAI_API_KEY", "")
-    embedding_model: str = "text-embedding-3-small"
-    context_model: str = os.getenv("CONTEXT_LLM_MODEL", "gpt-3.5-turbo")
+
+class BoxSettings(BaseSettings):
+    """Box API configuration"""
+    client_id: Optional[str] = Field(None, env="BOX_CLIENT_ID")
+    client_secret: Optional[str] = Field(None, env="BOX_CLIENT_SECRET")
+    enterprise_id: Optional[str] = Field(None, env="BOX_ENTERPRISE_ID")
+    jwt_key_id: Optional[str] = Field(None, env="BOX_JWT_KEY_ID")
+    rsa_private_key_path: Optional[str] = Field(None, env="BOX_RSA_PRIVATE_KEY_PATH")
+    rsa_private_key_passphrase: Optional[str] = Field(None, env="BOX_RSA_PRIVATE_KEY_PASSPHRASE")
+    webhook_signature_key: Optional[str] = Field(None, env="BOX_WEBHOOK_SIGNATURE_KEY")
+    
+    class Config:
+        env_prefix = "BOX_"
+
+
+class DatabaseSettings(BaseSettings):
+    """Database configuration for metadata storage"""
+    url: str = Field(
+        "postgresql://localhost/clerk_legal_ai",
+        env="DATABASE_URL"
+    )
+    echo: bool = Field(False, env="DATABASE_ECHO")
+    pool_size: int = Field(5, env="DATABASE_POOL_SIZE")
+    max_overflow: int = Field(10, env="DATABASE_MAX_OVERFLOW")
+    
+    class Config:
+        env_prefix = "DATABASE_"
+
+
+class CacheSettings(BaseSettings):
+    """Cache configuration"""
+    redis_url: Optional[str] = Field(None, env="REDIS_URL")
+    cache_ttl: int = Field(3600, env="CACHE_TTL")  # seconds
+    enable_cache: bool = Field(True, env="ENABLE_CACHE")
+    
+    class Config:
+        env_prefix = "CACHE_"
+
+
+class SecuritySettings(BaseSettings):
+    """Security configuration"""
+    secret_key: str = Field(..., env="SECRET_KEY")
+    algorithm: str = Field("HS256", env="JWT_ALGORITHM")
+    access_token_expire_minutes: int = Field(30, env="ACCESS_TOKEN_EXPIRE_MINUTES")
+    refresh_token_expire_days: int = Field(7, env="REFRESH_TOKEN_EXPIRE_DAYS")
+    
+    class Config:
+        env_prefix = "SECURITY_"
+
+
+class DocumentProcessingSettings(BaseSettings):
+    """Document processing configuration"""
+    chunk_size: int = Field(1200, env="CHUNK_SIZE")
+    chunk_overlap: int = Field(200, env="CHUNK_OVERLAP")
+    max_file_size_mb: int = Field(100, env="MAX_FILE_SIZE_MB")
+    supported_file_types: str = Field(".pdf,.txt,.docx", env="SUPPORTED_FILE_TYPES")
+    ocr_enabled: bool = Field(False, env="OCR_ENABLED")
+    
+    class Config:
+        env_prefix = "DOC_"
+    
+    @property
+    def supported_extensions(self) -> list[str]:
+        """Get list of supported file extensions"""
+        return [ext.strip() for ext in self.supported_file_types.split(",")]
+    
+    @property
+    def max_file_size_bytes(self) -> int:
+        """Get max file size in bytes"""
+        return self.max_file_size_mb * 1024 * 1024
+
+
+class AISettings(BaseSettings):
+    """AI model configuration"""
+    default_model: str = Field("gpt-4.1-mini-2025-04-14", env="DEFAULT_AI_MODEL")
+    temperature: float = Field(0.7, env="AI_TEMPERATURE")
+    max_tokens: int = Field(4000, env="AI_MAX_TOKENS")
+    embedding_model: str = Field("text-embedding-3-small", env="EMBEDDING_MODEL")
+    embedding_dimensions: int = Field(1536, env="EMBEDDING_DIMENSIONS")
+    
+    class Config:
+        env_prefix = "AI_"
+
+
+class LoggingSettings(BaseSettings):
+    """Logging configuration"""
+    level: str = Field("INFO", env="LOG_LEVEL")
+    format: str = Field("json", env="LOG_FORMAT")  # json or text
+    file_path: Optional[str] = Field(None, env="LOG_FILE_PATH")
+    max_size_mb: int = Field(10, env="LOG_MAX_SIZE_MB")
+    backup_count: int = Field(5, env="LOG_BACKUP_COUNT")
+    
+    class Config:
+        env_prefix = "LOG_"
 
 @dataclass
 class CohereConfig:
@@ -68,114 +144,83 @@ class CohereConfig:
     api_key: str = os.getenv("COHERE_API_KEY", "")
     rerank_model: str = "rerank-v3.5"
 
-@dataclass
-class ChunkingConfig:
-    """Document chunking configuration"""
-    target_chunk_size: int = 1200  # Increased for better context
-    chunk_variance: int = 100  # +/- 100 characters
-    overlap_size: int = 200
-    min_chunk_size: int = 500
-    max_chunk_size: int = 1500
-
-@dataclass
-class ProcessingConfig:
-    """Document processing configuration"""
-    batch_size: int = 10
-    max_retries: int = 3
-    retry_delay: int = 5  # seconds
-    max_file_size_mb: int = 200
-    supported_extensions: tuple = (".pdf",)
+class Settings(BaseSettings):
+    """Main settings class aggregating all configurations"""
     
-@dataclass
-class VectorConfig:
-    """Vector database configuration"""
-    collection_name: str = "legal_documents"
-    embedding_dimensions: int = 1536  # for text-embedding-3-small
+    # Sub-configurations
+    openai: OpenAISettings = Field(default_factory=OpenAISettings)
+    qdrant: QdrantSettings = Field(default_factory=QdrantSettings)
+    box: BoxSettings = Field(default_factory=BoxSettings)
+    database: DatabaseSettings = Field(default_factory=DatabaseSettings)
+    cache: CacheSettings = Field(default_factory=CacheSettings)
+    security: SecuritySettings = Field(default_factory=lambda: SecuritySettings(secret_key=os.getenv("SECRET_KEY", "dev-secret-key")))
+    document_processing: DocumentProcessingSettings = Field(default_factory=DocumentProcessingSettings)
+    ai: AISettings = Field(default_factory=AISettings)
+    logging: LoggingSettings = Field(default_factory=LoggingSettings)
+    cohere: CohereConfig = Field(default_factory=CohereConfig)
     
-    # Qdrant-specific settings
-    distance_metric: str = "cosine"
-    hnsw_m: int = 32  # Higher for better accuracy with legal documents
-    hnsw_ef_construct: int = 200
-    quantization_enabled: bool = True
-    quantization_type: str = "scalar"  # or "binary" for extreme compression
-    quantization_quantile: float = 0.95
-    quantization: bool = True
-
-@dataclass
-class MotionDraftingConfig:
-    """Motion drafting configuration"""
-    primary_model: str = "claude-sonnet-4-20250514"
-    review_model: str = "claude-opus-4-20250514"
-    words_per_page: int = 250
-    max_expansion_cycles: int = 5
-    min_confidence_threshold: float = 0.7
-    cache_ttl_seconds: int = 3600
-
-@dataclass
-class CostConfig:
-    """API cost tracking configuration"""
-    enable_tracking: bool = True
-    save_reports: bool = True
-    report_directory: str = "logs"
-    # Custom pricing overrides (uses defaults if not specified)
-    custom_pricing: Dict[str, Any] = None
+    # Application settings
+    app_name: str = Field("Clerk Legal AI", env="APP_NAME")
+    environment: str = Field("development", env="ENVIRONMENT")
+    debug: bool = Field(False, env="DEBUG")
+    api_v1_prefix: str = Field("/api/v1", env="API_V1_PREFIX")
+    cors_origins: str = Field("http://localhost:3000", env="CORS_ORIGINS")
     
-class Settings:
-    """Main settings class that aggregates all configurations"""
+    # Paths
+    data_dir: Path = Field(Path("./data"), env="DATA_DIR")
+    upload_dir: Path = Field(Path("./uploads"), env="UPLOAD_DIR")
+    export_dir: Path = Field(Path("./exports"), env="EXPORT_DIR")
     
-    def __init__(self):
-        self.box = BoxConfig()
-        self.qdrant = QdrantConfig()
-        self.openai = OpenAIConfig()
-        self.cohere = CohereConfig()
-        self.chunking = ChunkingConfig()
-        self.processing = ProcessingConfig()
-        self.vector = VectorConfig()
-        self.cost = CostConfig()
-        
-        # Legal-specific settings
-        self.legal = {
-            "enable_case_isolation": True,
-            "enable_citation_tracking": True,
-            "enable_deadline_detection": True,
-            "enable_hybrid_search": True,
-            "hybrid_search_weights": {
-                "vector": 0.7,
-                "keyword": 0.2,
-                "citation": 0.1
-            }
-        }
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+        case_sensitive = False
     
-    def __str__(self):
-        return (
-            f"Settings(\n"
-            f"  box={self.box},\n"
-            f"  qdrant={self.qdrant},\n"
-            f"  openai={self.openai},\n"
-            f"  cohere={self.cohere},\n"
-            f"  chunking={self.chunking},\n"
-            f"  processing={self.processing},\n"
-            f"  vector={self.vector},\n"
-            f"  cost={self.cost},\n"
-            f"  legal={self.legal}\n"
-            f")"
-        )
+    @validator("data_dir", "upload_dir", "export_dir")
+    @classmethod
+    def validate_paths(cls, v):
+        """Ensure paths are Path objects"""
+        path = Path(v)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Get CORS origins as list"""
+        return [origin.strip() for origin in self.cors_origins.split(",")]
+    
+    @property
+    def is_production(self) -> bool:
+        """Check if running in production"""
+        return self.environment.lower() == "production"
+    
+    @property
+    def is_development(self) -> bool:
+        """Check if running in development"""
+        return self.environment.lower() == "development"
+    
+    def get_database_url(self, async_driver: bool = True) -> str:
+        """Get database URL with appropriate driver"""
+        url = self.database.url
+        if async_driver and url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+asyncpg://")
+        return url
     
     def validate(self) -> bool:
-        """Validate all required settings are present"""
+        """Validate critical settings"""
         errors = []
         
-        # Check Box settings
-        if not all([self.box.client_id, self.box.client_secret]):
-            errors.append("Box API credentials missing")
+        # Check OpenAI API key
+        if not self.openai.api_key or self.openai.api_key == "your-api-key-here":
+            errors.append("OpenAI API key not configured")
         
-        # Check Qdrant settings
-        if not self.qdrant.host:
-            errors.append("Qdrant host not configured")
-            
-        # Check OpenAI settings
-        if not self.openai.api_key:
-            errors.append("OpenAI API key missing")
+        # Check security settings
+        if self.is_production and self.security.secret_key == "dev-secret-key":
+            errors.append("Production secret key not configured")
+        
+        # Check Qdrant connection
+        if self.is_production and self.qdrant.host == "localhost":
+            errors.append("Production Qdrant host not configured")
         
         if errors:
             for error in errors:
@@ -183,6 +228,27 @@ class Settings:
             return False
         
         return True
+    
+    def get_config_summary(self) -> Dict[str, Any]:
+        """Get configuration summary for logging"""
+        return {
+            "app_name": self.app_name,
+            "environment": self.environment,
+            "debug": self.debug,
+            "openai_configured": bool(self.openai.api_key),
+            "box_configured": bool(self.box.client_id),
+            "qdrant_host": self.qdrant.host,
+            "database_configured": bool(self.database.url),
+            "cache_enabled": self.cache.enable_cache,
+            "cors_origins": self.cors_origins_list,
+        }
 
-# Create singleton instance
+
+# Create global settings instance
 settings = Settings()
+
+# Export commonly used settings
+CHUNK_SIZE = settings.document_processing.chunk_size
+CHUNK_OVERLAP = settings.document_processing.chunk_overlap
+EMBEDDING_MODEL = settings.ai.embedding_model
+DEFAULT_AI_MODEL = settings.ai.default_model

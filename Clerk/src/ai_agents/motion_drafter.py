@@ -110,6 +110,13 @@ class EnhancedMotionDraftingAgent:
         self.embedding_generator = EmbeddingGenerator()
         self.openai_client = AsyncOpenAI(api_key=settings.openai.api_key)
         
+        # Initialize OpenAI models with proper configuration
+        # Note: If using Claude models through OpenAI-compatible API, set base_url
+        self.gpt4_model = OpenAIModel('gpt-4.1-mini-2025-04-14')
+        
+        # For now, use GPT-4 for all agents to ensure compatibility
+        self.primary_model = self.gpt4_model
+        
         # Initialize AI agents with enhanced prompts
         self.section_writer = self._create_enhanced_section_writer()
         self.section_expander = self._create_enhanced_section_expander()
@@ -136,11 +143,15 @@ class EnhancedMotionDraftingAgent:
             "fact_chronology": []
         }
         
+        logger.info("EnhancedMotionDraftingAgent initialized successfully")
+        
     def _create_enhanced_section_writer(self) -> Agent:
         """Create enhanced section writer with ABCDE framework and CoT prompting"""
-        return Agent(
-            "claude-3-5-sonnet-20241022",  # Correct model name
-            system_prompt="""You are an expert legal writer specializing in comprehensive motion drafting.
+        try:
+            # Use primary model for section writing
+            agent = Agent(
+                self.primary_model,
+                system_prompt="""You are an expert legal writer specializing in comprehensive motion drafting.
 
 ## AUDIENCE
 You are writing for a trial court judge who needs detailed legal analysis, not summaries.
@@ -187,14 +198,20 @@ Before writing, think through:
 4. What would opposing counsel argue?
 5. How can we preemptively counter those arguments?
 6. What policy reasons support our position?""",
-            result_type=str
-        )
+                result_type=str
+            )
+            logger.info("Section writer agent created successfully")
+            return agent
+        except Exception as e:
+            logger.error(f"Failed to create section writer agent: {str(e)}")
+            raise
     
     def _create_enhanced_section_expander(self) -> Agent:
         """Create enhanced expander with explicit anti-brevity instructions"""
-        return Agent(
-            "claude-3-5-sonnet-20241022",
-            system_prompt="""You are an expert legal writer focused on expanding and enriching legal arguments.
+        try:
+            agent = Agent(
+                self.primary_model,
+                system_prompt="""You are an expert legal writer focused on expanding and enriching legal arguments.
 
 ## YOUR MISSION
 Transform concise legal sections into comprehensive, detailed analyses suitable for 20-40 page motions.
@@ -232,14 +249,20 @@ You are the opposite of a summarizer - you ADD substance, never remove it.
 - Target at least 40% increase in word count per expansion
 - Maintain formal legal writing style
 - Preserve all existing content while adding new material""",
-            result_type=str
-        )
+                result_type=str
+            )
+            logger.info("Section expander agent created successfully")
+            return agent
+        except Exception as e:
+            logger.error(f"Failed to create section expander agent: {str(e)}")
+            raise
     
     def _create_enhanced_transition_writer(self) -> Agent:
         """Create transition writer for document coherence"""
-        return Agent(
-            "claude-3-5-sonnet-20241022",
-            system_prompt="""You are an expert legal writer specializing in document coherence and flow.
+        try:
+            agent = Agent(
+                self.primary_model,
+                system_prompt="""You are an expert legal writer specializing in document coherence and flow.
 
 Create sophisticated transitions that:
 1. **Summarize** - Crystallize the key holding/conclusion from the previous section
@@ -259,14 +282,20 @@ Requirements:
 - Reference specific holdings or facts
 - Use sophisticated connecting language
 - Maintain formal legal tone""",
-            result_type=str
-        )
+                result_type=str
+            )
+            logger.info("Transition writer agent created successfully")
+            return agent
+        except Exception as e:
+            logger.error(f"Failed to create transition writer agent: {str(e)}")
+            raise
     
     def _create_enhanced_document_reviewer(self) -> Agent:
         """Create comprehensive document reviewer"""
-        return Agent(
-            "claude-3-opus-20240229",  # Using Opus for thorough review
-            system_prompt="""You are a senior legal editor and former appellate judge reviewing motions.
+        try:
+            agent = Agent(
+                self.primary_model,
+                system_prompt="""You are a senior legal editor and former appellate judge reviewing motions.
 
 Conduct a comprehensive review examining:
 
@@ -307,14 +336,20 @@ Provide output as JSON with:
 - missing_elements (list of what's missing)
 - revision_priorities (ordered list of what needs fixing)
 - specific_edits (dict of section_id: list of edits)""",
-            result_type=Dict[str, Any]
-        )
+                result_type=Dict[str, Any]
+            )
+            logger.info("Document reviewer agent created successfully")
+            return agent
+        except Exception as e:
+            logger.error(f"Failed to create document reviewer agent: {str(e)}")
+            raise
     
     def _create_consistency_checker(self) -> Agent:
         """Create agent for checking document consistency"""
-        return Agent(
-            "claude-3-5-sonnet-20241022",
-            system_prompt="""You are a legal document consistency analyzer.
+        try:
+            agent = Agent(
+                self.primary_model,
+                system_prompt="""You are a legal document consistency analyzer.
 
 Check for inconsistencies in:
 1. **Terminology** - Same terms used throughout (Agreement vs Contract)
@@ -328,14 +363,20 @@ Output JSON with:
 - terminology_map: dict of preferred terms
 - fact_conflicts: list of conflicting facts
 - citation_issues: list of citation problems""",
-            result_type=Dict[str, Any]
-        )
+                result_type=Dict[str, Any]
+            )
+            logger.info("Consistency checker agent created successfully")
+            return agent
+        except Exception as e:
+            logger.error(f"Failed to create consistency checker agent: {str(e)}")
+            raise
     
     def _create_citation_verifier(self) -> Agent:
         """Create agent for citation verification"""
-        return Agent(
-            "claude-3-5-sonnet-20241022", 
-            system_prompt="""You are a legal citation verification specialist.
+        try:
+            agent = Agent(
+                self.primary_model,
+                system_prompt="""You are a legal citation verification specialist.
 
 Verify that:
 1. All citations follow Bluebook format
@@ -351,8 +392,13 @@ Output JSON with:
 - format_issues: list of formatting problems
 - missing_pincites: list of citations needing page numbers
 - fictional_citations: list of any made-up citations""",
-            result_type=Dict[str, Any]
-        )
+                result_type=Dict[str, Any]
+            )
+            logger.info("Citation verifier agent created successfully")
+            return agent
+        except Exception as e:
+            logger.error(f"Failed to create citation verifier agent: {str(e)}")
+            raise
     
     async def draft_motion(
         self,
@@ -478,35 +524,64 @@ Output JSON with:
                 # Draft with Chain-of-Thought approach
                 logger.info(f"[MOTION_DRAFTER] Starting Chain-of-Thought drafting for section {i+1}")
                 cot_start_time = datetime.utcnow()
-                drafted_section = await self._draft_section_with_cot(
-                    section,
-                    case_context,
-                    cumulative_context
-                )
-                cot_end_time = datetime.utcnow()
-                logger.info(f"[MOTION_DRAFTER] CoT drafting completed in {cot_end_time - cot_start_time}")
-                logger.info(f"[MOTION_DRAFTER] Initial draft: {drafted_section.word_count} words, confidence: {drafted_section.confidence_score:.2f}")
+                
+                try:
+                    drafted_section = await self._draft_section_with_cot(
+                        section,
+                        case_context,
+                        cumulative_context
+                    )
+                    cot_end_time = datetime.utcnow()
+                    logger.info(f"[MOTION_DRAFTER] CoT drafting completed in {cot_end_time - cot_start_time}")
+                    logger.info(f"[MOTION_DRAFTER] Initial draft: {drafted_section.word_count} words, confidence: {drafted_section.confidence_score:.2f}")
+                except Exception as e:
+                    logger.error(f"[MOTION_DRAFTER] Error drafting section {i+1}: {str(e)}", exc_info=True)
+                    # Create a placeholder section on error
+                    drafted_section = DraftedSection(
+                        outline_section=section,
+                        content=f"[ERROR DRAFTING SECTION: {str(e)}]",
+                        word_count=0,
+                        citations_used=[],
+                        citations_verified={},
+                        expansion_cycles=0,
+                        confidence_score=0.0
+                    )
                 
                 # Expand to meet length requirements
                 logger.info(f"[MOTION_DRAFTER] Checking if expansion needed (current: {drafted_section.word_count}, target: {section.target_length})")
                 expansion_cycles = 0
+                previous_word_count = drafted_section.word_count
+                
                 while drafted_section.word_count < section.target_length * 0.9:
                     expansion_cycles += 1
                     logger.info(f"[MOTION_DRAFTER] Starting expansion cycle {expansion_cycles} for section {i+1}")
                     expansion_start_time = datetime.utcnow()
                     
-                    drafted_section = await self._expand_section_intelligently(
-                        drafted_section,
-                        section.target_length,
-                        case_context,
-                        cumulative_context
-                    )
+                    try:
+                        drafted_section = await self._expand_section_intelligently(
+                            drafted_section,
+                            section.target_length,
+                            case_context,
+                            cumulative_context
+                        )
+                        
+                        expansion_end_time = datetime.utcnow()
+                        logger.info(f"[MOTION_DRAFTER] Expansion cycle {expansion_cycles} completed in {expansion_end_time - expansion_start_time}")
+                        logger.info(f"[MOTION_DRAFTER] After expansion: {drafted_section.word_count} words")
+                    except Exception as e:
+                        logger.error(f"[MOTION_DRAFTER] Error in expansion cycle {expansion_cycles}: {str(e)}")
+                        break
                     
-                    expansion_end_time = datetime.utcnow()
-                    logger.info(f"[MOTION_DRAFTER] Expansion cycle {expansion_cycles} completed in {expansion_end_time - expansion_start_time}")
-                    logger.info(f"[MOTION_DRAFTER] After expansion: {drafted_section.word_count} words")
+                    # Check if expansion actually added words
+                    if drafted_section.word_count <= previous_word_count:
+                        logger.warning(f"[MOTION_DRAFTER] No words added in expansion cycle {expansion_cycles}, breaking to prevent infinite loop")
+                        break
                     
-                    if drafted_section.expansion_cycles >= self.max_expansion_cycles:
+                    # Update previous word count for next iteration
+                    previous_word_count = drafted_section.word_count
+                    
+                    # Use local expansion_cycles counter instead of drafted_section.expansion_cycles
+                    if expansion_cycles >= self.max_expansion_cycles:
                         logger.warning(f"[MOTION_DRAFTER] Max expansion cycles ({self.max_expansion_cycles}) reached for {section.title}")
                         break
                 
@@ -515,48 +590,57 @@ Output JSON with:
                 if i > 0:
                     logger.info(f"[MOTION_DRAFTER] Creating transition from previous section")
                     transition_start_time = datetime.utcnow()
-                    transition_from_previous = await self._create_sophisticated_transition(
-                        drafted_sections[-1],
-                        drafted_section
-                    )
-                    drafted_section.transitions["from_previous"] = transition_from_previous
-                    transition_end_time = datetime.utcnow()
-                    logger.info(f"[MOTION_DRAFTER] Transition from previous created in {transition_end_time - transition_start_time}")
+                    try:
+                        transition_from_previous = await self._create_sophisticated_transition(
+                            drafted_sections[-1],
+                            drafted_section
+                        )
+                        drafted_section.transitions["from_previous"] = transition_from_previous
+                        transition_end_time = datetime.utcnow()
+                        logger.info(f"[MOTION_DRAFTER] Transition from previous created in {transition_end_time - transition_start_time}")
+                    except Exception as e:
+                        logger.error(f"[MOTION_DRAFTER] Error creating transition: {str(e)}")
                 
                 if i < len(outline_sections) - 1:
                     logger.info(f"[MOTION_DRAFTER] Creating preview transition to next section")
                     # Preview transition to next section
                     preview_start_time = datetime.utcnow()
-                    transition_to_next = await self._preview_next_section(
-                        drafted_section,
-                        outline_sections[i + 1]
-                    )
-                    drafted_section.transitions["to_next"] = transition_to_next
-                    preview_end_time = datetime.utcnow()
-                    logger.info(f"[MOTION_DRAFTER] Preview transition created in {preview_end_time - preview_start_time}")
+                    try:
+                        transition_to_next = await self._preview_next_section(
+                            drafted_section,
+                            outline_sections[i + 1]
+                        )
+                        drafted_section.transitions["to_next"] = transition_to_next
+                        preview_end_time = datetime.utcnow()
+                        logger.info(f"[MOTION_DRAFTER] Preview transition created in {preview_end_time - preview_start_time}")
+                    except Exception as e:
+                        logger.error(f"[MOTION_DRAFTER] Error creating preview transition: {str(e)}")
                 
                 # Check section consistency
                 logger.info(f"[MOTION_DRAFTER] Checking section consistency for section {i+1}")
                 consistency_start_time = datetime.utcnow()
-                consistency_issues = await self._check_section_consistency(
-                    drafted_section,
-                    drafted_sections,
-                    self.document_context
-                )
-                consistency_end_time = datetime.utcnow()
-                logger.info(f"[MOTION_DRAFTER] Consistency check completed in {consistency_end_time - consistency_start_time}")
-                
-                if consistency_issues:
-                    logger.info(f"[MOTION_DRAFTER] Found {len(consistency_issues)} consistency issues, resolving...")
-                    resolve_start_time = datetime.utcnow()
-                    drafted_section = await self._resolve_consistency_issues(
+                try:
+                    consistency_issues = await self._check_section_consistency(
                         drafted_section,
-                        consistency_issues
+                        drafted_sections,
+                        self.document_context
                     )
-                    resolve_end_time = datetime.utcnow()
-                    logger.info(f"[MOTION_DRAFTER] Consistency issues resolved in {resolve_end_time - resolve_start_time}")
-                else:
-                    logger.info(f"[MOTION_DRAFTER] No consistency issues found")
+                    consistency_end_time = datetime.utcnow()
+                    logger.info(f"[MOTION_DRAFTER] Consistency check completed in {consistency_end_time - consistency_start_time}")
+                    
+                    if consistency_issues:
+                        logger.info(f"[MOTION_DRAFTER] Found {len(consistency_issues)} consistency issues, resolving...")
+                        resolve_start_time = datetime.utcnow()
+                        drafted_section = await self._resolve_consistency_issues(
+                            drafted_section,
+                            consistency_issues
+                        )
+                        resolve_end_time = datetime.utcnow()
+                        logger.info(f"[MOTION_DRAFTER] Consistency issues resolved in {resolve_end_time - resolve_start_time}")
+                    else:
+                        logger.info(f"[MOTION_DRAFTER] No consistency issues found")
+                except Exception as e:
+                    logger.error(f"[MOTION_DRAFTER] Error in consistency check: {str(e)}")
                 
                 drafted_sections.append(drafted_section)
                 total_words += drafted_section.word_count
@@ -602,7 +686,11 @@ Output JSON with:
             timeout_monitor.log_progress("Starting comprehensive review")
             progress_tracker.next_step("Comprehensive review", "Checking quality, citations, consistency")
             
-            motion_draft = await self._comprehensive_review_process(motion_draft, case_context)
+            try:
+                motion_draft = await self._comprehensive_review_process(motion_draft, case_context)
+            except Exception as e:
+                logger.error(f"[MOTION_DRAFTER] Error in comprehensive review: {str(e)}")
+                motion_draft.review_notes.append(f"Review process encountered errors: {str(e)}")
             
             review_end_time = datetime.utcnow()
             logger.info(f"[MOTION_DRAFTER] Comprehensive review completed in {review_end_time - review_start_time}")
@@ -614,7 +702,10 @@ Output JSON with:
             timeout_monitor.log_progress("Final consistency check")
             progress_tracker.next_step("Final consistency check", "Document-wide consistency verification")
             
-            motion_draft = await self._final_consistency_pass(motion_draft)
+            try:
+                motion_draft = await self._final_consistency_pass(motion_draft)
+            except Exception as e:
+                logger.error(f"[MOTION_DRAFTER] Error in final consistency pass: {str(e)}")
             
             consistency_end_time = datetime.utcnow()
             logger.info(f"[MOTION_DRAFTER] Final consistency pass completed in {consistency_end_time - consistency_start_time}")
@@ -950,8 +1041,9 @@ Output JSON with:
     ) -> DraftedSection:
         """Draft section using Chain-of-Thought approach"""
         
-        # First, use CoT to plan the section
-        planning_prompt = f"""Plan the drafting of this legal section using step-by-step reasoning:
+        try:
+            # First, use CoT to plan the section
+            planning_prompt = f"""Plan the drafting of this legal section using step-by-step reasoning:
 
 Section: {section.title}
 Type: {section.section_type.value}
@@ -975,22 +1067,25 @@ Think through:
 
 Provide a detailed plan for drafting this section."""
 
-        # Get section plan
-        section_plan = await self.section_writer.run(planning_prompt)
-        
-        # Now draft based on the plan
-        relevant_facts = self._filter_relevant_facts(case_context["case_facts"], section)
-        relevant_authorities = self._filter_relevant_authorities(
-            case_context["legal_authorities"],
-            section.legal_authorities
-        )
-        
-        # Use hook options if this is the introduction
-        hook_content = ""
-        if section.section_type == SectionType.INTRODUCTION and section.hook_options:
-            hook_content = f"\nHook Options:\n{chr(10).join(f'{i+1}. {hook}' for i, hook in enumerate(section.hook_options))}\n\nChoose the most compelling hook and develop it fully."
-        
-        drafting_prompt = f"""Draft this section of the legal motion based on the following plan:
+            # Get section plan
+            logger.info(f"[COT] Planning section: {section.title}")
+            section_plan_result = await self.section_writer.run(planning_prompt)
+            section_plan = str(section_plan_result.data) if hasattr(section_plan_result, 'data') else str(section_plan_result)
+            logger.info(f"[COT] Section plan created, length: {len(section_plan)}")
+            
+            # Now draft based on the plan
+            relevant_facts = self._filter_relevant_facts(case_context["case_facts"], section)
+            relevant_authorities = self._filter_relevant_authorities(
+                case_context["legal_authorities"],
+                section.legal_authorities
+            )
+            
+            # Use hook options if this is the introduction
+            hook_content = ""
+            if section.section_type == SectionType.INTRODUCTION and section.hook_options:
+                hook_content = f"\nHook Options:\n{chr(10).join(f'{i+1}. {hook}' for i, hook in enumerate(section.hook_options))}\n\nChoose the most compelling hook and develop it fully."
+            
+            drafting_prompt = f"""Draft this section of the legal motion based on the following plan:
 
 {section_plan}
 
@@ -1023,50 +1118,66 @@ CRITICAL INSTRUCTIONS:
 8. DO NOT write in bullet points - use flowing paragraphs
 9. Target {section.target_length} words MINIMUM"""
 
-        # Generate comprehensive draft
-        initial_content = await self.section_writer.run(drafting_prompt)
-        
-        # Verify and enhance citations
-        enhanced_content = await self._enhance_citations(initial_content, relevant_authorities)
-        
-        # Calculate metrics
-        word_count = len(enhanced_content.split())
-        citations_used = self._extract_citations_from_text(enhanced_content)
-        confidence_score = self._calculate_section_confidence(enhanced_content, section, word_count)
-        
-        # Create drafted section
-        drafted_section = DraftedSection(
-            outline_section=section,
-            content=enhanced_content,
-            word_count=word_count,
-            citations_used=citations_used,
-            citations_verified={},  # Will be populated in verification step
-            expansion_cycles=1,
-            confidence_score=confidence_score,
-            consistency_score=1.0,  # Will be updated in consistency check
-            factual_accuracy_score=self._calculate_factual_accuracy(enhanced_content, relevant_facts),
-            argument_strength_score=self._calculate_argument_strength(enhanced_content, section)
-        )
-        
-        # Draft subsections if present
-        if section.children:
-            for child in section.children:
-                child_context = {
-                    **cumulative_context,
-                    'parent_section': enhanced_content[-1000:]  # Last 1000 chars
-                }
-                child_draft = await self._draft_section_with_cot(
-                    child,
-                    case_context,
-                    child_context
-                )
-                
-                # Integrate subsection
-                drafted_section.content += f"\n\n{child_draft.content}"
-                drafted_section.word_count += child_draft.word_count
-                drafted_section.citations_used.extend(child_draft.citations_used)
-        
-        return drafted_section
+            # Generate comprehensive draft
+            logger.info(f"[COT] Drafting section content")
+            initial_content_result = await self.section_writer.run(drafting_prompt)
+            initial_content = str(initial_content_result.data) if hasattr(initial_content_result, 'data') else str(initial_content_result)
+            logger.info(f"[COT] Initial draft generated, length: {len(initial_content.split())} words")
+            
+            # Verify and enhance citations
+            enhanced_content = await self._enhance_citations(initial_content, relevant_authorities)
+            
+            # Calculate metrics
+            word_count = len(enhanced_content.split())
+            citations_used = self._extract_citations_from_text(enhanced_content)
+            confidence_score = self._calculate_section_confidence(enhanced_content, section, word_count)
+            
+            # Create drafted section
+            drafted_section = DraftedSection(
+                outline_section=section,
+                content=enhanced_content,
+                word_count=word_count,
+                citations_used=citations_used,
+                citations_verified={},  # Will be populated in verification step
+                expansion_cycles=1,
+                confidence_score=confidence_score,
+                consistency_score=1.0,  # Will be updated in consistency check
+                factual_accuracy_score=self._calculate_factual_accuracy(enhanced_content, relevant_facts),
+                argument_strength_score=self._calculate_argument_strength(enhanced_content, section)
+            )
+            
+            # Draft subsections if present
+            if section.children:
+                for child in section.children:
+                    child_context = {
+                        **cumulative_context,
+                        'parent_section': enhanced_content[-1000:]  # Last 1000 chars
+                    }
+                    child_draft = await self._draft_section_with_cot(
+                        child,
+                        case_context,
+                        child_context
+                    )
+                    
+                    # Integrate subsection
+                    drafted_section.content += f"\n\n{child_draft.content}"
+                    drafted_section.word_count += child_draft.word_count
+                    drafted_section.citations_used.extend(child_draft.citations_used)
+            
+            return drafted_section
+            
+        except Exception as e:
+            logger.error(f"[COT] Error in _draft_section_with_cot: {str(e)}", exc_info=True)
+            # Return a minimal section on error
+            return DraftedSection(
+                outline_section=section,
+                content=f"[ERROR: Unable to draft section - {str(e)}]",
+                word_count=0,
+                citations_used=[],
+                citations_verified={},
+                expansion_cycles=0,
+                confidence_score=0.0
+            )
     
     async def _expand_section_intelligently(
         self,
@@ -1077,20 +1188,26 @@ CRITICAL INSTRUCTIONS:
     ) -> DraftedSection:
         """Intelligent expansion that adds substantive content"""
         
-        current_length = drafted_section.word_count
-        expansion_needed = target_length - current_length
-        expansion_percentage = (expansion_needed / current_length) * 100
-        
-        logger.info(f"Expanding {drafted_section.outline_section.title} by {expansion_percentage:.1f}% "
-                   f"({expansion_needed} words)")
-        
-        # Identify expansion opportunities
-        expansion_analysis = await self._analyze_expansion_opportunities(
-            drafted_section.content,
-            drafted_section.outline_section
-        )
-        
-        expansion_prompt = f"""Expand this legal section by adding {expansion_needed} words of substantive content.
+        try:
+            current_length = drafted_section.word_count
+            expansion_needed = target_length - current_length
+            
+            # Prevent division by zero when current_length is 0
+            if current_length > 0:
+                expansion_percentage = (expansion_needed / current_length) * 100
+            else:
+                expansion_percentage = 100.0  # Fallback when starting from 0 words
+            
+            logger.info(f"Expanding {drafted_section.outline_section.title} by {expansion_percentage:.1f}% "
+                       f"({expansion_needed} words)")
+            
+            # Identify expansion opportunities
+            expansion_analysis = await self._analyze_expansion_opportunities(
+                drafted_section.content,
+                drafted_section.outline_section
+            )
+            
+            expansion_prompt = f"""Expand this legal section by adding {expansion_needed} words of substantive content.
 
 Current Section ({current_length} words):
 {drafted_section.content}
@@ -1118,33 +1235,39 @@ EXPANSION REQUIREMENTS:
 Insert new content at natural break points.
 Mark insertions with [EXPANSION START] and [EXPANSION END] tags."""
 
-        # Generate expansion
-        expanded_content = await self.section_expander.run(expansion_prompt)
-        
-        # Integrate expansion seamlessly
-        integrated_content = self._integrate_expansion_seamlessly(
-            drafted_section.content,
-            expanded_content
-        )
-        
-        # Update section
-        new_word_count = len(integrated_content.split())
-        drafted_section.content = integrated_content
-        drafted_section.word_count = new_word_count
-        drafted_section.expansion_cycles += 1
-        
-        # Extract new citations
-        new_citations = self._extract_citations_from_text(expanded_content)
-        drafted_section.citations_used = list(set(drafted_section.citations_used + new_citations))
-        
-        # Recalculate quality scores
-        drafted_section.confidence_score = self._calculate_section_confidence(
-            integrated_content,
-            drafted_section.outline_section,
-            new_word_count
-        )
-        
-        return drafted_section
+            # Generate expansion
+            expanded_content_result = await self.section_expander.run(expansion_prompt)
+            expanded_content = str(expanded_content_result.data) if hasattr(expanded_content_result, 'data') else str(expanded_content_result)
+            
+            # Integrate expansion seamlessly
+            integrated_content = self._integrate_expansion_seamlessly(
+                drafted_section.content,
+                expanded_content
+            )
+            
+            # Update section
+            new_word_count = len(integrated_content.split())
+            drafted_section.content = integrated_content
+            drafted_section.word_count = new_word_count
+            drafted_section.expansion_cycles += 1
+            
+            # Extract new citations
+            new_citations = self._extract_citations_from_text(expanded_content)
+            drafted_section.citations_used = list(set(drafted_section.citations_used + new_citations))
+            
+            # Recalculate quality scores
+            drafted_section.confidence_score = self._calculate_section_confidence(
+                integrated_content,
+                drafted_section.outline_section,
+                new_word_count
+            )
+            
+            return drafted_section
+            
+        except Exception as e:
+            logger.error(f"Error in _expand_section_intelligently: {str(e)}")
+            # Return the section unchanged on error
+            return drafted_section
     
     async def _create_sophisticated_transition(
         self,
@@ -1153,11 +1276,12 @@ Mark insertions with [EXPANSION START] and [EXPANSION END] tags."""
     ) -> str:
         """Create sophisticated multi-paragraph transitions"""
         
-        # Extract key holdings and conclusions
-        from_conclusions = self._extract_conclusions(from_section.content)
-        to_premises = self._extract_opening_premises(to_section.content)
-        
-        transition_prompt = f"""Create a sophisticated 2-3 paragraph transition between these sections:
+        try:
+            # Extract key holdings and conclusions
+            from_conclusions = self._extract_conclusions(from_section.content)
+            to_premises = self._extract_opening_premises(to_section.content)
+            
+            transition_prompt = f"""Create a sophisticated 2-3 paragraph transition between these sections:
 
 FROM SECTION: {from_section.outline_section.title}
 Key Conclusions:
@@ -1184,8 +1308,13 @@ Use sophisticated legal transition language:
 
 Make it substantive, not perfunctory."""
 
-        transition = await self.transition_writer.run(transition_prompt)
-        return transition
+            transition_result = await self.transition_writer.run(transition_prompt)
+            transition = str(transition_result.data) if hasattr(transition_result, 'data') else str(transition_result)
+            return transition
+            
+        except Exception as e:
+            logger.error(f"Error creating transition: {str(e)}")
+            return ""
     
     async def _check_section_consistency(
         self,
@@ -1195,7 +1324,8 @@ Make it substantive, not perfunctory."""
     ) -> List[Dict[str, Any]]:
         """Check section consistency with document"""
         
-        consistency_prompt = f"""Check this section for consistency with the rest of the document:
+        try:
+            consistency_prompt = f"""Check this section for consistency with the rest of the document:
 
 Current Section:
 {current_section.content[:2000]}...
@@ -1217,12 +1347,14 @@ Check for:
 
 Output JSON with any inconsistencies found."""
 
-        result = await self.consistency_checker.run(consistency_prompt)
-        
-        try:
-            consistency_data = json.loads(result) if isinstance(result, str) else result
+            result_raw = await self.consistency_checker.run(consistency_prompt)
+            result = result_raw.data if hasattr(result_raw, 'data') else result_raw
+            
+            consistency_data = result if isinstance(result, dict) else {"inconsistencies": []}
             return consistency_data.get("inconsistencies", [])
-        except:
+            
+        except Exception as e:
+            logger.error(f"Error in consistency check: {str(e)}")
             return []
     
     async def _comprehensive_review_process(
@@ -1232,21 +1364,22 @@ Output JSON with any inconsistencies found."""
     ) -> MotionDraft:
         """Enhanced comprehensive review process"""
         
-        # Compile full document
-        full_text = self._compile_full_document(motion_draft)
-        
-        # Multi-stage review
-        # Stage 1: Legal accuracy and citations
-        citation_review = await self._review_citations(motion_draft)
-        
-        # Stage 2: Consistency check
-        consistency_review = await self._review_consistency(motion_draft)
-        
-        # Stage 3: Argument strength
-        argument_review = await self._review_argument_strength(motion_draft, case_context)
-        
-        # Stage 4: Overall quality
-        review_prompt = f"""Conduct a comprehensive review of this legal motion:
+        try:
+            # Compile full document
+            full_text = self._compile_full_document(motion_draft)
+            
+            # Multi-stage review
+            # Stage 1: Legal accuracy and citations
+            citation_review = await self._review_citations(motion_draft)
+            
+            # Stage 2: Consistency check
+            consistency_review = await self._review_consistency(motion_draft)
+            
+            # Stage 3: Argument strength
+            argument_review = await self._review_argument_strength(motion_draft, case_context)
+            
+            # Stage 4: Overall quality
+            review_prompt = f"""Conduct a comprehensive review of this legal motion:
 
 {full_text[:10000]}... [truncated for length]
 
@@ -1270,11 +1403,15 @@ Evaluate:
 
 Provide comprehensive feedback as JSON."""
 
-        overall_review = await self.document_reviewer.run(review_prompt)
-        
-        # Parse and apply review feedback
-        try:
-            review_data = json.loads(overall_review) if isinstance(overall_review, str) else overall_review
+            overall_review_raw = await self.document_reviewer.run(review_prompt)
+            overall_review = overall_review_raw.data if hasattr(overall_review_raw, 'data') else overall_review_raw
+            
+            # Parse and apply review feedback
+            review_data = overall_review if isinstance(overall_review, dict) else {
+                "readiness_score": 7,
+                "section_scores": {},
+                "specific_edits": []
+            }
             
             # Update motion draft with review results
             motion_draft.coherence_score = review_data.get("readiness_score", 7) / 10.0
@@ -1306,51 +1443,57 @@ Provide comprehensive feedback as JSON."""
                     consistency_review
                 )
             
+            logger.info(f"[REVIEW] Comprehensive review process completed")
+            return motion_draft
+            
         except Exception as e:
-            logger.error(f"[REVIEW] Error parsing review results: {str(e)}", exc_info=True)
+            logger.error(f"[REVIEW] Error in comprehensive review: {str(e)}")
             motion_draft.coherence_score = 0.7
-            motion_draft.review_notes = ["Review completed with parsing errors"]
-        
-        logger.info(f"[REVIEW] Comprehensive review process completed")
-        return motion_draft
+            motion_draft.review_notes = ["Review completed with errors"]
+            return motion_draft
     
     async def _final_consistency_pass(self, motion_draft: MotionDraft) -> MotionDraft:
         """Final consistency pass across entire document"""
         
-        # Build terminology map
-        terminology_map = {}
-        for section in motion_draft.sections:
-            # Extract key terms
-            terms = self._extract_key_terms(section.content)
-            for term in terms:
-                if term not in terminology_map:
-                    terminology_map[term] = []
-                terminology_map[term].append(section.outline_section.id)
-        
-        # Check for inconsistent usage
-        inconsistencies = []
-        for term, occurrences in terminology_map.items():
-            if len(set(occurrences)) > 1:
-                # Term appears in multiple sections - check consistency
-                variants = self._find_term_variants(term, motion_draft)
-                if variants:
-                    inconsistencies.append({
-                        "term": term,
-                        "variants": variants,
-                        "sections": occurrences
-                    })
-        
-        # Apply fixes
-        if inconsistencies:
-            motion_draft = await self._fix_terminology_inconsistencies(
-                motion_draft,
-                inconsistencies
-            )
-        
-        # Update consistency issues
-        motion_draft.consistency_issues = inconsistencies
-        
-        return motion_draft
+        try:
+            # Build terminology map
+            terminology_map = {}
+            for section in motion_draft.sections:
+                # Extract key terms
+                terms = self._extract_key_terms(section.content)
+                for term in terms:
+                    if term not in terminology_map:
+                        terminology_map[term] = []
+                    terminology_map[term].append(section.outline_section.id)
+            
+            # Check for inconsistent usage
+            inconsistencies = []
+            for term, occurrences in terminology_map.items():
+                if len(set(occurrences)) > 1:
+                    # Term appears in multiple sections - check consistency
+                    variants = self._find_term_variants(term, motion_draft)
+                    if variants:
+                        inconsistencies.append({
+                            "term": term,
+                            "variants": variants,
+                            "sections": occurrences
+                        })
+            
+            # Apply fixes
+            if inconsistencies:
+                motion_draft = await self._fix_terminology_inconsistencies(
+                    motion_draft,
+                    inconsistencies
+                )
+            
+            # Update consistency issues
+            motion_draft.consistency_issues = inconsistencies
+            
+            return motion_draft
+            
+        except Exception as e:
+            logger.error(f"Error in final consistency pass: {str(e)}")
+            return motion_draft
     
     def _build_citation_index(self, motion_draft: MotionDraft) -> Dict[str, List[str]]:
         """Build index of citations to sections using them"""
@@ -1536,7 +1679,7 @@ Provide comprehensive feedback as JSON."""
         
         formatted = []
         for auth in authorities[:7]:  # Top 7 authorities
-            citation = auth.get("citation", "Unknown")
+            citation = auth.get("citation", "")
             content = auth.get("content", "")[:250]
             context = auth.get("context", "")
             score = auth.get("score", 0)
@@ -1795,7 +1938,7 @@ Provide comprehensive feedback as JSON."""
         for fact in case_context.get("case_facts", [])[:10]:
             fact_text = fact.content if hasattr(fact, 'content') else str(fact)
             # Simple check if fact is mentioned
-            key_words = fact_text.lower().split()[:5]
+            key_words = fact_text.lower().split()[:5]  # First 5 words
             if not any(word in content_lower for word in key_words):
                 unused_facts.append(f"- {fact_text[:150]}...")
         
@@ -1954,7 +2097,7 @@ Provide comprehensive feedback as JSON."""
                     chronology.append({
                         "date": date,
                         "description": content[:100],
-                        "source": fact.metadata.get("document_name", "Unknown") if hasattr(fact, 'metadata') else "Unknown"
+                        "source": fact.metadata.get("document_name", "Unknown") if hasattr(fact, 'metadata') else 'Unknown'
                     })
         
         # Sort by date (simple approach - would need proper date parsing in production)
@@ -2009,14 +2152,15 @@ Provide comprehensive feedback as JSON."""
     ) -> DraftedSection:
         """Resolve identified consistency issues"""
         
-        if not issues:
-            return section
-        
-        fixes_needed = []
-        for issue in issues:
-            fixes_needed.append(f"- {issue['type']}: {issue['issue']} -> {issue.get('suggestion', 'needs fix')}")
-        
-        fix_prompt = f"""Fix the following consistency issues in this section:
+        try:
+            if not issues:
+                return section
+            
+            fixes_needed = []
+            for issue in issues:
+                fixes_needed.append(f"- {issue['type']}: {issue['issue']} -> {issue.get('suggestion', 'needs fix')}")
+            
+            fix_prompt = f"""Fix the following consistency issues in this section:
 
 Issues to Fix:
 {chr(10).join(fixes_needed)}
@@ -2026,28 +2170,34 @@ Current Section:
 
 Make minimal changes to resolve the issues while preserving the substance."""
 
-        fixed_content = await self.section_writer.run(fix_prompt)
-        
-        section.content = fixed_content
-        section.word_count = len(fixed_content.split())
-        section.consistency_score = 1.0 - (len(issues) / 10.0)  # Simple scoring
-        
-        return section
+            fixed_content_result = await self.section_writer.run(fix_prompt)
+            fixed_content = str(fixed_content_result.data) if hasattr(fixed_content_result, 'data') else str(fixed_content_result)
+            
+            section.content = fixed_content
+            section.word_count = len(fixed_content.split())
+            section.consistency_score = 1.0 - (len(issues) / 10.0)  # Simple scoring
+            
+            return section
+            
+        except Exception as e:
+            logger.error(f"Error resolving consistency issues: {str(e)}")
+            return section
     
     async def _review_citations(self, motion_draft: MotionDraft) -> Dict[str, Any]:
         """Review all citations in the motion"""
         
-        all_citations = []
-        for section in motion_draft.sections:
-            for citation in section.citations_used:
-                all_citations.append({
-                    "citation": citation,
-                    "section": section.outline_section.id
-                })
-        
-        citation_text = "\n".join([c["citation"] for c in all_citations])
-        
-        review_prompt = f"""Review these legal citations for format and accuracy:
+        try:
+            all_citations = []
+            for section in motion_draft.sections:
+                for citation in section.citations_used:
+                    all_citations.append({
+                        "citation": citation,
+                        "section": section.outline_section.id
+                    })
+            
+            citation_text = "\n".join([c["citation"] for c in all_citations])
+            
+            review_prompt = f"""Review these legal citations for format and accuracy:
 
 {citation_text}
 
@@ -2059,27 +2209,30 @@ Check each citation for:
 
 Return JSON with findings."""
 
-        result = await self.citation_verifier.run(review_prompt)
-        
-        try:
-            return json.loads(result) if isinstance(result, str) else result
-        except:
+            result_raw = await self.citation_verifier.run(review_prompt)
+            result = result_raw.data if hasattr(result_raw, 'data') else result_raw
+            
+            return result if isinstance(result, dict) else {"format_issues": [], "fictional_citations": []}
+            
+        except Exception as e:
+            logger.error(f"Error reviewing citations: {str(e)}")
             return {"format_issues": [], "fictional_citations": []}
     
     async def _review_consistency(self, motion_draft: MotionDraft) -> Dict[str, Any]:
         """Review document-wide consistency"""
         
-        # Compile key information
-        consistency_data = {
-            "terminology": list(self.document_context.get("terminology", {}).keys())[:20],
-            "party_names": self._extract_party_names(motion_draft),
-            "key_dates": self._extract_key_dates(motion_draft),
-            "citations": list(motion_draft.citation_index.keys())[:20]
-        }
-        
-        full_text = self._compile_full_document(motion_draft)[:5000]  # First 5000 chars
-        
-        review_prompt = f"""Check this document for consistency issues:
+        try:
+            # Compile key information
+            consistency_data = {
+                "terminology": list(self.document_context.get("terminology", {}).keys())[:20],
+                "party_names": self._extract_party_names(motion_draft),
+                "key_dates": self._extract_key_dates(motion_draft),
+                "citations": list(motion_draft.citation_index.keys())[:20]
+            }
+            
+            full_text = self._compile_full_document(motion_draft)[:5000]  # First 5000 chars
+            
+            review_prompt = f"""Check this document for consistency issues:
 
 Document Sample:
 {full_text}
@@ -2095,11 +2248,13 @@ Look for:
 
 Return JSON with any inconsistencies found."""
 
-        result = await self.consistency_checker.run(review_prompt)
-        
-        try:
-            return json.loads(result) if isinstance(result, str) else result
-        except:
+            result_raw = await self.consistency_checker.run(review_prompt)
+            result = result_raw.data if hasattr(result_raw, 'data') else result_raw
+            
+            return result if isinstance(result, dict) else {"inconsistencies": []}
+            
+        except Exception as e:
+            logger.error(f"Error reviewing consistency: {str(e)}")
             return {"inconsistencies": []}
     
     async def _review_argument_strength(
@@ -2109,29 +2264,34 @@ Return JSON with any inconsistencies found."""
     ) -> Dict[str, Any]:
         """Review strength of legal arguments"""
         
-        section_strengths = {}
-        weak_sections = []
-        
-        for section in motion_draft.sections:
-            if section.outline_section.section_type == SectionType.ARGUMENT:
-                strength = section.argument_strength_score
-                section_strengths[section.outline_section.id] = strength
-                
-                if strength < 0.6:
-                    weak_sections.append({
-                        "section_id": section.outline_section.id,
-                        "title": section.outline_section.title,
-                        "strength": strength,
-                        "issues": self._identify_argument_weaknesses(section)
-                    })
-        
-        avg_strength = sum(section_strengths.values()) / max(len(section_strengths), 1)
-        
-        return {
-            "average_strength": avg_strength,
-            "section_strengths": section_strengths,
-            "weak_sections": weak_sections
-        }
+        try:
+            section_strengths = {}
+            weak_sections = []
+            
+            for section in motion_draft.sections:
+                if section.outline_section.section_type == SectionType.ARGUMENT:
+                    strength = section.argument_strength_score
+                    section_strengths[section.outline_section.id] = strength
+                    
+                    if strength < 0.6:
+                        weak_sections.append({
+                            "section_id": section.outline_section.id,
+                            "title": section.outline_section.title,
+                            "strength": strength,
+                            "issues": self._identify_argument_weaknesses(section)
+                        })
+            
+            avg_strength = sum(section_strengths.values()) / max(len(section_strengths), 1)
+            
+            return {
+                "average_strength": avg_strength,
+                "section_strengths": section_strengths,
+                "weak_sections": weak_sections
+            }
+            
+        except Exception as e:
+            logger.error(f"Error reviewing argument strength: {str(e)}")
+            return {"average_strength": 0.7, "section_strengths": {}, "weak_sections": []}
     
     def _identify_argument_weaknesses(self, section: DraftedSection) -> List[str]:
         """Identify specific weaknesses in legal argument"""
@@ -2168,7 +2328,7 @@ Return JSON with any inconsistencies found."""
         full_text = f"{motion_draft.title}\n\n{motion_draft.case_name}\n\n"
         
         for i, section in enumerate(motion_draft.sections):
-            # Add section content
+            # Section heading
             full_text += f"{section.outline_section.title}\n\n"
             full_text += section.content
             
@@ -2229,33 +2389,38 @@ Return JSON with any inconsistencies found."""
     ) -> MotionDraft:
         """Apply critical fixes based on review feedback"""
         
-        logger.info("Applying critical fixes to motion draft")
-        
-        # Fix citation issues
-        if citation_review.get("format_issues"):
-            motion_draft = await self._fix_citation_formatting(
-                motion_draft,
-                citation_review["format_issues"]
-            )
-        
-        # Fix consistency issues
-        if consistency_review.get("inconsistencies"):
-            motion_draft = await self._fix_terminology_inconsistencies(
-                motion_draft,
-                consistency_review["inconsistencies"]
-            )
-        
-        # Fix weak sections
-        for section_id in overall_review.get("revision_priorities", [])[:3]:
-            for i, section in enumerate(motion_draft.sections):
-                if section.outline_section.id == section_id:
-                    logger.info(f"Revising weak section: {section.outline_section.title}")
-                    motion_draft.sections[i] = await self._revise_weak_section(
-                        section,
-                        overall_review.get("specific_edits", {}).get(section_id, [])
-                    )
-        
-        return motion_draft
+        try:
+            logger.info("Applying critical fixes to motion draft")
+            
+            # Fix citation issues
+            if citation_review.get("format_issues"):
+                motion_draft = await self._fix_citation_formatting(
+                    motion_draft,
+                    citation_review["format_issues"]
+                )
+            
+            # Fix consistency issues
+            if consistency_review.get("inconsistencies"):
+                motion_draft = await self._fix_terminology_inconsistencies(
+                    motion_draft,
+                    consistency_review["inconsistencies"]
+                )
+            
+            # Fix weak sections
+            for section_id in overall_review.get("revision_priorities", [])[:3]:
+                for i, section in enumerate(motion_draft.sections):
+                    if section.outline_section.id == section_id:
+                        logger.info(f"Revising weak section: {section.outline_section.title}")
+                        motion_draft.sections[i] = await self._revise_weak_section(
+                            section,
+                            overall_review.get("specific_edits", {}).get(section_id, [])
+                        )
+            
+            return motion_draft
+            
+        except Exception as e:
+            logger.error(f"Error applying critical fixes: {str(e)}")
+            return motion_draft
     
     async def _fix_citation_formatting(
         self,
@@ -2317,7 +2482,8 @@ Return JSON with any inconsistencies found."""
     ) -> DraftedSection:
         """Revise a weak section based on feedback"""
         
-        revision_prompt = f"""Revise this legal section to address the following issues:
+        try:
+            revision_prompt = f"""Revise this legal section to address the following issues:
 
 Issues to Address:
 {chr(10).join(f"- {note}" for note in revision_notes)}
@@ -2334,26 +2500,31 @@ Requirements:
 
 Provide the complete revised section."""
 
-        revised_content = await self.section_writer.run(revision_prompt)
-        
-        # Update section
-        section.content = revised_content
-        section.word_count = len(revised_content.split())
-        section.needs_revision = False
-        section.revision_notes = []
-        
-        # Recalculate quality scores
-        section.confidence_score = self._calculate_section_confidence(
-            revised_content,
-            section.outline_section,
-            section.word_count
-        )
-        section.argument_strength_score = self._calculate_argument_strength(
-            revised_content,
-            section.outline_section
-        )
-        
-        return section
+            revised_content_result = await self.section_writer.run(revision_prompt)
+            revised_content = str(revised_content_result.data) if hasattr(revised_content_result, 'data') else str(revised_content_result)
+            
+            # Update section
+            section.content = revised_content
+            section.word_count = len(revised_content.split())
+            section.needs_revision = False
+            section.revision_notes = []
+            
+            # Recalculate quality scores
+            section.confidence_score = self._calculate_section_confidence(
+                revised_content,
+                section.outline_section,
+                section.word_count
+            )
+            section.argument_strength_score = self._calculate_argument_strength(
+                revised_content,
+                section.outline_section
+            )
+            
+            return section
+            
+        except Exception as e:
+            logger.error(f"Error revising weak section: {str(e)}")
+            return section
     
     def _find_term_variants(self, term: str, motion_draft: MotionDraft) -> List[str]:
         """Find variants of a term used in the document"""
@@ -2386,7 +2557,8 @@ Provide the complete revised section."""
     ) -> str:
         """Create preview transition to next section"""
         
-        prompt = f"""Create a brief preview transition (1 paragraph) that:
+        try:
+            prompt = f"""Create a brief preview transition (1 paragraph) that:
 
 Current section: {current_section.outline_section.title}
 Next section: {next_section.title}
@@ -2399,8 +2571,13 @@ Use language like:
 
 Keep it to 2-3 sentences."""
 
-        preview = await self.transition_writer.run(prompt)
-        return preview
+            preview_result = await self.transition_writer.run(prompt)
+            preview = str(preview_result.data) if hasattr(preview_result, 'data') else str(preview_result)
+            return preview
+            
+        except Exception as e:
+            logger.error(f"Error creating preview transition: {str(e)}")
+            return ""
     
     def _generate_motion_title(self, outline: Dict[str, Any]) -> str:
         """Generate motion title from outline"""
