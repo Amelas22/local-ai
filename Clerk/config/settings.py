@@ -120,7 +120,7 @@ class CostConfig(BaseSettings):
 class DocumentProcessingSettings(BaseSettings):
     """Document processing configuration"""
     target_chunk_size: int = Field(1200, env="CHUNK_SIZE")
-    chunk_size: int = Field(target_chunk_size, env="CHUNK_SIZE")
+    chunk_size: int = Field(1200, env="CHUNK_SIZE")
     overlap_size: int = Field(200, env="CHUNK_OVERLAP")
     chunk_variance: int = Field(100, env="CHUNK_VARIANCE")
     min_chunk_size: int = Field(500, env="MIN_CHUNK_SIZE")
