@@ -821,14 +821,16 @@ Output JSON with:
                 value = item.get("value", "")
                 
                 if label == "Hook":
-                    # Parse hook options - but only take the first one
+                    # Parse hook options more aggressively
                     if "||" in value:
                         first_hook = value.split("||")[0].strip()
                         if first_hook.startswith("Option"):
                             first_hook = first_hook.split(":", 1)[1].strip() if ":" in first_hook else first_hook
-                        hook_options = [first_hook[:500]]  # Limit length
+                        # Clean quotes and reduce length
+                        first_hook = first_hook.strip('"').strip()
+                        hook_options = [first_hook[:150]]  # Reduce to 150 chars
                     else:
-                        hook_options = [value[:500]]
+                        hook_options = [value.strip('"').strip()[:150]]
                 elif label == "Theme":
                     # Parse themes more carefully
                     if "||" in value:
@@ -1167,9 +1169,18 @@ Output JSON with:
         """Draft section using Chain-of-Thought approach"""
         
         try:
-            # LIMIT the content points to prevent token overflow
-            content_points_limited = section.content_points[:5]  # Max 5 points
+            # LIMIT and CLEAN the content points to prevent token overflow
+            content_points_limited = []
+            for point in section.content_points[:5]:  # Max 5 points
+                cleaned_point = self._clean_outline_content(point, 200)  # Max 200 chars per point
+                if cleaned_point:
+                    content_points_limited.append(cleaned_point)
+
             legal_authorities_limited = section.legal_authorities[:7]  # Max 7 authorities
+
+            # Also limit hook options more aggressively
+            if section.hook_options:
+                section.hook_options = [self._clean_outline_content(hook, 150) for hook in section.hook_options[:2]]  # Max 2 hooks, 150 chars each
             
             # First, use CoT to plan the section
             planning_prompt = f"""Plan the drafting of this legal section using step-by-step reasoning:
@@ -1188,7 +1199,10 @@ Provide a detailed plan for drafting this section."""
 
             # Get section plan
             logger.info(f"[COT] Planning section: {section.title}")
-            section_plan_result = await self.section_writer.run(planning_prompt)
+            section_plan_result = await asyncio.wait_for(
+                self.section_writer.run(planning_prompt),
+                timeout=30  # 30 second timeout
+            )
             section_plan = str(section_plan_result.data) if hasattr(section_plan_result, 'data') else str(section_plan_result)
             logger.info(f"[COT] Section plan created, length: {len(section_plan)}")
             
@@ -1253,7 +1267,10 @@ CRITICAL INSTRUCTIONS:
 
             # Generate comprehensive draft
             logger.info(f"[COT] Drafting section content")
-            initial_content_result = await self.section_writer.run(drafting_prompt)
+            initial_content_result = await asyncio.wait_for(
+                self.section_writer.run(drafting_prompt),
+                timeout=60  # 60 second timeout for content generation
+            )
             initial_content = str(initial_content_result.data) if hasattr(initial_content_result, 'data') else str(initial_content_result)
             logger.info(f"[COT] Initial draft generated, length: {len(initial_content.split())} words")
             
@@ -1480,8 +1497,13 @@ Check for:
 
 Output JSON with any inconsistencies found."""
 
-            result_raw = await self.consistency_checker.run(consistency_prompt)
-            result = result_raw.data if hasattr(result_raw, 'data') else result_raw
+            try:
+                result_raw = await self.consistency_checker.run(consistency_prompt)
+                result = result_raw.data if hasattr(result_raw, 'data') else result_raw
+            except Exception as e:
+                logger.error(f"Consistency checker failed: {str(e)}")
+                # Return empty issues on failure instead of crashing
+                return []
             
             consistency_data = result if isinstance(result, dict) else {"inconsistencies": []}
             return consistency_data.get("inconsistencies", [])

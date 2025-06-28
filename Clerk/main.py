@@ -637,9 +637,17 @@ async def draft_motion(request: MotionDraftingRequest):
                 return clean_field_value(obj)
             return obj
         
+        # Apply the cleaning function to the outline data
         cleaned_outline = clean_outline(outline_data)
         
-        logger.info(f"Cleaned outline structure")
+        if isinstance(cleaned_outline, dict) and "sections" in cleaned_outline:
+            for i, section in enumerate(cleaned_outline["sections"][:2]):  # Log first 2 sections
+                logger.info(f"Section {i} content items: {len(section.get('content', []))}")
+                if "content" in section and section["content"]:
+                    first_item = section["content"][0]
+                    logger.info(f"First content item type: {first_item.get('type', 'unknown')}")
+                    if first_item.get("type") == "field" and "value" in first_item:
+                        logger.info(f"First content value length: {len(first_item['value'])}")
         
         # Convert target_length string to DocumentLength enum
         try:
