@@ -154,6 +154,7 @@ class AISettings(BaseSettings):
     embedding_model: str = Field("text-embedding-3-small", env="EMBEDDING_MODEL")
     embedding_dimensions: int = Field(1536, env="EMBEDDING_DIMENSIONS")
     api_key: str = os.getenv("OPENAI_API_KEY", "")
+    context_model: str = os.getenv("CONTEXT_LLM_MODEL", "gpt-4.1-mini-2025-04-14")
     
     class Config:
         env_prefix = "AI_"
@@ -190,7 +191,6 @@ class Settings(BaseSettings):
     ai: AISettings = Field(default_factory=AISettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     cohere: CohereConfig = Field(default_factory=CohereConfig)
-    openai: AISettings = Field(default_factory=AISettings)
     chunking: DocumentProcessingSettings = Field(default_factory=DocumentProcessingSettings)
     processing: DocumentProcessingSettings = Field(default_factory=DocumentProcessingSettings)
     vector: QdrantSettings = Field(default_factory=QdrantSettings)
