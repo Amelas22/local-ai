@@ -601,36 +601,49 @@ async def generate_and_upload_outline(
 async def draft_motion(request: MotionDraftingRequest):
     """
     Draft a complete legal motion from an outline
-    
-    This endpoint takes a structured outline and generates a comprehensive 15-50 page legal motion
-    using section-by-section generation with quality control mechanisms.
     """
     try:
         logger.info(f"Starting motion draft for database: {request.database_name}")
         
-        # Parse target length
-        length_map = {
-            "SHORT": DocumentLength.SHORT,
-            "MEDIUM": DocumentLength.MEDIUM,
-            "LONG": DocumentLength.LONG,
-            "COMPREHENSIVE": DocumentLength.COMPREHENSIVE
-        }
-        target_length = length_map.get(request.target_length.upper(), DocumentLength.MEDIUM)
-        
-        # Generate draft ID for tracking
-        draft_id = f"draft_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{os.urandom(4).hex()}"
-        
+        # Preprocess the outline to prevent issues
         outline_data = request.outline
-        if isinstance(request.outline, list) and len(request.outline) > 0:
-            outline_data = request.outline[0]
-            logger.info(f"Unwrapped outline from array format")
-
-        # Log the outline structure for debugging
-        logger.info(f"Outline structure: {json.dumps(outline_data, indent=2)[:1000]}...")
-
-        # Pass database name to motion drafter for fact retrieval
+        
+        # Log the structure
+        logger.info(f"Received outline type: {type(outline_data)}")
+        if isinstance(outline_data, dict):
+            logger.info(f"Outline keys: {list(outline_data.keys())}")
+        
+        # Ensure we have a properly structured outline
+        if isinstance(outline_data, list):
+            # If it's a list, take the first element
+            outline_data = outline_data[0] if outline_data else {}
+        
+        # Clean extremely long content that might cause issues
+        def clean_field_value(value):
+            if isinstance(value, str) and len(value) > 1000:
+                # For very long content with options, just take the first option
+                if "||" in value:
+                    value = value.split("||")[0].strip()
+                return value[:1000] + "..."
+            return value
+        
+        # Recursively clean the outline
+        def clean_outline(obj):
+            if isinstance(obj, dict):
+                return {k: clean_outline(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [clean_outline(item) for item in obj]
+            elif isinstance(obj, str):
+                return clean_field_value(obj)
+            return obj
+        
+        cleaned_outline = clean_outline(outline_data)
+        
+        logger.info(f"Cleaned outline structure")
+        
+        # Continue with the motion drafting...
         motion_draft = await motion_drafter.draft_motion(
-            outline=request.outline,
+            outline=cleaned_outline,
             database_name=request.database_name,
             target_length=target_length,
             motion_title=request.motion_title,

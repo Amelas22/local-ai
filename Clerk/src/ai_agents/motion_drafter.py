@@ -798,6 +798,9 @@ Output JSON with:
 
     def _parse_doc_converter_section(self, section_data: Dict[str, Any], idx: int, word_distribution: Dict[str, int]) -> OutlineSection:
         """Parse a section in the doc-converter format"""
+        # Clean the section data first
+        section_data = self._clean_outline_section(section_data)
+        
         section_type = self._determine_section_type_from_data(section_data)
         
         # Extract content from the structured format
@@ -810,7 +813,7 @@ Output JSON with:
         
         # Process the content array
         content_items = section_data.get("content", [])
-        for item in content_items:
+        for item in content_items[:10]:  # Limit items processed
             item_type = item.get("type", "")
             
             if item_type == "field":
@@ -818,59 +821,24 @@ Output JSON with:
                 value = item.get("value", "")
                 
                 if label == "Hook":
-                    # Parse hook options
-                    hook_options = [h.strip() for h in value.split("||")]
+                    # Parse hook options - but only take the first one
+                    if "||" in value:
+                        first_hook = value.split("||")[0].strip()
+                        if first_hook.startswith("Option"):
+                            first_hook = first_hook.split(":", 1)[1].strip() if ":" in first_hook else first_hook
+                        hook_options = [first_hook[:500]]  # Limit length
+                    else:
+                        hook_options = [value[:500]]
                 elif label == "Theme":
-                    # Parse themes
-                    theme_parts = value.split("Theme")
-                    for part in theme_parts:
-                        if ":" in part:
-                            themes.append(part.split(":", 1)[1].strip())
-                elif label == "Preview" or label == "Summary":
-                    content_points.append(value)
-                elif label == "Organization":
-                    content_points.insert(0, f"Organization: {value}")
-                elif label == "Final Theme":
-                    themes.append(value)
+                    # Parse themes more carefully
+                    if "||" in value:
+                        theme_parts = value.split("||")
+                        themes = [t.strip()[:100] for t in theme_parts[:3]]  # Max 3 themes
+                    else:
+                        themes = [value[:100]]
                 else:
-                    content_points.append(f"{label}: {value}")
-                    
-            elif item_type == "list":
-                label = item.get("label", "")
-                items = item.get("items", [])
-                
-                if label == "Key Facts to Emphasize":
-                    key_facts = [{"description": fact, "emphasize": True} for fact in items]
-                elif label == "Bad Facts to Address":
-                    key_facts.extend([{"description": fact, "address": True} for fact in items])
-                elif label == "Key Authorities":
-                    for auth in items:
-                        # Parse authority format: "Case Name - Citation: Description"
-                        if " – " in auth:
-                            parts = auth.split(" – ", 1)
-                            citation = parts[0]
-                            legal_authorities.append(citation)
-                        else:
-                            legal_authorities.append(auth)
-                elif label == "Counter-Argument Response":
-                    for response in items:
-                        if "→" in response:
-                            parts = response.split("→", 1)
-                            counter_arguments.append({
-                                "argument": parts[0].strip(),
-                                "response": parts[1].strip()
-                            })
-                elif label == "Structure":
-                    content_points.extend([f"Structure: {item}" for item in items])
-                elif label == "Fact Integration":
-                    key_facts.extend([{"description": fact, "integrate": True} for fact in items])
-                elif label == "Specific Relief":
-                    content_points.extend(items)
-                else:
-                    content_points.extend(items)
-                    
-            elif item_type == "paragraph":
-                content_points.append(item.get("text", ""))
+                    # For other fields, just add a truncated version
+                    content_points.append(f"{label}: {value[:200]}")
         
         # Create the outline section
         section = OutlineSection(
@@ -984,7 +952,7 @@ Output JSON with:
     
     async def _retrieve_enhanced_case_context(
         self, 
-        database_name: str,  # Changed from case_name
+        database_name: str,
         outline_sections: List[OutlineSection]
     ) -> Dict[str, Any]:
         """Retrieve comprehensive case context directly from database"""
@@ -1011,24 +979,40 @@ Output JSON with:
         # Build comprehensive search queries
         search_queries = self._build_comprehensive_search_queries(outline_sections)
         
-        # Execute searches directly against the database
+        # LIMIT the number of queries to prevent overload
+        max_queries_per_type = 5
+        
         for query_type, queries in search_queries.items():
-            for query in queries:
+            # Limit queries
+            limited_queries = queries[:max_queries_per_type]
+            logger.info(f"Processing {len(limited_queries)} queries for {query_type}")
+            
+            for query in limited_queries:
                 try:
-                    # Skip empty queries
-                    if not query or not query.strip():
+                    # Clean and validate query
+                    query = query.strip()
+                    if not query or len(query) < 3:
                         continue
-                        
+                    
+                    # Truncate overly long queries
+                    if len(query) > 200:
+                        query = query[:200]
+                    
+                    logger.debug(f"Searching for: {query[:100]}...")
+                    
                     # Generate embedding for the query
                     query_embedding, _ = self.embedding_generator.generate_embedding(query)
                     
-                    # Perform hybrid search directly on the database
-                    results = await self.vector_store.hybrid_search(
-                        collection_name=database_name,  # Use database_name as collection
-                        query=query,
-                        query_embedding=query_embedding,
-                        limit=10,
-                        enable_reranking=False  # Disable reranking for context retrieval
+                    # Perform hybrid search with timeout
+                    results = await asyncio.wait_for(
+                        self.vector_store.hybrid_search(
+                            collection_name=database_name,
+                            query=query,
+                            query_embedding=query_embedding,
+                            limit=5,  # Reduced from 10
+                            enable_reranking=False
+                        ),
+                        timeout=10  # 10 second timeout per search
                     )
                     
                     # Categorize results
@@ -1122,7 +1106,41 @@ Output JSON with:
         ]
         
         return queries
-    
+
+    def _clean_outline_content(self, content: str, max_length: int = 500) -> str:
+        """Clean and truncate outline content to prevent token overflow"""
+        if not content:
+            return ""
+        
+        # Handle multi-option format (e.g., "Option 1: ... || Option 2: ...")
+        if "||" in content:
+            options = content.split("||")
+            # Take only the first option and clean it
+            content = options[0].strip()
+            # Remove "Option 1:" prefix if present
+            if content.startswith("Option"):
+                content = content.split(":", 1)[1].strip() if ":" in content else content
+        
+        # Truncate if too long
+        if len(content) > max_length:
+            content = content[:max_length] + "..."
+        
+        return content
+
+    def _clean_outline_section(self, section_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Clean a section to prevent token overflow"""
+        cleaned = section_data.copy()
+        
+        # Clean content array
+        if "content" in cleaned and isinstance(cleaned["content"], list):
+            for item in cleaned["content"]:
+                if item.get("type") == "field" and "value" in item:
+                    item["value"] = self._clean_outline_content(item["value"])
+                elif item.get("type") == "paragraph" and "text" in item:
+                    item["text"] = self._clean_outline_content(item["text"], max_length=1000)
+        
+        return cleaned
+        
     def _determine_section_type(self, title: str) -> SectionType:
         """Determine section type from title"""
         title_lower = title.lower()
@@ -1149,28 +1167,22 @@ Output JSON with:
         """Draft section using Chain-of-Thought approach"""
         
         try:
+            # LIMIT the content points to prevent token overflow
+            content_points_limited = section.content_points[:5]  # Max 5 points
+            legal_authorities_limited = section.legal_authorities[:7]  # Max 7 authorities
+            
             # First, use CoT to plan the section
             planning_prompt = f"""Plan the drafting of this legal section using step-by-step reasoning:
 
 Section: {section.title}
 Type: {section.section_type.value}
-Target Length: {section.target_length} words (approximately {section.target_length // 250} pages)
+Target Length: {section.target_length} words
 
-Content Points to Address:
-{chr(10).join(f"- {point}" for point in section.content_points)}
+Content Points to Address (top {len(content_points_limited)}):
+{chr(10).join(f"- {self._clean_outline_content(point, 200)}" for point in content_points_limited)}
 
-Required Authorities:
-{chr(10).join(f"- {auth}" for auth in section.legal_authorities)}
-
-Think through:
-1. What is the primary legal issue or argument in this section?
-2. What legal rule or standard governs this issue?
-3. What are the key facts from our case that apply?
-4. How do we apply the law to these facts?
-5. What counterarguments might opposing counsel raise?
-6. How do we preemptively address those counterarguments?
-7. What policy considerations support our position?
-8. How does this section connect to our overall themes?
+Required Authorities (top {len(legal_authorities_limited)}):
+{chr(10).join(f"- {auth}" for auth in legal_authorities_limited)}
 
 Provide a detailed plan for drafting this section."""
 
