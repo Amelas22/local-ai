@@ -20,6 +20,8 @@ class OpenAISettings(BaseSettings):
     api_key: str = Field(..., env="OPENAI_API_KEY")
     base_url: Optional[str] = Field(None, env="OPENAI_BASE_URL")
     organization: Optional[str] = Field(None, env="OPENAI_ORGANIZATION")
+    embedding_model: str = "text-embedding-3-small"
+    context_model: str = os.getenv("CONTEXT_LLM_MODEL", "gpt-4.1-nano")
     
     class Config:
         env_prefix = "OPENAI_"
@@ -40,7 +42,17 @@ class QdrantSettings(BaseSettings):
     batch_size: int = Field(500, env="QDRANT_BATCH_SIZE")
     max_workers: int = Field(16, env="QDRANT_MAX_WORKERS")
     embedding_dimensions: int = Field(1536, env="QDRANT_EMBEDDING_DIMENSIONS")
-    
+    https: bool = os.getenv("QDRANT_HTTPS", "false").lower() == "true"
+
+    # Qdrant-specific settings
+    distance_metric: str = "cosine"
+    hnsw_m: int = 32
+    hnsw_ef_construct: int = 200
+    quantization_enabled: bool = True
+    quantization_type: str = "scalar"
+    quantization_quantile: float = 0.95
+    quantization: bool = True
+
     class Config:
         env_prefix = "QDRANT_"
     
@@ -53,13 +65,12 @@ class QdrantSettings(BaseSettings):
 
 class BoxSettings(BaseSettings):
     """Box API configuration"""
-    client_id: Optional[str] = Field(None, env="BOX_CLIENT_ID")
-    client_secret: Optional[str] = Field(None, env="BOX_CLIENT_SECRET")
-    enterprise_id: Optional[str] = Field(None, env="BOX_ENTERPRISE_ID")
-    jwt_key_id: Optional[str] = Field(None, env="BOX_JWT_KEY_ID")
-    rsa_private_key_path: Optional[str] = Field(None, env="BOX_RSA_PRIVATE_KEY_PATH")
-    rsa_private_key_passphrase: Optional[str] = Field(None, env="BOX_RSA_PRIVATE_KEY_PASSPHRASE")
-    webhook_signature_key: Optional[str] = Field(None, env="BOX_WEBHOOK_SIGNATURE_KEY")
+    client_id: str = os.getenv("BOX_CLIENT_ID", "")
+    client_secret: str = os.getenv("BOX_CLIENT_SECRET", "")
+    enterprise_id: str = os.getenv("BOX_ENTERPRISE_ID", "")
+    jwt_key_id: str = os.getenv("BOX_JWT_KEY_ID", "")
+    private_key: str = os.getenv("BOX_PRIVATE_KEY", "").replace("\\n", "\n")
+    passphrase: str = os.getenv("BOX_PASSPHRASE", "")
     
     class Config:
         env_prefix = "BOX_"
@@ -99,11 +110,17 @@ class SecuritySettings(BaseSettings):
     class Config:
         env_prefix = "SECURITY_"
 
-
+class CostConfig(BaseSettings):
+    """API cost tracking configuration"""
+    enable_tracking: bool = Field(True, env="ENABLE_TRACKING")
+    save_reports: bool = Field(True, env="SAVE_REPORTS")
+    report_directory: str = Field("logs", env="REPORT_DIRECTORY")
+    custom_pricing: Optional[Dict[str, Any]] = Field(None, env="CUSTOM_PRICING")
+    
 class DocumentProcessingSettings(BaseSettings):
     """Document processing configuration"""
-    chunk_size: int = Field(1200, env="CHUNK_SIZE")
-    chunk_overlap: int = Field(200, env="CHUNK_OVERLAP")
+    target_chunk_size: int = Field(1200, env="CHUNK_SIZE")
+    overlap_size: int = Field(200, env="CHUNK_OVERLAP")
     chunk_variance: int = Field(100, env="CHUNK_VARIANCE")
     min_chunk_size: int = Field(500, env="MIN_CHUNK_SIZE")
     max_chunk_size: int = Field(1500, env="MAX_CHUNK_SIZE")
@@ -111,16 +128,11 @@ class DocumentProcessingSettings(BaseSettings):
     max_retries: int = Field(3, env="PROCESSING_MAX_RETRIES")
     retry_delay: int = Field(5, env="PROCESSING_RETRY_DELAY")
     max_file_size_mb: int = Field(100, env="MAX_FILE_SIZE_MB")
-    supported_file_types: str = Field(".pdf,.txt,.docx", env="SUPPORTED_FILE_TYPES")
+    supported_extensions: tuple = (".pdf",)
     ocr_enabled: bool = Field(False, env="OCR_ENABLED")
     
     class Config:
         env_prefix = "DOC_"
-    
-    @property
-    def supported_extensions(self) -> list[str]:
-        """Get list of supported file extensions from the comma-separated env var."""
-        return [ext.strip() for ext in self.supported_file_types.split(",")]
     
     @property
     def max_file_size_bytes(self) -> int:
@@ -171,7 +183,12 @@ class Settings(BaseSettings):
     ai: AISettings = Field(default_factory=AISettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     cohere: CohereConfig = Field(default_factory=CohereConfig)
-    
+    openai: AISettings = Field(default_factory=AISettings)
+    chunking: DocumentProcessingSettings = Field(default_factory=DocumentProcessingSettings)
+    processing: DocumentProcessingSettings = Field(default_factory=DocumentProcessingSettings)
+    vector: QdrantSettings = Field(default_factory=QdrantSettings)
+    cost: CostConfig = Field(default_factory=CostConfig)
+
     # Application settings
     app_name: str = Field("Clerk Legal AI", env="APP_NAME")
     environment: str = Field("development", env="ENVIRONMENT")
@@ -268,12 +285,7 @@ ProcessingConfig = DocumentProcessingSettings
 VectorConfig = QdrantSettings
 
 
-class CostConfig(BaseSettings):
-    """API cost tracking configuration"""
-    enable_tracking: bool = Field(True, env="ENABLE_TRACKING")
-    save_reports: bool = Field(True, env="SAVE_REPORTS")
-    report_directory: str = Field("logs", env="REPORT_DIRECTORY")
-    custom_pricing: Optional[Dict[str, Any]] = Field(None, env="CUSTOM_PRICING")
+
 
 # Export commonly used settings
 CHUNK_SIZE = settings.document_processing.chunk_size
