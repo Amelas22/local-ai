@@ -403,9 +403,10 @@ Output JSON with:
     async def draft_motion(
         self,
         outline: Dict[str, Any],
-        database_name: str,  # Changed from case_name to database_name
+        database_name: str,
         target_length: DocumentLength = DocumentLength.MEDIUM,
-        motion_title: Optional[str] = None
+        motion_title: Optional[str] = None,
+        opposing_motion_text: Optional[str] = None  
     ) -> MotionDraft:
         """
         Enhanced motion drafting with direct database access
@@ -441,7 +442,8 @@ Output JSON with:
                 "terminology": {},
                 "citations_used": set(),
                 "fact_chronology": [],
-                "database_name": database_name  # Store for reference
+                "database_name": database_name,
+                "opposing_motion_text": opposing_motion_text  
             }
             logger.info(f"[MOTION_DRAFTER] Document themes: {self.document_context['themes']}")
             
@@ -762,58 +764,162 @@ Output JSON with:
             raise
     
     def _parse_enhanced_outline(self, outline: Dict[str, Any], target_length: DocumentLength) -> List[OutlineSection]:
-        """Parse outline with enhanced structure from the example format"""
+        """Parse outline with enhanced structure from doc-converter format"""
         sections = []
         
         # Calculate target distribution
         min_pages, max_pages = target_length.value
         target_words = ((min_pages + max_pages) // 2) * self.words_per_page
         
-        # Get outline structure
-        outline_sections = outline.get("sections", [])
-        if not outline_sections and "arguments" in outline:
-            outline_sections = outline["arguments"]
+        # Handle the doc-converter format
+        # Check if this is the new format with array wrapper
+        outline_data = outline
+        if isinstance(outline, list) and len(outline) > 0:
+            outline_data = outline[0]
+        
+        # Extract style notes for the document
+        if "style_notes" in outline_data:
+            self.document_context["style_notes"] = outline_data["style_notes"]
+        
+        # Get outline sections
+        outline_sections = outline_data.get("sections", [])
+        if not outline_sections and "arguments" in outline_data:
+            outline_sections = outline_data["arguments"]
         
         # Calculate intelligent word distribution
         word_distribution = self._calculate_word_distribution(outline_sections, target_words)
         
         for idx, section_data in enumerate(outline_sections):
-            section_type = self._determine_section_type(section_data.get("title", ""))
-            
-            # Extract enhanced information
-            section = OutlineSection(
-                id=f"section_{idx}",
-                title=section_data.get("title", f"Section {idx + 1}"),
-                section_type=section_type,
-                content_points=section_data.get("points", section_data.get("summary", "").split(". ")),
-                legal_authorities=self._extract_authorities(section_data),
-                target_length=word_distribution.get(f"section_{idx}", target_words // len(outline_sections)),
-                hook_options=section_data.get("hook_options", []),
-                themes=section_data.get("themes", self.document_context.get("themes", [])),
-                key_facts=section_data.get("key_facts", []),
-                counter_arguments=section_data.get("counter_arguments", [])
-            )
-            
-            # Parse subsections
-            if "subsections" in section_data:
-                subsection_words = section.target_length // (len(section_data["subsections"]) + 1)
-                for sub_idx, subsection_data in enumerate(section_data["subsections"]):
-                    subsection = OutlineSection(
-                        id=f"section_{idx}_{sub_idx}",
-                        title=subsection_data.get("title", f"Subsection {sub_idx + 1}"),
-                        section_type=SectionType.SUB_ARGUMENT,
-                        content_points=subsection_data.get("points", []),
-                        legal_authorities=self._extract_authorities(subsection_data),
-                        target_length=subsection_words,
-                        parent_id=section.id,
-                        key_facts=subsection_data.get("fact_integration", []),
-                        counter_arguments=subsection_data.get("counter_arguments", [])
-                    )
-                    section.children.append(subsection)
-            
-            sections.append(section)
+            # Parse the new format from doc-converter
+            parsed_section = self._parse_doc_converter_section(section_data, idx, word_distribution)
+            sections.append(parsed_section)
         
         return sections
+
+    def _parse_doc_converter_section(self, section_data: Dict[str, Any], idx: int, word_distribution: Dict[str, int]) -> OutlineSection:
+        """Parse a section in the doc-converter format"""
+        section_type = self._determine_section_type_from_data(section_data)
+        
+        # Extract content from the structured format
+        content_points = []
+        hook_options = []
+        themes = []
+        key_facts = []
+        counter_arguments = []
+        legal_authorities = []
+        
+        # Process the content array
+        content_items = section_data.get("content", [])
+        for item in content_items:
+            item_type = item.get("type", "")
+            
+            if item_type == "field":
+                label = item.get("label", "")
+                value = item.get("value", "")
+                
+                if label == "Hook":
+                    # Parse hook options
+                    hook_options = [h.strip() for h in value.split("||")]
+                elif label == "Theme":
+                    # Parse themes
+                    theme_parts = value.split("Theme")
+                    for part in theme_parts:
+                        if ":" in part:
+                            themes.append(part.split(":", 1)[1].strip())
+                elif label == "Preview" or label == "Summary":
+                    content_points.append(value)
+                elif label == "Organization":
+                    content_points.insert(0, f"Organization: {value}")
+                elif label == "Final Theme":
+                    themes.append(value)
+                else:
+                    content_points.append(f"{label}: {value}")
+                    
+            elif item_type == "list":
+                label = item.get("label", "")
+                items = item.get("items", [])
+                
+                if label == "Key Facts to Emphasize":
+                    key_facts = [{"description": fact, "emphasize": True} for fact in items]
+                elif label == "Bad Facts to Address":
+                    key_facts.extend([{"description": fact, "address": True} for fact in items])
+                elif label == "Key Authorities":
+                    for auth in items:
+                        # Parse authority format: "Case Name - Citation: Description"
+                        if " – " in auth:
+                            parts = auth.split(" – ", 1)
+                            citation = parts[0]
+                            legal_authorities.append(citation)
+                        else:
+                            legal_authorities.append(auth)
+                elif label == "Counter-Argument Response":
+                    for response in items:
+                        if "→" in response:
+                            parts = response.split("→", 1)
+                            counter_arguments.append({
+                                "argument": parts[0].strip(),
+                                "response": parts[1].strip()
+                            })
+                elif label == "Structure":
+                    content_points.extend([f"Structure: {item}" for item in items])
+                elif label == "Fact Integration":
+                    key_facts.extend([{"description": fact, "integrate": True} for fact in items])
+                elif label == "Specific Relief":
+                    content_points.extend(items)
+                else:
+                    content_points.extend(items)
+                    
+            elif item_type == "paragraph":
+                content_points.append(item.get("text", ""))
+        
+        # Create the outline section
+        section = OutlineSection(
+            id=f"section_{idx}",
+            title=section_data.get("heading", section_data.get("title", f"Section {idx + 1}")),
+            section_type=section_type,
+            content_points=content_points if content_points else [section_data.get("summary", "")],
+            legal_authorities=legal_authorities,
+            target_length=word_distribution.get(f"section_{idx}", target_words // len(outline_sections)),
+            hook_options=hook_options,
+            themes=themes if themes else self.document_context.get("themes", []),
+            key_facts=key_facts,
+            counter_arguments=counter_arguments
+        )
+        
+        # Parse any subsections in the same format
+        if "subsections" in section_data:
+            subsection_words = section.target_length // (len(section_data["subsections"]) + 1)
+            for sub_idx, subsection_data in enumerate(section_data["subsections"]):
+                subsection = self._parse_doc_converter_section(
+                    subsection_data, 
+                    f"{idx}_{sub_idx}",
+                    {f"section_{idx}_{sub_idx}": subsection_words}
+                )
+                subsection.parent_id = section.id
+                section.children.append(subsection)
+        
+        return section
+
+    def _determine_section_type_from_data(self, section_data: Dict[str, Any]) -> SectionType:
+        """Determine section type from doc-converter data"""
+        # First check the explicit type field
+        explicit_type = section_data.get("type", "").lower()
+        
+        type_mapping = {
+            "introduction": SectionType.INTRODUCTION,
+            "facts": SectionType.STATEMENT_OF_FACTS,
+            "legal_standard": SectionType.LEGAL_STANDARD,
+            "argument": SectionType.ARGUMENT,
+            "conclusion": SectionType.CONCLUSION,
+            "prayer": SectionType.PRAYER_FOR_RELIEF
+        }
+        
+        if explicit_type in type_mapping:
+            return type_mapping[explicit_type]
+        
+        # Fall back to title analysis
+        title = section_data.get("heading", section_data.get("title", "")).lower()
+        return self._determine_section_type(title)
     
     def _calculate_word_distribution(self, outline_sections: List[Dict], target_words: int) -> Dict[str, int]:
         """Intelligently distribute words based on section importance"""
@@ -898,7 +1004,8 @@ Output JSON with:
             "medical_records": [],
             "motion_practice": [],
             "fact_chronology": [],
-            "themes": []
+            "themes": [],
+            "opposing_motion": self.document_context.get("opposing_motion_text", "")
         }
         
         # Build comprehensive search queries
@@ -1085,6 +1192,19 @@ Provide a detailed plan for drafting this section."""
             if section.section_type == SectionType.INTRODUCTION and section.hook_options:
                 hook_content = f"\nHook Options:\n{chr(10).join(f'{i+1}. {hook}' for i, hook in enumerate(section.hook_options))}\n\nChoose the most compelling hook and develop it fully."
             
+            opposing_motion_context = ""
+            if self.document_context.get("opposing_motion_text"):
+                opposing_motion_context = f"""
+
+Opposing Motion to Respond To:
+{self.document_context['opposing_motion_text']}
+
+Key Arguments from Opposing Counsel to Address:
+- Analyze and respond to their primary arguments
+- Identify weaknesses in their legal reasoning
+- Counter their factual assertions with our evidence
+"""
+
             drafting_prompt = f"""Draft this section of the legal motion based on the following plan:
 
 {section_plan}
@@ -1094,6 +1214,7 @@ Section Details:
 - Target Length: {section.target_length} words (THIS IS A MINIMUM - aim for 10-20% more)
 - Document Themes: {', '.join(self.document_context['themes'])}
 {hook_content}
+{opposing_motion_context}
 
 Relevant Case Facts:
 {self._format_enhanced_facts(relevant_facts, section.key_facts)}

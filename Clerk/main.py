@@ -119,13 +119,15 @@ class UploadResponse(BaseModel):
 
 # Motion drafting models
 class MotionDraftingRequest(BaseModel):
-    outline: Dict[str, Any] = Field(..., description="Motion outline JSON from outline generation phase")
-    target_length: str = Field("MEDIUM", description="Target length: SHORT (15-20 pages), MEDIUM (20-30 pages), LONG (30-40 pages), COMPREHENSIVE (35-50 pages)")
-    motion_title: Optional[str] = Field(None, description="Title for the motion. If not provided, will be extracted from outline")
-    database_name: str = Field(..., description="Database name containing case documents")
-    export_format: Optional[str] = Field("docx", description="Export format: docx, json, or both")
-    upload_to_box: bool = Field(False, description="Whether to upload the drafted motion to Box")
-    box_folder_id: Optional[str] = Field(None, description="Box folder ID for upload (required if upload_to_box is True)")
+    """Enhanced request model for motion drafting"""
+    outline: Dict[str, Any] = Field(..., description="Structured outline from doc-converter")
+    database_name: str = Field(..., description="Name of the Qdrant database/collection")
+    target_length: str = Field("MEDIUM", description="Target length: SHORT, MEDIUM, LONG, COMPREHENSIVE")
+    motion_title: Optional[str] = Field(None, description="Optional title for the motion")
+    export_format: str = Field("docx", description="Export format: docx, json, or both")
+    upload_to_box: bool = Field(False, description="Whether to upload to Box")
+    box_folder_id: Optional[str] = Field(None, description="Box folder ID for upload")
+    opposing_motion_text: Optional[str] = Field(None, description="Raw text of the opposing motion to respond to")  # NEW FIELD
 
 class MotionDraftingResponse(BaseModel):
     status: str
@@ -618,12 +620,21 @@ async def draft_motion(request: MotionDraftingRequest):
         # Generate draft ID for tracking
         draft_id = f"draft_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{os.urandom(4).hex()}"
         
+        outline_data = request.outline
+        if isinstance(request.outline, list) and len(request.outline) > 0:
+            outline_data = request.outline[0]
+            logger.info(f"Unwrapped outline from array format")
+
+        # Log the outline structure for debugging
+        logger.info(f"Outline structure: {json.dumps(outline_data, indent=2)[:1000]}...")
+
         # Pass database name to motion drafter for fact retrieval
         motion_draft = await motion_drafter.draft_motion(
             outline=request.outline,
-            database_name=request.database_name,  # Pass database name instead of case name
+            database_name=request.database_name,
             target_length=target_length,
-            motion_title=request.motion_title
+            motion_title=request.motion_title,
+            opposing_motion_text=request.opposing_motion_text
         )
         
         # Prepare response
