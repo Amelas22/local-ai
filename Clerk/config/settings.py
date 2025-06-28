@@ -4,7 +4,7 @@ Handles environment variables and configuration management
 """
 
 import os
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from pydantic_settings import BaseSettings
 from pydantic import Field, validator
 from pathlib import Path
@@ -33,6 +33,13 @@ class QdrantSettings(BaseSettings):
     https: bool = Field(False, env="QDRANT_HTTPS")
     prefer_grpc: bool = Field(False, env="QDRANT_PREFER_GRPC")
     timeout: int = Field(30, env="QDRANT_TIMEOUT")  # seconds
+    grpc_port: int = Field(6334, env="QDRANT_GRPC_PORT")
+    collection_name: str = Field("legal_documents", env="QDRANT_COLLECTION_NAME")
+    hybrid_collection_name: str = Field("legal_documents_hybrid", env="QDRANT_HYBRID_COLLECTION_NAME")
+    registry_collection_name: str = Field("document_registry", env="QDRANT_REGISTRY_COLLECTION_NAME")
+    batch_size: int = Field(500, env="QDRANT_BATCH_SIZE")
+    max_workers: int = Field(16, env="QDRANT_MAX_WORKERS")
+    embedding_dimensions: int = Field(1536, env="QDRANT_EMBEDDING_DIMENSIONS")
     
     class Config:
         env_prefix = "QDRANT_"
@@ -97,8 +104,15 @@ class DocumentProcessingSettings(BaseSettings):
     """Document processing configuration"""
     chunk_size: int = Field(1200, env="CHUNK_SIZE")
     chunk_overlap: int = Field(200, env="CHUNK_OVERLAP")
+    chunk_variance: int = Field(100, env="CHUNK_VARIANCE")
+    min_chunk_size: int = Field(500, env="MIN_CHUNK_SIZE")
+    max_chunk_size: int = Field(1500, env="MAX_CHUNK_SIZE")
+    batch_size: int = Field(10, env="PROCESSING_BATCH_SIZE")
+    max_retries: int = Field(3, env="PROCESSING_MAX_RETRIES")
+    retry_delay: int = Field(5, env="PROCESSING_RETRY_DELAY")
     max_file_size_mb: int = Field(100, env="MAX_FILE_SIZE_MB")
     supported_file_types: str = Field(".pdf,.txt,.docx", env="SUPPORTED_FILE_TYPES")
+    supported_extensions: Tuple[str, ...] = Field((".pdf",), env="SUPPORTED_EXTENSIONS")
     ocr_enabled: bool = Field(False, env="OCR_ENABLED")
     
     class Config:
@@ -246,6 +260,21 @@ class Settings(BaseSettings):
 
 # Create global settings instance
 settings = Settings()
+
+BoxConfig = BoxSettings
+QdrantConfig = QdrantSettings
+OpenAIConfig = OpenAISettings
+ChunkingConfig = DocumentProcessingSettings
+ProcessingConfig = DocumentProcessingSettings
+VectorConfig = QdrantSettings
+
+
+class CostConfig(BaseSettings):
+    """API cost tracking configuration"""
+    enable_tracking: bool = Field(True, env="ENABLE_TRACKING")
+    save_reports: bool = Field(True, env="SAVE_REPORTS")
+    report_directory: str = Field("logs", env="REPORT_DIRECTORY")
+    custom_pricing: Optional[Dict[str, Any]] = Field(None, env="CUSTOM_PRICING")
 
 # Export commonly used settings
 CHUNK_SIZE = settings.document_processing.chunk_size
