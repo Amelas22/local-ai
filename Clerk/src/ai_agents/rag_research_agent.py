@@ -5,6 +5,7 @@ Optimizes queries and selects appropriate databases for motion drafting research
 
 import asyncio
 import logging
+import re
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
@@ -116,6 +117,15 @@ Transform outline-generated questions into multiple targeted search queries that
 3. **Multiple Angles**: Generate 2-3 different query approaches per question
 4. **Evidence Focus**: Prioritize queries that find concrete evidence and documentation
 
+## PRIORITY EVIDENCE TYPES (Search for these specifically)
+1. **Depositions**: Look for page:line references (e.g., "deposition 45:12-23")
+2. **Exhibits**: Search for exhibit numbers (e.g., "exhibit 15", "Ex. 22")
+3. **Expert Reports**: Include expert names and specialties
+4. **Internal Communications**: Email, memos, policies with dates
+5. **Regulatory Violations**: FMCSR sections, DOT violations
+6. **Maintenance Records**: Log numbers, inspection reports
+7. **Video/Photo Evidence**: Dashcam, surveillance, scene photos
+
 ## INPUT FORMAT
 You'll receive questions like:
 - "What dispatch records show about telematics overrides?"
@@ -128,18 +138,19 @@ For each input question, generate 2-3 optimized search queries:
 Example:
 Input: "What dispatch records show about telematics overrides?"
 Output:
-1. "telematics override dispatch communications emails instructions"
-2. "driver monitoring system disable fleet management"
-3. "safety technology bypass company policy violation"
+1. "telematics override dispatch email deposition exhibit"
+2. "driver monitoring system disable dashcam video policy"
+3. "fleet management bypass safety violation FMCSR 395"
 
-## GUIDELINES
-- Use short, keyword-focused queries for better semantic matching
-- Include synonyms and related terms
-- Focus on evidence, documentation, and concrete facts
-- Remove unnecessary words like "what", "how", "the"
-- Prioritize terms that would appear in legal documents
+## ENHANCED GUIDELINES
+- Include document type keywords: deposition, exhibit, email, report, log
+- Add page/line indicators when relevant: "page", "line", "at", "pp"
+- Include date qualifiers: "dated", "on", specific months/years
+- Use exhibit terminology: "Ex.", "Exhibit", numbered references
+- Target specific evidence: "video shows", "email states", "report confirms"
+- Include regulatory references: FMCSR, DOT, CFR sections
 
-Generate concise, targeted search queries that maximize database retrieval effectiveness.""",
+Generate concise, targeted search queries that maximize retrieval of specific, citable evidence.""",
                 result_type=str
             )
             logger.info("Query optimizer agent created successfully")
@@ -210,6 +221,16 @@ Make decisions quickly and confidently based on the question type.""",
         Main research method that processes questions and returns structured results
         """
         logger.info(f"[RAG_RESEARCH] Starting research for {len(request.questions)} questions")
+        logger.info(f"[RAG_RESEARCH] Target database: '{request.database_name}'")
+        logger.info(f"[RAG_RESEARCH] Research context: {request.research_context}")
+        
+        # DEBUG: Check what collections exist
+        try:
+            collections = self.vector_store.client.get_collections()
+            collection_names = [c.name for c in collections.collections] if hasattr(collections, 'collections') else []
+            logger.info(f"[RAG_DEBUG] All available collections at start: {collection_names}")
+        except Exception as e:
+            logger.error(f"[RAG_DEBUG] Could not list collections: {e}")
         
         response = ResearchResponse()
         response.search_strategy["total_questions"] = len(request.questions)
@@ -407,37 +428,67 @@ Make decisions quickly and confidently based on the question type.""",
                 # Execute searches
                 for db_name, db_type in databases_to_search:
                     try:
+                        # DEBUG: Check if collection exists and has data
+                        logger.info(f"[RAG_DEBUG] Attempting search on database: '{db_name}' (type: {db_type.value})")
+                        
+                        # Check if collection exists
+                        try:
+                            collections = self.vector_store.client.get_collections()
+                            collection_names = [c.name for c in collections.collections] if hasattr(collections, 'collections') else []
+                            logger.info(f"[RAG_DEBUG] Available collections: {collection_names}")
+                            
+                            if db_name not in collection_names:
+                                logger.warning(f"[RAG_DEBUG] Collection '{db_name}' not found! Available: {collection_names}")
+                                continue
+                            
+                            # Check collection info
+                            collection_info = self.vector_store.client.get_collection(db_name)
+                            logger.info(f"[RAG_DEBUG] Collection '{db_name}' has {collection_info.points_count} points")
+                            
+                            if collection_info.points_count == 0:
+                                logger.warning(f"[RAG_DEBUG] Collection '{db_name}' is empty!")
+                                continue
+                                
+                        except Exception as check_error:
+                            logger.error(f"[RAG_DEBUG] Error checking collection '{db_name}': {check_error}")
+                            continue
+                        
                         results = await asyncio.wait_for(
                             self.vector_store.hybrid_search(
                                 collection_name=db_name,
                                 query=query.query_text,
                                 query_embedding=query_embedding,
-                                limit=3,  # Limit per database
-                                enable_reranking=False
+                                limit=20,
+                                final_limit=3,
+                                enable_reranking=True
                             ),
                             timeout=8.0
                         )
                         
+                        logger.info(f"[RAG_DEBUG] Search returned {len(results)} raw results from '{db_name}'")
+                        
                         # Convert to ResearchResult objects
-                        for result in results:
-                            if result.score > 0.2:  # Reasonable threshold
-                                research_result = ResearchResult(
-                                    content=result.content[:1000],  # Limit content length
-                                    source_document=result.metadata.get("document_name", "Unknown"),
-                                    score=result.score,
-                                    query_type=query.query_type,
-                                    database_source=db_type,
-                                    metadata={
-                                        **result.metadata,
-                                        "original_question": query.original_question,
-                                        "optimized_query": query.query_text
-                                    }
-                                )
-                                search_results.append(research_result)
-                                logger.info(f"[RAG_RESEARCH] Found result (score: {result.score:.3f}) from {db_name}")
+                        for j, result in enumerate(results):
+                            logger.info(f"[RAG_DEBUG] Result {j+1}: score={result.score:.4f}, content_length={len(result.content)}")
+                            
+                            # No score filtering - hybrid search already ranks results
+                            research_result = ResearchResult(
+                                content=result.content[:1000],  # Limit content length
+                                source_document=result.metadata.get("document_name", "Unknown"),
+                                score=result.score,
+                                query_type=query.query_type,
+                                database_source=db_type,
+                                metadata={
+                                    **result.metadata,
+                                    "original_question": query.original_question,
+                                    "optimized_query": query.query_text
+                                }
+                            )
+                            search_results.append(research_result)
+                            logger.info(f"[RAG_RESEARCH] Added result (score: {result.score:.3f}) from {db_name}")
                         
                     except Exception as e:
-                        logger.error(f"[RAG_RESEARCH] Error searching {db_name}: {str(e)}")
+                        logger.error(f"[RAG_RESEARCH] Error searching {db_name}: {str(e)}", exc_info=True)
                         continue
                         
             except Exception as e:
@@ -470,15 +521,26 @@ Make decisions quickly and confidently based on the question type.""",
         search_results: List[ResearchResult],
         response: ResearchResponse
     ) -> ResearchResponse:
-        """Categorize search results into structured response"""
+        """Categorize search results into structured response with evidence priority"""
+        
+        # Import citation formatter for enhanced formatting
+        from src.ai_agents.citation_formatter import citation_formatter
         
         for result in search_results:
+            # Try to format as proper citation
+            citation = citation_formatter.format_search_result_as_citation({
+                'content': result.content,
+                'metadata': result.metadata
+            })
+            
             result_dict = {
                 "content": result.content,
                 "source": result.source_document,
                 "score": result.score,
                 "database": result.database_source.value,
-                "metadata": result.metadata
+                "metadata": result.metadata,
+                "formatted_citation": citation.formatted_citation if citation else None,
+                "evidence_type": self._classify_evidence_type(result)
             }
             
             # Categorize based on query type
@@ -495,12 +557,63 @@ Make decisions quickly and confidently based on the question type.""",
             elif result.query_type == QueryType.ARGUMENT_STRATEGIES:
                 response.argument_strategies.append(result_dict)
         
-        # Sort each category by score
+        # Sort each category by score and evidence quality
         for category in [response.legal_precedents, response.case_facts, response.expert_evidence,
                         response.regulatory_compliance, response.procedural_history, response.argument_strategies]:
-            category.sort(key=lambda x: x["score"], reverse=True)
+            category.sort(key=lambda x: (
+                self._get_evidence_priority_score(x),  # Priority for specific evidence
+                x["score"]  # Then by search score
+            ), reverse=True)
         
         return response
+    
+    def _classify_evidence_type(self, result: ResearchResult) -> str:
+        """Classify the type of evidence for prioritization"""
+        content_lower = result.content.lower()
+        doc_name = result.metadata.get('document_name', '').lower()
+        doc_type = result.metadata.get('document_type', '').lower()
+        
+        # Check for high-priority evidence types
+        if 'deposition' in doc_type or 'depo' in doc_name:
+            return 'deposition'
+        elif 'exhibit' in doc_type or re.search(r'ex(?:hibit)?\s*\d+', doc_name):
+            return 'exhibit'
+        elif 'expert' in doc_type and 'report' in doc_type:
+            return 'expert_report'
+        elif 'email' in doc_type or 'memo' in doc_type:
+            return 'internal_communication'
+        elif 'video' in doc_type or 'dashcam' in content_lower:
+            return 'video_evidence'
+        elif re.search(r'fmcsr|dot|cfr', content_lower):
+            return 'regulatory'
+        elif 'maintenance' in doc_type or 'inspection' in doc_type:
+            return 'maintenance_record'
+        else:
+            return 'document'
+    
+    def _get_evidence_priority_score(self, result_dict: Dict[str, Any]) -> float:
+        """Score evidence based on priority for legal motions"""
+        evidence_type = result_dict.get('evidence_type', 'document')
+        
+        # Priority scores (higher is better)
+        priority_map = {
+            'deposition': 1.0,  # Highest priority - sworn testimony
+            'exhibit': 0.9,     # Court exhibits
+            'expert_report': 0.85,  # Expert opinions
+            'video_evidence': 0.8,  # Visual evidence
+            'internal_communication': 0.75,  # Company emails/memos
+            'regulatory': 0.7,  # Violations and compliance
+            'maintenance_record': 0.65,  # Technical records
+            'document': 0.5     # General documents
+        }
+        
+        base_score = priority_map.get(evidence_type, 0.5)
+        
+        # Bonus for specific page/line references
+        if result_dict.get('formatted_citation') and ':' in str(result_dict['formatted_citation']):
+            base_score += 0.1
+            
+        return base_score
 
     def _generate_summary(self, response: ResearchResponse) -> str:
         """Generate a summary of research findings"""

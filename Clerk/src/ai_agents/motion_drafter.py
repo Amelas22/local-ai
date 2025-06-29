@@ -20,6 +20,7 @@ from src.vector_storage.qdrant_store import QdrantVectorStore
 from src.vector_storage.embeddings import EmbeddingGenerator
 from src.ai_agents.outline_cache_manager import outline_cache
 from src.ai_agents.rag_research_agent import rag_research_agent, ResearchRequest
+from src.ai_agents.legal_formatter import legal_formatter
 from src.utils.timeout_monitor import TimeoutMonitor, ProgressTracker
 from config.settings import settings
 
@@ -29,13 +30,16 @@ logger = logging.getLogger("clerk_api")
 
 class SectionType(Enum):
     """Types of sections in a legal motion"""
-    INTRODUCTION = "introduction"
-    STATEMENT_OF_FACTS = "statement_of_facts"
-    LEGAL_STANDARD = "legal_standard"
-    ARGUMENT = "argument"
-    SUB_ARGUMENT = "sub_argument"
-    CONCLUSION = "conclusion"
-    PRAYER_FOR_RELIEF = "prayer_for_relief"
+    PREINTRODUCTION = "preintroduction"  # Case caption and title
+    INTRODUCTION = "introduction"  # Brief 1-2 paragraph introduction
+    PROCEDURAL_BACKGROUND = "procedural_background"  # Procedural history
+    STATEMENT_OF_FACTS = "statement_of_facts"  # Factual background (skip for now)
+    MEMORANDUM_OF_LAW = "memorandum_of_law"  # Main legal analysis section
+    LEGAL_STANDARD = "legal_standard"  # Legal standards subsection
+    ARGUMENT = "argument"  # Main arguments (part of memorandum)
+    SUB_ARGUMENT = "sub_argument"  # Sub-arguments within main arguments
+    CONCLUSION = "conclusion"  # Brief 3-4 sentence conclusion
+    PRAYER_FOR_RELIEF = "prayer_for_relief"  # WHEREFORE clause and signature block
 
 
 class DocumentLength(Enum):
@@ -138,48 +142,84 @@ class EnhancedMotionDraftingAgent:
         logger.info("EnhancedMotionDraftingAgent initialized successfully")
 
     def _create_enhanced_section_writer(self) -> Agent:
-        """Create enhanced section writer with ABCDE framework and CoT prompting"""
+        """Create enhanced section writer with evidence-focused prompting"""
         try:
             # Use primary model for section writing
             agent = Agent(
                 self.primary_model,
-                system_prompt="""You are an expert legal writer specializing in professional legal motion drafting.
+                system_prompt="""You are an expert legal writer specializing in professional legal motion drafting for Florida courts.
 
-## WRITING STYLE REQUIREMENTS
-- Write in clear, direct, professional legal style
-- Use active voice and strong declarative statements
-- Be persuasive but not overly academic or verbose
-- Get directly to the point without excessive introductory language
-- Use concrete facts and specific evidence rather than abstract principles
+## CRITICAL EVIDENCE INTEGRATION REQUIREMENTS
 
-## STRUCTURE & FORMAT
-1. Start with clear topic sentences that state your position
-2. Support with specific facts, case law, and evidence
-3. Use proper legal citations in Bluebook format
-4. Apply law directly to facts with precision
-5. Address counterarguments concisely
-6. End with clear conclusions
+### EVERY PARAGRAPH MUST INCLUDE SPECIFIC EVIDENCE
+- Each factual assertion MUST be supported by a specific citation
+- Use exact page:line references for depositions (e.g., "Smith Dep. 45:12-23")
+- Include exhibit numbers (e.g., "Ex. 15", "Maintenance Log Nos. 52-63, Ex. 22")
+- Reference specific documents with dates (e.g., "Email from Jones dated 3/15/2023")
+- Quote or paraphrase actual evidence content
 
-## CONTENT FOCUS
-- Emphasize FACTS and EVIDENCE from the case record
-- Include specific dates, documents, regulations, and testimony
-- Reference concrete evidence like maintenance logs, camera footage, violations
-- Cite specific regulatory standards (FMCSR, OSHA, etc.)
-- Use case precedent to support legal arguments
+### CITATION FORMAT EXAMPLES
+- Deposition: "MR. DACOSTA testified that he was instructed to disable the telematics system. (DACOSTA Dep. 34:12-25)"
+- Exhibit: "The maintenance logs show brake failures were reported but not repaired. (Maintenance Log Nos. 52-63, Ex. 22)"
+- Expert Report: "Dr. Reynolds concluded the crash was preventable with proper maintenance. (Expert Report of Dr. Reynolds at 15, Ex. 19)"
+- Internal Document: "PFG's internal emails confirm management knew of the safety risks. (Email from Fleet Manager dated 8/15/2021, Ex. 17)"
+- Video Evidence: "The dashcam video shows DACOSTA stopped in the travel lane. (Dashcam Recording at 3:52:15, Ex. 5)"
 
-## TONE GUIDELINES
-- Professional and authoritative but not pompous
-- Confident in legal positions
-- Factual and evidence-based
-- Directly address the court
-- Avoid unnecessary complexity or academic flourishes
+## SECTION-SPECIFIC REQUIREMENTS
 
-## EXAMPLES OF GOOD LEGAL WRITING
-- "NATS installed inward facing and outward facing onboard cameras in NATS's trucks to monitor both travelling activities and driver activities while driving their tractor-trailers."
-- "The post-crash Driver/Vehicle Examination Report issued by South Carolina State Transport Police notes an out of service violation for FMCSR 395.8(e)(1)"
-- "Florida's system of comparative fault mandates that, when apportioning fault, the jury considers all acts of negligence that contributed to injuries or death"
+### INTRODUCTION SECTIONS
+- 1-2 paragraphs maximum
+- State the motion type and relief sought
+- Brief preview of key arguments
+- End with "for the reasons set forth below"
 
-Your writing should be substantive but efficient, professional but accessible.""",
+### PROCEDURAL BACKGROUND
+- Numbered paragraphs for each filing
+- Include docket entry numbers (DE #)
+- Chronological order
+
+### MEMORANDUM OF LAW / ARGUMENTS (80-90% of motion)
+STRUCTURE FOR EACH ARGUMENT:
+1. **Heading**: Clear statement of legal position
+2. **Rule Paragraph**: State the applicable law with case citations
+3. **Application Paragraphs**: 
+   - MUST include 3-5 specific pieces of evidence per argument
+   - Connect each piece of evidence to the legal standard
+   - Use transitions like "Moreover," "Additionally," "Furthermore"
+4. **Conclusion**: Brief summary tying evidence to relief sought
+
+EVIDENCE REQUIREMENTS PER ARGUMENT:
+- Minimum 3 citations to case-specific evidence
+- At least 1 deposition excerpt
+- At least 1 exhibit reference
+- At least 1 internal document or expert opinion
+
+### CONCLUSION SECTIONS
+- 3-4 sentences maximum
+- Summarize why evidence compels relief
+- Reference strongest evidence briefly
+- Lead to WHEREFORE paragraph
+
+### WHEREFORE/PRAYER FOR RELIEF
+- Standard format with specific relief
+- Professional signature block
+
+## EVIDENCE INTEGRATION TECHNIQUES
+1. **Lead with Evidence**: "The video evidence establishes that..."
+2. **Parenthetical Support**: "PFG knew of the danger (Email from Safety Director dated 1/5/2023)"
+3. **Block Quotes**: Use for critical deposition testimony
+4. **Sequential Evidence**: "First... Second... Third..." with different evidence types
+5. **Corroboration**: "This is confirmed by..." linking multiple pieces
+
+## QUALITY CHECKS
+Before completing any section, verify:
+- Every factual claim has a specific citation
+- Citations include precise references (page:line, exhibit #, dates)
+- Evidence directly supports the legal argument
+- Multiple evidence types are used
+- No generic or unsupported assertions
+
+Remember: Judges want SPECIFIC EVIDENCE, not general allegations.""",
                 result_type=str
             )
             logger.info("Section writer agent created successfully")
@@ -216,22 +256,126 @@ Your writing should be substantive but efficient, professional but accessible.""
         return patterns
 
     def _determine_section_type(self, title: str) -> SectionType:
-        """Determine section type from title"""
+        """Determine section type from title with proper legal motion structure"""
         title_lower = title.lower()
         
-        if any(term in title_lower for term in ["introduction", "preliminary", "overview"]):
+        # Check for pre-introduction/caption
+        if any(term in title_lower for term in ["caption", "title", "court", "case no"]):
+            return SectionType.PREINTRODUCTION
+        
+        # Check for procedural background
+        elif any(term in title_lower for term in ["procedural", "history", "proceedings"]):
+            return SectionType.PROCEDURAL_BACKGROUND
+        
+        # Check for memorandum of law (main section)
+        elif any(term in title_lower for term in ["memorandum", "memo", "law"]):
+            return SectionType.MEMORANDUM_OF_LAW
+        
+        # Check for introduction (keep brief)
+        elif "introduction" in title_lower and "argument" not in title_lower:
             return SectionType.INTRODUCTION
-        elif any(term in title_lower for term in ["facts", "background", "factual"]):
+        
+        # Check for facts/statement of facts
+        elif any(term in title_lower for term in ["facts", "factual", "background"]) and "procedural" not in title_lower:
             return SectionType.STATEMENT_OF_FACTS
-        elif any(term in title_lower for term in ["standard", "law", "legal framework"]):
+        
+        # Check for legal standard
+        elif any(term in title_lower for term in ["standard", "legal framework", "applicable law"]):
             return SectionType.LEGAL_STANDARD
-        elif any(term in title_lower for term in ["conclusion", "summary"]):
+        
+        # Check for conclusion (keep very brief)
+        elif any(term in title_lower for term in ["conclusion", "summary"]) and "argument" not in title_lower:
             return SectionType.CONCLUSION
-        elif any(term in title_lower for term in ["prayer", "relief", "request"]):
+        
+        # Check for prayer/relief (WHEREFORE clause)
+        elif any(term in title_lower for term in ["prayer", "relief", "wherefore", "request"]):
             return SectionType.PRAYER_FOR_RELIEF
+        
+        # Default to argument (part of memorandum of law)
         else:
             return SectionType.ARGUMENT
 
+    async def _extract_argument_sections(
+        self, 
+        outline_id: str,
+        outline_structure: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Extract argument sections from outline content"""
+        
+        new_structure = []
+        
+        for section_info in outline_structure:
+            # Get the full section data
+            section_data = await outline_cache.get_section(outline_id, section_info['index'])
+            if not section_data:
+                new_structure.append(section_info)
+                continue
+                
+            # Check if this section contains argument paragraphs
+            content_items = section_data.get('content', [])
+            added_arguments = False
+            
+            for item in content_items:
+                if item.get('type') == 'paragraph':
+                    text = item.get('text', '')
+                    # Check if this is an argument heading (e.g., "ARGUMENT I – ...")
+                    if text.startswith('ARGUMENT') and ' – ' in text:
+                        # Create a new section for this argument
+                        arg_section = {
+                            'index': len(new_structure),
+                            'heading': text,
+                            'type': 'argument',
+                            'content_items': 0,  # Will be populated from following items
+                            'has_subsections': False,
+                            '_original_index': section_info['index']  # Keep reference to original
+                        }
+                        new_structure.append(arg_section)
+                        added_arguments = True
+                        logger.info(f"[EXTRACT_ARGS] Found argument section: {text}")
+            
+            # If we didn't extract any arguments, keep the original section
+            # But only if it's not a facts section that contained arguments
+            if not added_arguments or section_info['type'] not in ['facts', 'statement_of_facts']:
+                new_structure.append(section_info)
+        
+        logger.info(f"[EXTRACT_ARGS] Extracted structure: {len(outline_structure)} -> {len(new_structure)} sections")
+        return new_structure
+    
+    async def _extract_argument_content(
+        self,
+        original_section_data: Dict[str, Any],
+        argument_heading: str
+    ) -> Dict[str, Any]:
+        """Extract content for a specific argument from the original section data"""
+        
+        content_items = original_section_data.get('content', [])
+        argument_content = []
+        found_argument = False
+        
+        for i, item in enumerate(content_items):
+            # Check if this is the argument we're looking for
+            if item.get('type') == 'paragraph' and item.get('text') == argument_heading:
+                found_argument = True
+                # Look for the following content items that belong to this argument
+                for j in range(i + 1, len(content_items)):
+                    next_item = content_items[j]
+                    # Stop if we hit another argument
+                    if (next_item.get('type') == 'paragraph' and 
+                        next_item.get('text', '').startswith('ARGUMENT') and 
+                        ' – ' in next_item.get('text', '')):
+                        break
+                    # Collect content for this argument
+                    if next_item.get('label') in ['Summary', 'Structure', 'Key Authorities', 
+                                                  'Fact Integration', 'Counter-Argument Response']:
+                        argument_content.append(next_item)
+                break
+        
+        if not found_argument:
+            logger.warning(f"Could not find argument content for: {argument_heading}")
+            return {"content": []}
+        
+        return {"content": argument_content}
+    
     def _deduplicate_sections(self, outline_structure: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Deduplicate sections by type to prevent multiple conclusions"""
         seen_types = {}
@@ -662,6 +806,9 @@ Your writing should be substantive but efficient, professional but accessible.""
         if not outline_structure:
             raise ValueError(f"Failed to get outline structure for ID: {outline_id}")
         
+        # Extract and restructure argument sections from content
+        outline_structure = await self._extract_argument_sections(outline_id, outline_structure)
+        
         # Deduplicate sections to prevent multiple conclusions
         outline_structure = self._deduplicate_sections(outline_structure)
         
@@ -746,11 +893,23 @@ Your writing should be substantive but efficient, professional but accessible.""
             timeout_monitor.log_progress(f"Drafting section {i+1}: {section_info['heading']}")
             
             try:
-                # Retrieve only this section from cache
-                section_data = await outline_cache.get_section(outline_id, section_info['index'])
-                if not section_data:
-                    logger.error(f"Failed to retrieve section {i} from cache")
-                    continue
+                # Retrieve section from cache - handle extracted argument sections
+                if '_original_index' in section_info:
+                    # This is an extracted argument - get from original section
+                    original_data = await outline_cache.get_section(outline_id, section_info['_original_index'])
+                    if not original_data:
+                        logger.error(f"Failed to retrieve original section for argument {i}")
+                        continue
+                    # Extract the relevant argument content
+                    section_data = await self._extract_argument_content(
+                        original_data, section_info['heading']
+                    )
+                else:
+                    # Regular section
+                    section_data = await outline_cache.get_section(outline_id, section_info['index'])
+                    if not section_data:
+                        logger.error(f"Failed to retrieve section {i} from cache")
+                        continue
                 
                 # Create minimal OutlineSection for this section only
                 outline_section = self._create_minimal_outline_section(
@@ -807,6 +966,13 @@ Your writing should be substantive but efficient, professional but accessible.""
                 )
                 drafted_section = self._create_placeholder_section(outline_section, str(e))
                 drafted_sections.append(drafted_section)
+        
+        # Post-process sections to ensure proper structure
+        logger.info(f"[MOTION_DRAFTER] Post-processing sections for proper structure")
+        drafted_sections = self._restructure_motion_sections(drafted_sections)
+        
+        # Recalculate total words after restructuring
+        total_words = sum(section.word_count for section in drafted_sections)
         
         # Create motion draft
         motion_draft = MotionDraft(
@@ -930,37 +1096,103 @@ Your writing should be substantive but efficient, professional but accessible.""
                 limit=2
             )
             
-            # Create focused prompt with case facts and firm examples
-            drafting_prompt = f"""Draft this section of the legal motion:
+            # Create section-specific prompts based on type
+            if outline_section.section_type == SectionType.INTRODUCTION:
+                drafting_prompt = self._create_introduction_prompt(
+                    outline_section, essential_content, cumulative_context
+                )
+            elif outline_section.section_type == SectionType.CONCLUSION:
+                drafting_prompt = self._create_conclusion_prompt(
+                    outline_section, essential_content, cumulative_context
+                )
+            elif outline_section.section_type == SectionType.PRAYER_FOR_RELIEF:
+                drafting_prompt = self._create_prayer_prompt(
+                    outline_section, essential_content, cumulative_context
+                )
+            elif outline_section.section_type in [SectionType.ARGUMENT, SectionType.SUB_ARGUMENT, 
+                                                 SectionType.MEMORANDUM_OF_LAW, SectionType.LEGAL_STANDARD]:
+                # Import citation formatter
+                from src.ai_agents.citation_formatter import citation_formatter
+                
+                # Format evidence with proper citations
+                formatted_evidence = []
+                for fact in case_context.get("case_facts", [])[:10]:
+                    try:
+                        # Handle both object and dict formats
+                        if hasattr(fact, 'content'):
+                            content = fact.content
+                            metadata = fact.metadata if hasattr(fact, 'metadata') else {}
+                        else:
+                            content = fact.get('content', '')
+                            metadata = fact.get('metadata', {})
+                        
+                        citation = citation_formatter.format_search_result_as_citation({
+                            'content': content,
+                            'metadata': metadata
+                        })
+                        if citation:
+                            formatted_evidence.append(f"{content[:200]}... ({citation.formatted_citation})")
+                        else:
+                            formatted_evidence.append(f"{content[:200]}...")
+                    except Exception as e:
+                        logger.debug(f"Error formatting evidence: {e}")
+                        continue
+                
+                # Full argument prompt with formatted evidence
+                drafting_prompt = f"""Draft this ARGUMENT section of the legal motion:
+
+Section: {outline_section.title}
+Type: MEMORANDUM OF LAW - {outline_section.section_type.value}
+Target Length: {outline_section.target_length} words (MINIMUM - this is a substantive section)
+
+Key Arguments to Develop:
+{chr(10).join(f"- {point}" for point in essential_content['key_points'][:7])}
+
+Required Legal Authorities:
+{chr(10).join(f"- {auth}" for auth in essential_content['authorities'][:7])}
+
+SPECIFIC EVIDENCE TO INCORPORATE (USE THESE EXACT CITATIONS):
+{chr(10).join(f"{i+1}. {evidence}" for i, evidence in enumerate(formatted_evidence[:8]))}
+
+Expert Testimony Available:
+{self._format_expert_evidence(case_context.get('expert_reports', [])[:3])}
+
+Regulatory Violations:
+{self._format_regulatory_evidence(case_context.get('regulatory_evidence', [])[:3])}
+
+Previous Arguments Made:
+{cumulative_context.get('summary', 'This is the first argument section.')}
+
+CRITICAL REQUIREMENTS:
+1. EVERY factual assertion MUST have a specific citation
+2. Use the EXACT citations provided above
+3. Include page:line references for depositions
+4. Reference exhibit numbers
+5. Quote key testimony or documents
+6. Connect each piece of evidence to your legal argument
+7. Use transitions between evidence presentations
+8. Write AT LEAST {outline_section.target_length} words
+
+EVIDENCE INTEGRATION EXAMPLE:
+"The evidence establishes that PFG knew of the safety risks but chose profits over safety. MR. DACOSTA testified that his supervisor instructed him to disable the telematics monitoring system to avoid speed alerts. (DACOSTA Dep. 45:12-23). This is corroborated by an email from the Fleet Manager stating 'disable those annoying alerts - they're slowing down deliveries.' (Email from Jones dated 8/15/2021, Ex. 17). Moreover, the maintenance logs reveal that brake issues were reported three times but never repaired. (Maintenance Log Nos. 52-63, Ex. 22)."
+
+Remember: Use SPECIFIC EVIDENCE with EXACT CITATIONS throughout."""
+            else:
+                # Default prompt for other sections
+                drafting_prompt = f"""Draft this section of the legal motion:
 
 Section: {outline_section.title}
 Type: {outline_section.section_type.value}
-Target Length: {outline_section.target_length} words (MINIMUM)
+Target Length: {outline_section.target_length} words
 
-Key Points to Address:
+Key Points:
 {chr(10).join(f"- {point}" for point in essential_content['key_points'][:5])}
 
-Required Authorities:
-{chr(10).join(f"- {auth}" for auth in essential_content['authorities'][:5])}
-
-Relevant Case Facts:
-{chr(10).join(f"- {fact}" for fact in relevant_facts[:5])}
-
-Firm Knowledge Examples:
-{chr(10).join(f"- From {ex['document']}: {ex['content'][:200]}..." for ex in relevant_examples[:2])}
-
-Context from Previous Sections:
-{cumulative_context.get('summary', 'This is the first section.')}
-
-REQUIREMENTS:
-1. Write {outline_section.target_length} words MINIMUM
-2. Use formal legal writing style
-3. Include all required authorities with parentheticals
-4. Incorporate the case facts naturally into your analysis
-5. Apply successful argument structures from firm examples
-6. Develop each point with detailed analysis
-7. Include transitions and topic sentences
-8. Apply IRAC/CRAC structure where appropriate"""
+Requirements:
+1. Use appropriate legal formatting
+2. Be concise and direct
+3. Include relevant facts and authorities
+4. Maintain professional tone"""
 
             # Generate content
             result = await asyncio.wait_for(
@@ -1059,6 +1291,149 @@ REQUIREMENTS:
             logger.debug(f"Error extracting firm examples: {e}")
             
         return relevant_examples[:limit]
+    
+    def _format_expert_evidence(self, expert_reports: List[Any]) -> str:
+        """Format expert evidence for inclusion in prompts"""
+        formatted = []
+        
+        for expert in expert_reports:
+            try:
+                # Handle both object and dict formats
+                if hasattr(expert, 'content'):
+                    content = expert.content
+                    metadata = expert.metadata if hasattr(expert, 'metadata') else {}
+                else:
+                    content = expert.get('content', '')
+                    metadata = expert.get('metadata', {})
+                
+                # Try to extract expert name and format citation
+                doc_name = metadata.get('document_name', 'Expert')
+                formatted_cite = f"Expert Report of {doc_name}"
+                
+                formatted.append(f"- {content[:200]}... ({formatted_cite})")
+            except Exception as e:
+                logger.debug(f"Error formatting expert evidence: {e}")
+                continue
+                
+        return '\n'.join(formatted) if formatted else "- No expert testimony available"
+    
+    def _format_regulatory_evidence(self, regulatory_evidence: List[Any]) -> str:
+        """Format regulatory evidence for inclusion in prompts"""
+        formatted = []
+        
+        for reg in regulatory_evidence:
+            try:
+                # Handle both object and dict formats
+                if hasattr(reg, 'content'):
+                    content = reg.content
+                    metadata = reg.metadata if hasattr(reg, 'metadata') else {}
+                else:
+                    content = reg.get('content', '')
+                    metadata = reg.get('metadata', {})
+                
+                # Try to extract regulation section
+                section = metadata.get('section', '')
+                if not section:
+                    # Try to extract from content
+                    import re
+                    section_match = re.search(r'(\d+\.\d+)', content)
+                    section = section_match.group(1) if section_match else 'XXX'
+                
+                formatted.append(f"- {content[:150]}... (49 C.F.R. § {section})")
+            except Exception as e:
+                logger.debug(f"Error formatting regulatory evidence: {e}")
+                continue
+                
+        return '\n'.join(formatted) if formatted else "- No regulatory violations identified"
+
+    def _create_introduction_prompt(
+        self,
+        outline_section: OutlineSection,
+        essential_content: Dict[str, Any],
+        cumulative_context: Dict[str, Any]
+    ) -> str:
+        """Create specific prompt for introduction sections"""
+        return f"""Draft a BRIEF INTRODUCTION for this legal motion:
+
+Motion Title: {outline_section.title}
+Maximum Length: 150-200 words (1-2 paragraphs ONLY)
+
+Key Arguments to Preview (mention briefly):
+{chr(10).join(f"- {point}" for point in essential_content['key_points'][:3])}
+
+STRICT REQUIREMENTS:
+1. First sentence: State party name, representation, and the specific motion/objection being filed
+2. Second sentence (optional): Very brief statement of why relief should be granted
+3. End with: "for the reasons set forth below" or similar transition
+4. DO NOT exceed 200 words total
+5. DO NOT include detailed arguments - save those for the memorandum section
+
+Example format:
+"Plaintiff, [NAME], as Personal Representative of the Estate of [NAME], by and through undersigned counsel, files this [Motion Type] and respectfully shows this Court that [very brief reason]. For the reasons set forth below, [relief sought]."
+
+Write the introduction now:"""
+
+    def _create_conclusion_prompt(
+        self,
+        outline_section: OutlineSection,
+        essential_content: Dict[str, Any],
+        cumulative_context: Dict[str, Any]
+    ) -> str:
+        """Create specific prompt for conclusion sections"""
+        prev_args = cumulative_context.get('summary', 'the arguments presented above')
+        return f"""Draft a BRIEF CONCLUSION for this legal motion:
+
+Maximum Length: 100-150 words (3-4 sentences ONLY)
+
+Main Arguments Made in Motion:
+{prev_args}
+
+Key Relief Sought:
+{chr(10).join(f"- {point}" for point in essential_content['key_points'][:2])}
+
+STRICT REQUIREMENTS:
+1. Summarize in 2-3 sentences why the law and facts require granting relief
+2. Final sentence: State what the defendant's motion should be (granted/denied)
+3. DO NOT exceed 150 words total
+4. DO NOT rehash arguments - just state the conclusion
+5. Lead naturally into the WHEREFORE paragraph
+
+Example format:
+"The law and equity both require that [core principle/finding]. Based on [key reason], [secondary point if needed]. Accordingly, Defendant's Motion should be [denied/granted]."
+
+Write the conclusion now:"""
+
+    def _create_prayer_prompt(
+        self,
+        outline_section: OutlineSection,
+        essential_content: Dict[str, Any],
+        cumulative_context: Dict[str, Any]
+    ) -> str:
+        """Create specific prompt for prayer/wherefore sections"""
+        return f"""Draft the WHEREFORE/PRAYER FOR RELIEF section:
+
+Relief Requested:
+{chr(10).join(f"- {point}" for point in essential_content['key_points'][:3])}
+
+STRICT FORMAT:
+1. Start with: "WHEREFORE, Plaintiff respectfully requests that this Honorable Court"
+2. List specific relief sought
+3. End with: "and grant such other relief as the Court deems just and equitable."
+4. Add signature block
+
+Example:
+WHEREFORE, Plaintiff respectfully requests that this Honorable Court deny Defendant's Motion for [specific relief] and grant such other relief as the Court deems just and equitable.
+
+[LAW FIRM NAME]
+
+/s/ [Attorney Name]
+[Attorney Name], Esq.
+Florida Bar No.: [Number]
+[Address]
+[Phone]
+[Email]
+
+Write the WHEREFORE section now:"""
 
     # Keep all other methods unchanged from the original...
     async def _convert_structure_to_sections(
@@ -1284,36 +1659,107 @@ REQUIREMENTS:
         outline_structure: List[Dict[str, Any]],
         target_words: int
     ) -> Dict[str, int]:
-        """Calculate word distribution based on section structure"""
+        """Calculate word distribution based on flexible legal motion structure guidelines"""
         
         distribution = {}
-        weights = {}
-        total_weight = 0
+        
+        # First pass: categorize sections
+        intro_sections = []
+        argument_sections = []
+        conclusion_sections = []
+        procedural_sections = []
+        other_sections = []
         
         for i, section in enumerate(outline_structure):
-            section_type = section.get("type", "standard")
-            heading = section.get("heading", "").lower()
+            section_type = self._determine_section_type(section.get("heading", ""))
+            section_id = f"section_{i}"
             
-            # Assign weights based on type and heading
-            if section_type == "introduction" or "introduction" in heading:
-                weight = 0.5
-            elif section_type == "facts" or "facts" in heading:
-                weight = 1.5
-            elif section_type == "conclusion" or "conclusion" in heading:
-                weight = 0.5
-            elif section_type == "argument":
-                weight = 1.2
-                # Add weight for content complexity
-                weight += 0.1 * min(section.get("content_items", 0), 5)
+            if section_type in [SectionType.PREINTRODUCTION, SectionType.INTRODUCTION]:
+                intro_sections.append(section_id)
+            elif section_type in [SectionType.ARGUMENT, SectionType.SUB_ARGUMENT, 
+                                SectionType.MEMORANDUM_OF_LAW, SectionType.LEGAL_STANDARD]:
+                argument_sections.append(section_id)
+            elif section_type in [SectionType.CONCLUSION, SectionType.PRAYER_FOR_RELIEF]:
+                conclusion_sections.append(section_id)
+            elif section_type == SectionType.PROCEDURAL_BACKGROUND:
+                procedural_sections.append(section_id)
             else:
-                weight = 1.0
-            
-            weights[f"section_{i}"] = weight
-            total_weight += weight
+                other_sections.append(section_id)
         
-        # Distribute words based on weights
-        for section_id, weight in weights.items():
-            distribution[section_id] = int((weight / total_weight) * target_words)
+        # FLEXIBLE PROPORTIONAL GUIDELINES (not strict limits)
+        # Target ranges:
+        # - Introduction: 5-10% (but allow flexibility for complex cases)
+        # - Arguments: 75-85% (main body should dominate)
+        # - Conclusion: 5-10% (keep concise but not rigid)
+        # - Other sections: As needed
+        
+        # Calculate base allocations
+        intro_target = int(target_words * 0.07)  # 7% baseline
+        conclusion_target = int(target_words * 0.07)  # 7% baseline
+        procedural_target = int(target_words * 0.06) if procedural_sections else 0  # 6% if exists
+        
+        # Remaining goes to arguments (usually 75-80%)
+        argument_target = target_words - intro_target - conclusion_target - procedural_target
+        
+        # Distribute intro words with flexibility
+        if intro_sections:
+            words_per_intro = intro_target // len(intro_sections)
+            for section_id in intro_sections:
+                # Suggest but don't hard cap - allow 150-300 words typically
+                distribution[section_id] = max(150, min(words_per_intro, 300))
+        
+        # Distribute argument words based on complexity
+        if argument_sections:
+            # Weight arguments by content richness
+            arg_weights = {}
+            total_arg_weight = 0
+            
+            for idx, section_id in enumerate(argument_sections):
+                section = outline_structure[int(section_id.split('_')[1])]
+                content_items = len(section.get("content", []))
+                
+                # More complex arguments get more weight
+                # Base weight 1.0, up to 2.0 for content-rich sections
+                weight = 1.0 + min(content_items * 0.1, 1.0)
+                arg_weights[section_id] = weight
+                total_arg_weight += weight
+            
+            # Distribute proportionally with minimum thresholds
+            for section_id, weight in arg_weights.items():
+                allocated = int((weight / total_arg_weight) * argument_target)
+                # Ensure substantial arguments get adequate space
+                distribution[section_id] = max(allocated, 400)  # Min 400 words per argument
+        
+        # Distribute conclusion words with flexibility
+        if conclusion_sections:
+            words_per_conclusion = conclusion_target // len(conclusion_sections)
+            for section_id in conclusion_sections:
+                # Suggest 100-250 words for conclusions
+                distribution[section_id] = max(100, min(words_per_conclusion, 250))
+        
+        # Handle procedural background
+        if procedural_sections:
+            words_per_procedural = procedural_target // len(procedural_sections)
+            for section_id in procedural_sections:
+                distribution[section_id] = words_per_procedural
+        
+        # Handle other sections flexibly
+        remaining_words = target_words - sum(distribution.values())
+        if other_sections and remaining_words > 0:
+            words_per_other = remaining_words // len(other_sections)
+            for section_id in other_sections:
+                distribution[section_id] = max(words_per_other, 200)
+        
+        # Log proportions for guidance (not enforcement)
+        total_allocated = sum(distribution.values())
+        intro_proportion = sum(distribution.get(s, 0) for s in intro_sections) / total_allocated * 100 if total_allocated > 0 else 0
+        arg_proportion = sum(distribution.get(s, 0) for s in argument_sections) / total_allocated * 100 if total_allocated > 0 else 0
+        conclusion_proportion = sum(distribution.get(s, 0) for s in conclusion_sections) / total_allocated * 100 if total_allocated > 0 else 0
+        
+        logger.info(f"Word distribution guidance - "
+                   f"Intro: {intro_proportion:.1f}% (target: 5-10%), "
+                   f"Arguments: {arg_proportion:.1f}% (target: 75-85%), "
+                   f"Conclusion: {conclusion_proportion:.1f}% (target: 5-10%)")
         
         return distribution
 
@@ -1332,6 +1778,25 @@ REQUIREMENTS:
             
             if expansion_needed <= 0:
                 return drafted_section
+            
+            # Flexible expansion guidance based on section type
+            section_type = drafted_section.outline_section.section_type
+            if section_type == SectionType.INTRODUCTION:
+                # Allow some flexibility but discourage excessive expansion
+                if current_length >= 300:
+                    logger.info("Introduction already substantial - consider keeping concise")
+                    return drafted_section
+                elif current_length >= 250:
+                    # Limit expansion for already decent-sized intros
+                    expansion_needed = min(expansion_needed, 50)
+            elif section_type == SectionType.CONCLUSION:
+                # Similar flexibility for conclusions
+                if current_length >= 250:
+                    logger.info("Conclusion already substantial - consider keeping concise")
+                    return drafted_section
+                elif current_length >= 200:
+                    # Limit expansion for already decent-sized conclusions
+                    expansion_needed = min(expansion_needed, 50)
             
             # Extract unused content from full section data
             unused_content = self._extract_unused_content(
@@ -1408,39 +1873,209 @@ Provide the COMPLETE expanded section."""
         self,
         motion_draft: MotionDraft
     ) -> MotionDraft:
-        """Simplified review process that doesn't overwhelm the system"""
+        """Enhanced review process with comprehensive quality metrics tracking"""
         
         try:
-            # Basic quality score calculation
-            total_score = 0
+            # Import citation formatter for analysis
+            from src.ai_agents.citation_formatter import citation_formatter
+            
+            # Validate section structure and lengths
+            structure_issues = self._validate_motion_structure(motion_draft)
+            motion_draft.review_notes.extend(structure_issues)
+            
+            # Initialize comprehensive metrics
+            evidence_quality_scores = []
+            citation_density_scores = []
+            argument_strength_scores = []
             
             for section in motion_draft.sections:
-                # Check basic quality metrics
-                if section.word_count >= section.outline_section.target_length * 0.9:
-                    total_score += 0.2
-                if len(section.citations_used) >= 2:
-                    total_score += 0.2
-                if section.confidence_score > 0.7:
-                    total_score += 0.1
+                section_type = section.outline_section.section_type
+                
+                # Calculate evidence quality metrics
+                if section_type in [SectionType.ARGUMENT, SectionType.MEMORANDUM_OF_LAW]:
+                    # Extract citations from content
+                    citations = citation_formatter.extract_citations_from_text(section.content)
+                    
+                    # Citation density (citations per 100 words)
+                    citation_density = (len(citations) / section.word_count * 100) if section.word_count > 0 else 0
+                    citation_density_scores.append(citation_density)
+                    
+                    # Evidence specificity score
+                    specific_citations = 0
+                    for citation in citations:
+                        # Check for specific references (page:line, exhibit numbers, dates)
+                        if (citation.page_reference or citation.line_reference or 
+                            citation.exhibit_number or citation.date):
+                            specific_citations += 1
+                    
+                    evidence_specificity = (specific_citations / len(citations)) if citations else 0
+                    evidence_quality_scores.append(evidence_specificity)
+                    
+                    # Argument strength based on evidence integration
+                    has_deposition = any(c.citation_type.value == 'deposition' for c in citations)
+                    has_exhibit = any(c.citation_type.value == 'exhibit' for c in citations)
+                    has_expert = any(c.citation_type.value == 'expert_report' for c in citations)
+                    
+                    argument_strength = sum([has_deposition, has_exhibit, has_expert]) / 3.0
+                    argument_strength_scores.append(argument_strength)
+                
+                # Section-specific quality notes
+                if section_type == SectionType.INTRODUCTION:
+                    if section.word_count > 300:
+                        motion_draft.review_notes.append(
+                            f"Introduction is {section.word_count} words - consider making more concise"
+                        )
+                        
+                elif section_type == SectionType.CONCLUSION:
+                    if section.word_count > 250:
+                        motion_draft.review_notes.append(
+                            f"Conclusion is {section.word_count} words - consider making more concise"
+                        )
             
-            motion_draft.coherence_score = min(total_score / len(motion_draft.sections), 0.9)
+            # Calculate overall coherence score
+            coherence_components = []
             
-            # Add basic review notes
-            if motion_draft.coherence_score < 0.7:
-                motion_draft.review_notes.append("Some sections may need expansion or additional citations")
+            # Structure balance component
+            total_words = motion_draft.total_word_count
+            if total_words > 0:
+                intro_words = sum(s.word_count for s in motion_draft.sections 
+                                if s.outline_section.section_type in [SectionType.INTRODUCTION, SectionType.PREINTRODUCTION])
+                argument_words = sum(s.word_count for s in motion_draft.sections 
+                                   if s.outline_section.section_type in [SectionType.ARGUMENT, SectionType.MEMORANDUM_OF_LAW])
+                
+                intro_proportion = intro_words / total_words
+                argument_proportion = argument_words / total_words
+                
+                # Score based on how close to ideal proportions
+                structure_score = 0.0
+                if 0.05 <= intro_proportion <= 0.10:
+                    structure_score += 0.5
+                elif intro_proportion <= 0.15:
+                    structure_score += 0.3
+                    
+                if 0.75 <= argument_proportion <= 0.85:
+                    structure_score += 0.5
+                elif argument_proportion >= 0.70:
+                    structure_score += 0.3
+                    
+                coherence_components.append(structure_score)
             
+            # Evidence quality component
+            if evidence_quality_scores:
+                avg_evidence_quality = sum(evidence_quality_scores) / len(evidence_quality_scores)
+                coherence_components.append(avg_evidence_quality)
+            
+            # Citation density component (target: 2-4 citations per 100 words)
+            if citation_density_scores:
+                avg_citation_density = sum(citation_density_scores) / len(citation_density_scores)
+                density_score = min(avg_citation_density / 3.0, 1.0)  # Cap at 1.0
+                coherence_components.append(density_score)
+            
+            # Argument strength component
+            if argument_strength_scores:
+                avg_argument_strength = sum(argument_strength_scores) / len(argument_strength_scores)
+                coherence_components.append(avg_argument_strength)
+            
+            # Calculate final coherence score
+            if coherence_components:
+                motion_draft.coherence_score = sum(coherence_components) / len(coherence_components)
+            else:
+                motion_draft.coherence_score = 0.7  # Default
+            
+            # Compile comprehensive quality metrics
             motion_draft.quality_metrics = {
-                "sections_complete": len([s for s in motion_draft.sections if s.word_count > 0]),
-                "average_confidence": sum(s.confidence_score for s in motion_draft.sections) / len(motion_draft.sections),
-                "total_citations": len(motion_draft.citation_index)
+                # Basic metrics
+                "sections_complete": float(len([s for s in motion_draft.sections if s.word_count > 0])),
+                "total_word_count": float(total_words),
+                "total_pages": float(motion_draft.total_page_estimate),
+                
+                # Structure metrics (as proportions, not hard limits)
+                "intro_proportion": round((intro_words/total_words*100), 1) if total_words > 0 else 0.0,
+                "argument_proportion": round((argument_words/total_words*100), 1) if total_words > 0 else 0.0,
+                "conclusion_proportion": round((sum(s.word_count for s in motion_draft.sections 
+                                                   if s.outline_section.section_type in [SectionType.CONCLUSION, SectionType.PRAYER_FOR_RELIEF])/total_words*100), 1) if total_words > 0 else 0.0,
+                
+                # Evidence metrics
+                "average_citation_density": round(sum(citation_density_scores) / len(citation_density_scores), 2) if citation_density_scores else 0.0,
+                "evidence_specificity_score": round(sum(evidence_quality_scores) / len(evidence_quality_scores), 2) if evidence_quality_scores else 0.0,
+                "argument_strength_average": round(sum(argument_strength_scores) / len(argument_strength_scores), 2) if argument_strength_scores else 0.0,
+                
+                # Citation breakdown
+                "total_unique_citations": float(len(motion_draft.citation_index)),
+                "depositions_cited": float(sum(1 for c in motion_draft.citation_index if 'Dep.' in c)),
+                "exhibits_cited": float(sum(1 for c in motion_draft.citation_index if 'Ex.' in c)),
+                
+                # Quality indicators
+                "coherence_score": round(motion_draft.coherence_score, 2),
+                "average_section_confidence": round(sum(s.confidence_score for s in motion_draft.sections) / len(motion_draft.sections), 2) if motion_draft.sections else 0.0
             }
+            
+            # Add actionable guidance notes (not hard requirements)
+            if motion_draft.quality_metrics["average_citation_density"] < 1.0:
+                motion_draft.review_notes.append(
+                    "Consider adding more specific evidence citations to support arguments"
+                )
+            elif motion_draft.quality_metrics["average_citation_density"] > 5.0:
+                motion_draft.review_notes.append(
+                    "High citation density - ensure citations flow naturally with the text"
+                )
+                
+            if motion_draft.quality_metrics["evidence_specificity_score"] < 0.5:
+                motion_draft.review_notes.append(
+                    "Many citations lack specific page/line references - consider adding for stronger support"
+                )
+                
+            if motion_draft.quality_metrics["argument_strength_average"] < 0.5:
+                motion_draft.review_notes.append(
+                    "Arguments could benefit from more diverse evidence types (depositions, exhibits, expert reports)"
+                )
             
             return motion_draft
             
         except Exception as e:
-            logger.error(f"Error in lightweight review: {str(e)}")
+            logger.error(f"Error in review process: {str(e)}")
             motion_draft.coherence_score = 0.7
+            motion_draft.quality_metrics = {"error": str(e)}
             return motion_draft
+    
+    def _validate_motion_structure(self, motion_draft: MotionDraft) -> List[str]:
+        """Validate the structure of the motion"""
+        issues = []
+        
+        # Check for required sections
+        section_types = [s.outline_section.section_type for s in motion_draft.sections]
+        
+        if SectionType.INTRODUCTION not in section_types:
+            issues.append("Missing introduction section")
+            
+        if SectionType.MEMORANDUM_OF_LAW not in section_types and SectionType.ARGUMENT not in section_types:
+            issues.append("Missing memorandum of law/argument sections")
+            
+        if SectionType.CONCLUSION not in section_types:
+            issues.append("Missing conclusion section")
+            
+        # Check section order
+        expected_order = [
+            SectionType.PREINTRODUCTION,
+            SectionType.INTRODUCTION,
+            SectionType.PROCEDURAL_BACKGROUND,
+            SectionType.STATEMENT_OF_FACTS,
+            SectionType.MEMORANDUM_OF_LAW,
+            SectionType.ARGUMENT,
+            SectionType.CONCLUSION,
+            SectionType.PRAYER_FOR_RELIEF
+        ]
+        
+        # Validate order (simplified check)
+        last_index = -1
+        for section in motion_draft.sections:
+            if section.outline_section.section_type in expected_order:
+                current_index = expected_order.index(section.outline_section.section_type)
+                if current_index < last_index:
+                    issues.append(f"Section order issue: {section.outline_section.section_type.value} appears out of order")
+                last_index = max(last_index, current_index)
+        
+        return issues
 
     def _extract_title_from_cache(self, outline: Dict[str, Any]) -> str:
         """Extract title from outline with minimal processing"""
@@ -1524,6 +2159,214 @@ Provide the COMPLETE expanded section."""
                 terms.append(term)
         
         return terms[:5]
+
+    def _restructure_motion_sections(self, sections: List[DraftedSection]) -> List[DraftedSection]:
+        """Restructure sections to ensure proper legal motion format with professional formatting"""
+        
+        # Group sections by type
+        caption_sections = []
+        intro_sections = []
+        procedural_sections = []
+        argument_sections = []
+        conclusion_sections = []
+        prayer_sections = []
+        other_sections = []
+        
+        for section in sections:
+            section_type = section.outline_section.section_type
+            
+            if section_type == SectionType.PREINTRODUCTION:
+                caption_sections.append(section)
+            elif section_type == SectionType.INTRODUCTION:
+                intro_sections.append(section)
+            elif section_type == SectionType.PROCEDURAL_BACKGROUND:
+                procedural_sections.append(section)
+            elif section_type in [SectionType.ARGUMENT, SectionType.SUB_ARGUMENT, 
+                                SectionType.MEMORANDUM_OF_LAW, SectionType.LEGAL_STANDARD]:
+                argument_sections.append(section)
+            elif section_type == SectionType.CONCLUSION:
+                conclusion_sections.append(section)
+            elif section_type == SectionType.PRAYER_FOR_RELIEF:
+                prayer_sections.append(section)
+            else:
+                other_sections.append(section)
+        
+        # Create restructured list in proper order
+        restructured = []
+        
+        # 1. Add professional case caption if not present
+        if not caption_sections:
+            # Create a professional caption
+            caption_content = legal_formatter.format_case_caption(
+                case_name=self.document_context.get("case_name", "Case Name v. Defendant"),
+                case_number="2024-XXXXX-CA-01",
+                plaintiff_name="Plaintiff Name",
+                defendant_names=["Defendant Name"]
+            )
+            
+            # Add motion title
+            motion_title = self.document_context.get("motion_title", "MOTION TO DISMISS")
+            caption_content += legal_formatter.format_motion_title(motion_title)
+            
+            caption_section = OutlineSection(
+                id="caption",
+                title="Caption",
+                section_type=SectionType.PREINTRODUCTION,
+                content_points=[],
+                legal_authorities=[],
+                target_length=100
+            )
+            
+            caption_drafted = DraftedSection(
+                outline_section=caption_section,
+                content=caption_content,
+                word_count=len(caption_content.split()),
+                citations_used=[],
+                citations_verified={},
+                expansion_cycles=0,
+                confidence_score=1.0
+            )
+            
+            restructured.append(caption_drafted)
+        else:
+            restructured.extend(caption_sections)
+        
+        # 2. Introduction sections
+        restructured.extend(intro_sections)
+        
+        # 3. Procedural background (if any)
+        if procedural_sections:
+            # Format procedural background with numbered paragraphs
+            for proc_section in procedural_sections:
+                # Ensure numbered paragraphs
+                paragraphs = proc_section.content.split('\n\n')
+                formatted_paragraphs = []
+                para_num = 1
+                
+                for para in paragraphs:
+                    if para.strip() and not para.strip()[0].isdigit():
+                        formatted_paragraphs.append(f"{para_num}. {para.strip()}")
+                        para_num += 1
+                    else:
+                        formatted_paragraphs.append(para)
+                
+                proc_section.content = '\n\n'.join(formatted_paragraphs)
+            
+            restructured.extend(procedural_sections)
+        
+        # 4. Merge all arguments under MEMORANDUM OF LAW
+        if argument_sections:
+            # Create a single MEMORANDUM OF LAW section that contains all arguments
+            memo_content = "\nMEMORANDUM OF LAW\n\n"
+            total_word_count = 0
+            all_citations = []
+            
+            argument_count = 0
+            for i, arg_section in enumerate(argument_sections):
+                # Add Roman numeral for each main argument
+                if arg_section.outline_section.section_type == SectionType.ARGUMENT:
+                    argument_count += 1
+                    roman_num = self._to_roman(argument_count)
+                    
+                    # Format the argument with legal formatter
+                    arg_title = arg_section.outline_section.title
+                    if not arg_title.startswith("ARGUMENT"):
+                        arg_title = f"{arg_title}"
+                    
+                    # Use legal formatter for proper argument structure
+                    formatted_arg = legal_formatter.format_legal_argument(
+                        argument_number=roman_num,
+                        argument_heading=arg_title.upper(),
+                        argument_text=arg_section.content
+                    )
+                    memo_content += formatted_arg
+                else:
+                    # Sub-arguments or supporting sections
+                    memo_content += f"\n{arg_section.content}\n\n"
+                
+                total_word_count += arg_section.word_count
+                all_citations.extend(arg_section.citations_used)
+            
+            # Create merged memorandum section
+            memo_section = OutlineSection(
+                id="memorandum_of_law",
+                title="MEMORANDUM OF LAW",
+                section_type=SectionType.MEMORANDUM_OF_LAW,
+                content_points=[],
+                legal_authorities=[],
+                target_length=total_word_count
+            )
+            
+            merged_memo = DraftedSection(
+                outline_section=memo_section,
+                content=memo_content.strip(),
+                word_count=total_word_count,
+                citations_used=list(set(all_citations)),
+                citations_verified={},
+                expansion_cycles=1,
+                confidence_score=0.85
+            )
+            
+            restructured.append(merged_memo)
+        
+        # 5. Other sections (facts, etc. - usually skipped)
+        restructured.extend(other_sections)
+        
+        # 6. Conclusion (ensure only one)
+        if conclusion_sections:
+            restructured.append(conclusion_sections[0])
+            if len(conclusion_sections) > 1:
+                logger.warning(f"Multiple conclusion sections found, using only the first")
+        
+        # 7. Prayer for relief with proper WHEREFORE formatting
+        if prayer_sections:
+            prayer_section = prayer_sections[0]
+            
+            # Extract relief requests from content
+            relief_requests = []
+            content_lines = prayer_section.content.split('\n')
+            for line in content_lines:
+                if line.strip() and not line.strip().startswith("WHEREFORE"):
+                    relief_requests.append(line.strip())
+            
+            # Format with legal formatter
+            formatted_wherefore = legal_formatter.format_wherefore_clause(
+                party_name="Plaintiff",
+                relief_requested=relief_requests[:3],  # Main relief items
+                include_costs=True,
+                include_further_relief=True
+            )
+            
+            # Add signature block
+            formatted_wherefore += legal_formatter.format_signature_block(
+                attorney_name="Attorney Name",
+                bar_number="12345",
+                firm_name="Law Firm Name",
+                address=["123 Main Street", "Suite 100", "Miami, FL 33131"],
+                phone="(305) 555-1234",
+                email="attorney@lawfirm.com"
+            )
+            
+            prayer_section.content = formatted_wherefore
+            restructured.append(prayer_section)
+        
+        logger.info(f"Restructured {len(sections)} sections into {len(restructured)} sections with professional formatting")
+        return restructured
+    
+    def _to_roman(self, num: int) -> str:
+        """Convert number to Roman numeral"""
+        values = [
+            (1000, 'M'), (900, 'CM'), (500, 'D'), (400, 'CD'),
+            (100, 'C'), (90, 'XC'), (50, 'L'), (40, 'XL'),
+            (10, 'X'), (9, 'IX'), (5, 'V'), (4, 'IV'), (1, 'I')
+        ]
+        result = ''
+        for value, letter in values:
+            count = num // value
+            if count:
+                result += letter * count
+                num -= value * count
+        return result
 
     def _build_citation_index(self, motion_draft: MotionDraft) -> Dict[str, List[str]]:
         """Build index of citations to sections using them"""

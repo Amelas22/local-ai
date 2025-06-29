@@ -8,7 +8,9 @@
       "Bash(python:*)",
       "Bash(sed:*)",
       "Bash(rm:*)",
-      "Bash(true)"
+      "Bash(true)",
+      "Bash(rg:*)",
+      "Bash(touch:*)"
     ],
     "deny": []
   }
