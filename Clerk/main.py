@@ -19,7 +19,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, File, Uplo
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field
 
-from src.document_injector import DocumentInjector
+from src.document_injector_unified import UnifiedDocumentInjector
 from src.vector_storage.qdrant_store import QdrantVectorStore
 from src.vector_storage.embeddings import EmbeddingGenerator
 from src.ai_agents.legal_document_agent import legal_document_agent
@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
     
     # Initialize components
     try:
-        document_injector = DocumentInjector(enable_cost_tracking=True)
+        document_injector = UnifiedDocumentInjector(enable_cost_tracking=True)
         vector_store = QdrantVectorStore()  # Default instance for legacy endpoints
         embedding_generator = EmbeddingGenerator()
         
@@ -92,6 +92,7 @@ class SearchRequest(BaseModel):
     query: str = Field(..., description="Search query")
     limit: int = Field(10, ge=1, le=50, description="Maximum results to return")
     use_hybrid: bool = Field(True, description="Use hybrid search")
+    document_types: Optional[List[str]] = Field(None, description="Filter by document types (e.g., 'motion', 'deposition')")
 
 class HybridSearchRequest(BaseModel):
     query: str = Field(..., description="Search query")
@@ -265,6 +266,30 @@ async def search_documents(request: SearchRequest):
         
     except Exception as e:
         logger.error(f"Search error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+# Unified document search endpoint
+@app.post("/search/documents")
+async def search_unified_documents(request: SearchRequest):
+    """Search for documents using the unified document management system"""
+    try:
+        # Use the unified search from document injector
+        results = document_injector.search_documents(
+            case_name=request.case_name,
+            query=request.query,
+            document_types=request.document_types if hasattr(request, 'document_types') else None,
+            limit=request.limit
+        )
+        
+        return {
+            "query": request.query,
+            "case_name": request.case_name,
+            "results": results,
+            "count": len(results)
+        }
+        
+    except Exception as e:
+        logger.error(f"Unified search error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 # Case listing endpoint

@@ -405,14 +405,14 @@ class UnifiedDocumentInjector:
         asyncio.set_event_loop(loop)
         try:
             fact_extractor = FactExtractor(case_name)
-            facts = loop.run_until_complete(
-                fact_extractor.extract_facts(
+            fact_collection = loop.run_until_complete(
+                fact_extractor.extract_facts_from_document(
                     doc_id, content, metadata
                 )
             )
             return {
-                "facts": len(facts),
-                "fact_list": facts
+                "facts": len(fact_collection.facts),
+                "fact_list": fact_collection.facts
             }
         except Exception as e:
             logger.error(f"Error extracting facts: {e}")

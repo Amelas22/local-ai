@@ -13,7 +13,7 @@ from typing import List, Optional
 # Add src to path
 sys.path.append(str(Path(__file__).parent))
 
-from src.document_injector import DocumentInjector
+from src.document_injector_unified import UnifiedDocumentInjector
 from src.utils.logger import setup_logging
 from config.settings import settings
 
@@ -124,7 +124,7 @@ Examples:
     return args
 
 
-def process_single_folder(injector: DocumentInjector, folder_id: str,
+def process_single_folder(injector: UnifiedDocumentInjector, folder_id: str,
                        max_documents: Optional[int] = None,
                        generate_timeline: bool = False) -> dict:
     try:
@@ -291,7 +291,7 @@ def main():
     
     try:
         # Initialize injector
-        injector = DocumentInjector(
+        injector = UnifiedDocumentInjector(
             enable_cost_tracking=not args.skip_cost_tracking,
             no_context=args.no_context,
             enable_fact_extraction=not args.skip_facts
