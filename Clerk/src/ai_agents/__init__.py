@@ -7,7 +7,7 @@ from .case_researcher import CaseResearcher
 from .legal_document_agent import LegalDocumentAgent
 from .fact_extractor import FactExtractor
 from .evidence_mapper import EvidenceMapper
-from .enhanced_rag_agent import EnhancedRAGAgent
+from .enhanced_rag_agent import EnhancedRAGResearchAgent
 from .evidence_discovery_agent import EvidenceDiscoveryAgent, ExhibitSuggestion, ArgumentEvidence
 
 __all__ = [
@@ -16,7 +16,7 @@ __all__ = [
     'LegalDocumentAgent', 
     'FactExtractor',
     'EvidenceMapper', 
-    'EnhancedRAGAgent', 
+    'EnhancedRAGResearchAgent', 
     'EvidenceDiscoveryAgent',
     'ExhibitSuggestion', 
     'ArgumentEvidence'

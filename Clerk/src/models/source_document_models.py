@@ -11,21 +11,36 @@ from pydantic import BaseModel, Field
 
 class DocumentType(str, Enum):
     """Types of legal source documents"""
+    # Legal filings
+    MOTION = "motion"
+    COMPLAINT = "complaint"
+    ANSWER = "answer"
+    MEMORANDUM = "memorandum"
+    BRIEF = "brief"
+    ORDER = "order"
+    
+    # Discovery documents
     DEPOSITION = "deposition"
+    INTERROGATORY = "interrogatory"
+    REQUEST_FOR_ADMISSION = "request_for_admission"
+    REQUEST_FOR_PRODUCTION = "request_for_production"
+    
+    # Evidence documents
     MEDICAL_RECORD = "medical_record"
     POLICE_REPORT = "police_report"
     EXPERT_REPORT = "expert_report"
     PHOTOGRAPH = "photograph"
     VIDEO = "video"
+    
+    # Business/Financial documents
     INVOICE = "invoice"
     CONTRACT = "contract"
-    CORRESPONDENCE = "correspondence"
-    INTERROGATORY = "interrogatory"
-    REQUEST_FOR_ADMISSION = "request_for_admission"
-    REQUEST_FOR_PRODUCTION = "request_for_production"
     FINANCIAL_RECORD = "financial_record"
     EMPLOYMENT_RECORD = "employment_record"
     INSURANCE_POLICY = "insurance_policy"
+    
+    # Other evidence
+    CORRESPONDENCE = "correspondence"
     INCIDENT_REPORT = "incident_report"
     WITNESS_STATEMENT = "witness_statement"
     AFFIDAVIT = "affidavit"

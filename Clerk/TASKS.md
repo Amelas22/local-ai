@@ -8,12 +8,16 @@
 4. **Added Evidence Discovery Agent**: AI-powered evidence search for motion drafting
 5. **Fixed Settings Configuration**: Added missing legal settings configuration
 6. **Resolved Async Event Loop Issues**: Proper cleanup of OpenAI HTTP connections
+7. **✅ Unified Document Management System**: Combined deduplication and discovery (NEW)
 
-### New System: Source Document Discovery
-- Documents are now classified by type (deposition, medical record, etc.)
-- AI extracts key metadata, parties, dates, and relevance
-- Evidence Discovery Agent suggests which documents to use as exhibits
-- Exhibit labels (A, B, C) assigned at motion drafting time, not during indexing
+### New System: Unified Document Management (Latest Update)
+- **Single System**: Replaces separate deduplication and source document indexing
+- **Case-Specific Collections**: Each case has its own `{case_name}_documents` collection
+- **AI Classification**: Documents automatically classified (motions, depositions, medical records, etc.)
+- **Chunk Linking**: Every chunk has `document_id` linking to its source document
+- **Duplicate Tracking**: SHA-256 hash-based with location tracking across cases
+- **Evidence Discovery**: Unified search for finding documents to use as exhibits
+- **Migration Path**: Legacy systems remain for backward compatibility
 
 ## Priority System
 - 🔴 **Critical**: Must be completed for basic functionality
@@ -74,21 +78,41 @@
 - [ ] Handle multiple deposition formats
 **Acceptance Criteria**: Accurately extracts citations like "Smith Dep. 45:12-23"
 
-#### ✅ Task 2.2: Source Document Discovery System [COMPLETED - REDESIGNED]
-**File**: `src/document_processing/source_document_indexer.py`
-**Description**: Create source document discovery system (replaced exhibit tracking)
+#### ✅ Task 2.2: Unified Document Management System [COMPLETED - ENHANCED]
+**Files**: 
+- `src/document_processing/unified_document_manager.py` (NEW)
+- `src/models/unified_document_models.py` (NEW)
+- `src/document_injector_unified.py` (NEW)
+- `cli_injector_unified.py` (NEW)
+**Description**: Unified system combining deduplication and source document discovery
 **Subtasks**:
-- [x] Build document type classifier
-- [x] Extract document metadata
-- [x] Create document-to-fact mapping
-- [x] Build searchable document index
-**Acceptance Criteria**: All source documents classified and searchable
+- [x] Build unified document model combining registry and discovery
+- [x] Create case-specific document collections
+- [x] Implement AI-powered document classification
+- [x] Add chunk-to-document linking via document_id
+- [x] Build SHA-256 hash-based deduplication
+- [x] Create unified search interface
+- [x] Implement duplicate location tracking
+**Acceptance Criteria**: Single system handles both deduplication and discovery
 **Completion Notes**: 
-- Completely redesigned from exhibit tracking to source document discovery
-- Documents are classified by type (deposition, medical record, etc.)
-- Evidence Discovery Agent helps find documents to use as exhibits in motions
+- Replaces both QdrantDocumentDeduplicator and SourceDocumentIndexer
+- Each case has isolated `{case_name}_documents` collection
+- Documents classified into comprehensive types (motions, depositions, etc.)
+- Every chunk linked to source document for evidence tracking
+- Same document can exist in multiple cases without conflicts
 
-#### 🟡 Task 2.3: Evidence-to-Argument Mapper
+#### 🟢 Task 2.3: Migrate to Unified System [NEW]
+**File**: `main.py`, API endpoints
+**Description**: Update API endpoints to use unified document management
+**Subtasks**:
+- [ ] Update `/process-folder` endpoint to use UnifiedDocumentInjector
+- [ ] Create new `/search-documents` endpoint using unified search
+- [ ] Update motion drafting to query unified documents
+- [ ] Add migration utilities for existing collections
+- [ ] Update documentation and examples
+**Acceptance Criteria**: All document operations use unified system
+
+#### 🟡 Task 2.4: Evidence-to-Argument Mapper
 **File**: `src/ai_agents/evidence_mapper.py`
 **Description**: Link evidence to specific legal arguments
 **Subtasks**:

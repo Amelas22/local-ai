@@ -27,13 +27,17 @@
 
 #### Document Processing Pipeline
 1. **Box Traversal**: Recursively scans Box folders for PDF documents
-2. **Duplicate Detection**: SHA-256 hash-based deduplication
+2. **Unified Document Management**: Combined deduplication and discovery system
+   - SHA-256 hash-based duplicate detection
+   - AI-powered document classification (motions, depositions, medical records, etc.)
+   - Metadata extraction (parties, dates, key facts)
+   - Case-specific document registries
 3. **Text Extraction**: Multi-library PDF processing (pdfplumber, PyPDF2, pdfminer)
 4. **Chunking**: ~1400 character chunks with 200 character overlap
+   - Each chunk linked to source document via `document_id`
 5. **Context Generation**: LLM-powered contextual summaries for each chunk
 6. **Vector Storage**: Embeddings stored in Qdrant with case metadata
-7. **Source Document Indexing**: Classifies and indexes documents for evidence discovery
-8. **Fact Extraction**: Extracts case-specific facts with proper entity recognition
+7. **Fact Extraction**: Extracts case-specific facts with proper entity recognition
 
 #### API Endpoints
 - `/health` - System health checks
@@ -47,7 +51,8 @@
 /Clerk/
 ├── main.py                 # FastAPI application entry point
 ├── src/
-│   ├── document_injector.py      # Core document processing
+│   ├── document_injector.py      # Legacy document processing
+│   ├── document_injector_unified.py # Unified document processing
 │   ├── ai_agents/                # Legal AI agents
 │   │   ├── motion_drafter.py     # Motion drafting logic
 │   │   ├── case_researcher.py    # Case research agent
@@ -58,7 +63,12 @@
 │   │   ├── box_client.py         # Box API integration
 │   │   ├── chunker.py            # Document chunking
 │   │   ├── pdf_extractor.py      # PDF text extraction
-│   │   └── source_document_indexer.py # Source document classification
+│   │   ├── source_document_indexer.py # Legacy source document classification
+│   │   ├── qdrant_deduplicator.py    # Legacy deduplication
+│   │   └── unified_document_manager.py # Unified document management
+│   ├── models/                   # Data models
+│   │   ├── source_document_models.py  # Legacy source document models
+│   │   └── unified_document_models.py # Unified document models
 │   ├── vector_storage/           # Vector database operations
 │   │   ├── qdrant_store.py       # Qdrant integration
 │   │   └── embeddings.py         # Embedding generation
@@ -126,8 +136,17 @@ python -m pytest tests/test_document_processing/
 # Test Box connection
 python test_box_connection.py
 
-# Test document injection
+# Test legacy document injection
 python -m src.document_injector --folder-id 123456789
+
+# Test unified document injection
+python cli_injector_unified.py --folder-id 123456789 --max-documents 5
+
+# Test unified system with search
+python cli_injector_unified.py --folder-id 123456789 --search "motion to dismiss"
+
+# Test unified connections
+python cli_injector_unified.py --test-connection
 ```
 
 #### Database Operations
@@ -189,7 +208,11 @@ outline = drafter.generate_outline(
 ## Critical Security Requirements
 
 ### Case Isolation
+- **Case-Specific Collections**: Each case has its own document registry and collections
+- **Unified Document Management**: Case-specific `{case_name}_documents` collection
 - **Metadata Filtering**: Every query MUST include case_name filter
+- **Duplicate Handling**: Same document can exist in multiple cases without conflicts
+- **Chunk Linking**: All chunks linked to source documents via `document_id`
 - **Verification**: Post-storage checks ensure documents are isolated
 - **Logging**: Any cross-case data leakage is logged as critical error
 - **Testing**: Regular isolation verification in test suites
@@ -321,21 +344,34 @@ store.verify_case_isolation('Case Name')
 - **Caching**: Redis for frequently accessed data
 - **Scaling**: Horizontal scaling for document processing
 
-## Source Document Discovery System
+## Unified Document Management System
 
 ### Overview
-The source document discovery system replaces traditional exhibit tracking with intelligent document classification and evidence discovery. Instead of tracking exhibits (which are motion-specific labels), the system indexes source documents that can be selected as exhibits when drafting motions.
+The unified document management system combines document deduplication and source document discovery into a single, streamlined system. This replaces the previous separate systems for tracking duplicates and indexing documents for evidence discovery.
+
+### Key Features
+1. **Combined Registry and Discovery**: Single collection per case (`{case_name}_documents`)
+2. **Intelligent Deduplication**: SHA-256 hash-based with duplicate location tracking
+3. **AI-Powered Classification**: Automatically identifies document types (motions, depositions, etc.)
+4. **Chunk-Document Linking**: Every chunk has `document_id` linking to its source document
+5. **Case Isolation**: Each case has its own document collection, allowing same documents in multiple cases
 
 ### Document Classification
-Documents are automatically classified into types:
-- **Depositions**: Witness testimony with page/line references
-- **Medical Records**: Patient records, diagnoses, treatment notes
-- **Police Reports**: Incident reports, officer statements
-- **Expert Reports**: Professional opinions and analyses
-- **Financial Records**: Invoices, bills, accounting documents
-- **Correspondence**: Letters, emails, communications
-- **Legal Documents**: Interrogatories, admissions, production responses
-- **Other**: Photographs, videos, miscellaneous evidence
+Documents are automatically classified into comprehensive types:
+- **Legal Filings**: Motion, Complaint, Answer, Memorandum, Brief, Order
+- **Discovery Documents**: Deposition, Interrogatory, Request for Admission/Production
+- **Evidence Documents**: Medical Record, Police Report, Expert Report, Photos, Videos
+- **Business/Financial**: Invoice, Contract, Financial Records, Employment Records, Insurance
+- **Other Evidence**: Correspondence, Incident Reports, Witness Statements, Affidavits
+
+### Document Processing Flow
+1. **Hash Calculation**: Generate SHA-256 hash for deduplication
+2. **Duplicate Check**: Verify if document already exists in case
+3. **AI Classification**: Determine document type and extract metadata
+4. **Entity Extraction**: Identify parties, dates, key facts
+5. **Embedding Generation**: Create vector for semantic search
+6. **Unified Storage**: Store all metadata in single collection
+7. **Chunk Creation**: Generate chunks with `document_id` reference
 
 ### Evidence Discovery Features
 1. **Semantic Search**: Find documents by legal argument or topic
@@ -343,26 +379,27 @@ Documents are automatically classified into types:
 3. **Relevance Tagging**: Filter by liability, damages, causation, etc.
 4. **Party and Date Extraction**: Find documents by involved parties or dates
 5. **Key Page Identification**: Highlights most relevant pages within documents
+6. **Duplicate Tracking**: See all locations where a document appears
 
-### Evidence Discovery Agent
-The `EvidenceDiscoveryAgent` helps attorneys:
-- Find source documents that support specific legal arguments
-- Suggest which documents to use as exhibits
-- Create evidence strategies showing how documents work together
-- Generate exhibit lists with purpose statements
-
-### Source Document Indexing
-When documents are processed:
-1. **Classification**: AI determines document type and relevance
-2. **Entity Extraction**: Identifies parties, dates, and key facts
-3. **Summary Generation**: Creates searchable document summaries
-4. **Vector Embedding**: Enables semantic similarity search
-5. **Metadata Storage**: Preserves author, date, and context information
+### Key Components
+- **UnifiedDocument Model**: Combines deduplication and discovery metadata
+- **UnifiedDocumentManager**: Single manager for all document operations
+- **Case-Specific Collections**: Each case has isolated document storage
+- **Chunk Linking**: Direct connection between chunks and source documents
 
 ### Key Files
-- `src/models/source_document_models.py`: Data models for source documents
-- `src/document_processing/source_document_indexer.py`: Document classification and indexing
-- `src/ai_agents/evidence_discovery_agent.py`: Evidence search and exhibit suggestions
+- `src/models/unified_document_models.py`: Unified document data models
+- `src/document_processing/unified_document_manager.py`: Combined deduplication and indexing
+- `src/document_injector_unified.py`: Updated document processing pipeline
+- `cli_injector_unified.py`: Command-line interface for unified system
+
+### Migration from Legacy System
+- Legacy files remain for backward compatibility:
+  - `src/document_processing/source_document_indexer.py` (legacy)
+  - `src/document_processing/qdrant_deduplicator.py` (legacy)
+  - `src/models/source_document_models.py` (legacy)
+- New documents use unified system automatically
+- Existing collections remain intact
 
 ## Motion Drafting System
 

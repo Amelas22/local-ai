@@ -37,9 +37,12 @@ Transform the motion drafting system from a "content generator" to a "legal advo
    - Build chronological timeline database
    - Create fact categorization system (procedural, substantive, evidentiary)
 
-2. Evidence Management System [UPDATED - Source Document Discovery]
-   - Source document classifier (depositions, medical records, etc.)
-   - Document metadata extraction and indexing
+2. Unified Document Management System [COMPLETED]
+   - ✅ Unified document registry and discovery system
+   - ✅ AI-powered document classification (motions, depositions, medical records, etc.)
+   - ✅ Case-specific document collections with full isolation
+   - ✅ Chunk-to-document linking via document_id
+   - ✅ SHA-256 hash-based deduplication with duplicate tracking
    - Evidence Discovery Agent for motion drafting
    - Evidence-to-argument mapping with AI suggestions
 
@@ -144,17 +147,25 @@ class FactDatabase:
     - map_facts_to_arguments()
 ```
 
-#### 2. Source Document Discovery [IMPLEMENTED]
+#### 2. Unified Document Management [IMPLEMENTED]
 ```python
-class SourceDocumentIndexer:
-    - classify_document()
-    - index_source_document()
-    - search_evidence()
+class UnifiedDocumentManager:
+    - process_document()  # Combined dedup + classification
+    - check_document_exists()  # Hash-based duplicate detection
+    - classify_document()  # AI-powered classification
+    - search_documents()  # Unified evidence search
+    - get_statistics()  # Case document statistics
     
-class EvidenceDiscoveryAgent:
-    - find_evidence_for_argument()
-    - suggest_exhibits_for_motion()
-    - create_evidence_strategy()
+class UnifiedDocument:
+    - Combines deduplication metadata
+    - Includes discovery metadata
+    - Links to chunks via document_id
+    - Tracks duplicate locations
+    - Stores classification and relevance
+    
+# Legacy components (still available):
+class SourceDocumentIndexer:  # Being replaced
+class QdrantDocumentDeduplicator:  # Being replaced
 ```
 
 #### 3. Citation Enhancement System
@@ -265,9 +276,13 @@ class TransitionEngine:
 
 ## Implementation Timeline
 
-### Month 1
+### Month 1 [UPDATED]
 - Week 1: Fact extraction engine development
-- Week 2: Evidence management system
+- Week 2: ✅ Unified Document Management System (COMPLETED)
+  - ✅ Combined deduplication and source document indexing
+  - ✅ Case-specific document collections
+  - ✅ AI-powered document classification
+  - ✅ Chunk-to-document linking
 - Week 3: Citation processor implementation
 - Week 4: Authority analysis system
 

@@ -54,8 +54,13 @@ class QdrantDocumentDeduplicator:
     Uses a separate collection to track document hashes and prevent duplicates.
     """
     
-    def __init__(self):
-        """Initialize with Qdrant client"""
+    def __init__(self, case_name: Optional[str] = None):
+        """Initialize with Qdrant client
+        
+        Args:
+            case_name: Optional case name for case-specific registry.
+                      If not provided, uses global registry.
+        """
         self.client = QdrantClient(
             url=settings.qdrant.url,
             api_key=settings.qdrant.api_key,
@@ -63,7 +68,14 @@ class QdrantDocumentDeduplicator:
             timeout=settings.qdrant.timeout
         )
         
-        self.collection_name = settings.qdrant.registry_collection_name
+        # Use case-specific collection if case_name provided
+        if case_name:
+            self.collection_name = f"{case_name}_document_registry"
+            self.is_case_specific = True
+        else:
+            self.collection_name = settings.qdrant.registry_collection_name
+            self.is_case_specific = False
+            
         self._ensure_collection_exists()
     
     def _ensure_collection_exists(self):

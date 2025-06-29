@@ -34,6 +34,7 @@ class SourceDocumentIndexer:
         self.vector_store = QdrantVectorStore()
         self.embedding_generator = EmbeddingGenerator()
         self.openai_client = openai.OpenAI(api_key=settings.openai.api_key)
+        self.async_openai_client = openai.AsyncOpenAI(api_key=settings.openai.api_key)
         
         # Case-specific collection for source documents
         self.source_docs_collection = f"{case_name}_source_documents"
@@ -50,23 +51,21 @@ class SourceDocumentIndexer:
         """Create source documents collection if it doesn't exist"""
         try:
             self.vector_store.client.get_collection(self.source_docs_collection)
-        except:
-            self.vector_store.client.create_collection(
-                collection_name=self.source_docs_collection,
-                vectors_config={
-                    "size": 1536,  # OpenAI embedding size
-                    "distance": "Cosine"
-                },
-                # Add payload indexes for efficient filtering
-                payload_schema={
-                    "document_type": "keyword",
-                    "relevance_tags": "keyword[]",
-                    "author": "keyword",
-                    "document_date": "datetime",
-                    "verified": "bool"
-                }
-            )
-            logger.info(f"Created collection: {self.source_docs_collection}")
+            logger.debug(f"Collection {self.source_docs_collection} already exists")
+        except Exception as e:
+            logger.info(f"Creating collection: {self.source_docs_collection}")
+            try:
+                self.vector_store.client.create_collection(
+                    collection_name=self.source_docs_collection,
+                    vectors_config={
+                        "size": 1536,  # OpenAI embedding size
+                        "distance": "Cosine"
+                    }
+                )
+                logger.info(f"Created collection: {self.source_docs_collection}")
+            except Exception as create_error:
+                logger.error(f"Failed to create collection: {create_error}")
+                raise
     
     def _compile_patterns(self) -> Dict[str, re.Pattern]:
         """Compile regex patterns for document analysis"""
@@ -138,7 +137,7 @@ Document sample:
 {sample_content}
 
 Provide:
-1. Document type (one of: deposition, medical_record, police_report, expert_report, photograph, video, invoice, contract, correspondence, interrogatory, request_for_admission, request_for_production, financial_record, employment_record, insurance_policy, incident_report, witness_statement, affidavit, other)
+1. Document type (one of: motion, complaint, answer, memorandum, brief, order, deposition, medical_record, police_report, expert_report, photograph, video, invoice, contract, correspondence, interrogatory, request_for_admission, request_for_production, financial_record, employment_record, insurance_policy, incident_report, witness_statement, affidavit, other)
 2. Key parties mentioned (names only)
 3. Key dates mentioned
 4. Main topics (3-5 topics)
@@ -148,7 +147,7 @@ Provide:
 Format as JSON."""
 
         try:
-            response = self.openai_client.chat.completions.create(
+            response = await self.async_openai_client.chat.completions.create(
                 model=settings.ai.default_model,
                 messages=[
                     {"role": "system", "content": "You are a legal document classifier."},
@@ -192,9 +191,31 @@ Format as JSON."""
         """Classify document based on patterns"""
         content_lower = content.lower()
         
-        # Check for specific document markers
-        if 'deposition of' in content_lower or 'deponent:' in content_lower:
+        # Check for legal filings first (most specific)
+        if any(phrase in content_lower for phrase in ['motion for', 'motion to', 'plaintiff\'s motion', 'defendant\'s motion', 'memorandum in support', 'memorandum of law']):
+            return DocumentType.MOTION
+        elif 'complaint' in content_lower and ('plaintiff' in content_lower or 'cause of action' in content_lower):
+            return DocumentType.COMPLAINT
+        elif 'answer' in content_lower and 'defendant' in content_lower and 'admits' in content_lower:
+            return DocumentType.ANSWER
+        elif any(phrase in content_lower for phrase in ['memorandum of law', 'legal memorandum', 'memorandum in opposition']):
+            return DocumentType.MEMORANDUM
+        elif 'brief' in content_lower and ('appellant' in content_lower or 'appellee' in content_lower):
+            return DocumentType.BRIEF
+        elif 'order' in content_lower and ('court' in content_lower or 'judge' in content_lower):
+            return DocumentType.ORDER
+        
+        # Then check for discovery documents
+        elif 'deposition of' in content_lower or 'deponent:' in content_lower:
             return DocumentType.DEPOSITION
+        elif 'interrogatory' in content_lower:
+            return DocumentType.INTERROGATORY
+        elif 'request for admission' in content_lower:
+            return DocumentType.REQUEST_FOR_ADMISSION
+        elif 'request for production' in content_lower:
+            return DocumentType.REQUEST_FOR_PRODUCTION
+        
+        # Then evidence documents
         elif 'patient name:' in content_lower or 'diagnosis:' in content_lower:
             return DocumentType.MEDICAL_RECORD
         elif 'incident report' in content_lower or 'case number:' in content_lower:
@@ -203,12 +224,6 @@ Format as JSON."""
             return DocumentType.EXPERT_REPORT
         elif 'invoice' in content_lower or 'amount due:' in content_lower:
             return DocumentType.INVOICE
-        elif 'interrogatory' in content_lower:
-            return DocumentType.INTERROGATORY
-        elif 'request for admission' in content_lower:
-            return DocumentType.REQUEST_FOR_ADMISSION
-        elif 'request for production' in content_lower:
-            return DocumentType.REQUEST_FOR_PRODUCTION
         elif 'affidavit' in content_lower or 'sworn statement' in content_lower:
             return DocumentType.AFFIDAVIT
         
@@ -301,12 +316,32 @@ Format as JSON."""
         """Generate descriptive title for document"""
         filename = path.split('/')[-1].replace('.pdf', '')
         
-        if classification.document_type == DocumentType.DEPOSITION and classification.detected_parties:
+        # Legal filings
+        if classification.document_type == DocumentType.MOTION:
+            # Try to extract motion type from filename or summary
+            if 'dismiss' in filename.lower() or 'mtd' in filename.lower():
+                return "Motion to Dismiss"
+            elif 'summary' in filename.lower() or 'msj' in filename.lower():
+                return "Motion for Summary Judgment"
+            else:
+                return filename.replace('_', ' ').title()
+        elif classification.document_type == DocumentType.COMPLAINT:
+            return "Complaint"
+        elif classification.document_type == DocumentType.ANSWER:
+            return "Answer to Complaint"
+        
+        # Discovery documents
+        elif classification.document_type == DocumentType.DEPOSITION and classification.detected_parties:
             return f"Deposition of {classification.detected_parties[0]}"
+        
+        # Evidence documents
         elif classification.document_type == DocumentType.MEDICAL_RECORD and classification.detected_parties:
             return f"Medical Records - {classification.detected_parties[0]}"
         elif classification.document_type == DocumentType.POLICE_REPORT:
             return f"Police Report - {classification.detected_dates[0] if classification.detected_dates else 'Unknown Date'}"
+        elif classification.document_type == DocumentType.EXPERT_REPORT and classification.detected_parties:
+            return f"Expert Report - {classification.detected_parties[0]}"
+        
         else:
             return filename.replace('_', ' ').title()
     

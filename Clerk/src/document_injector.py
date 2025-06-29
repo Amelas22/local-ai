@@ -61,7 +61,8 @@ class DocumentInjector:
         self.box_client = BoxClient()
         self.pdf_extractor = PDFExtractor()
         self.chunker = DocumentChunker()
-        self.deduplicator = QdrantDocumentDeduplicator()
+        # Note: deduplicator will be created per-case in process_case_folder
+        self.deduplicator = None
         self.context_generator = ContextGenerator()
         self.embedding_generator = EmbeddingGenerator()
         
@@ -115,6 +116,18 @@ class DocumentInjector:
             logger.info(f"Limited to processing {max_documents} documents")
         
         logger.info(f"Found {len(documents)} documents to process")
+        
+        # Extract case name from first document (all should have same case name)
+        if documents:
+            case_name = documents[0].case_name
+            logger.info(f"Processing case: {case_name}")
+            
+            # Create case-specific deduplicator
+            self.deduplicator = QdrantDocumentDeduplicator(case_name=case_name)
+            logger.info(f"Created case-specific document registry for: {case_name}")
+        else:
+            logger.warning("No documents found in folder")
+            return []
         
         # Process each document
         results = []
@@ -205,6 +218,7 @@ class DocumentInjector:
             facts_extracted = 0
             depositions_parsed = 0
             source_docs_indexed = 0
+            source_document_id = None
             
             if self.enable_fact_extraction:
                 logger.info(f"Extracting facts from {box_doc.name}")
@@ -230,13 +244,15 @@ class DocumentInjector:
                         logger.info(f"Parsed {depositions_parsed} deposition citations")
                 
                 # Index source document for evidence discovery
+                logger.info(f"Attempting to index source document: {box_doc.name}")
                 source_doc_result = self._index_source_document_sync(
                     box_doc.case_name, box_doc.path, extracted.text,
                     {"document_name": box_doc.name}
                 )
                 if source_doc_result:
                     source_docs_indexed = 1  # One document indexed
-                    logger.info(f"Indexed source document: {source_doc_result['title']}")
+                    source_document_id = source_doc_result['id']
+                    logger.info(f"Indexed source document: {source_doc_result['title']} with ID: {source_document_id}")
             
             # Step 5: Get document link
             doc_link = self.box_client.get_shared_link(box_doc.file_id)
@@ -255,6 +271,10 @@ class DocumentInjector:
                 "file_size": box_doc.size,
                 "modified_at": box_doc.modified_at.isoformat()
             }
+            
+            # Add source document ID if available
+            if source_document_id:
+                doc_metadata["source_document_id"] = source_document_id
             
             chunks = self.chunker.chunk_document(extracted.text, doc_metadata)
             logger.info(f"Created {len(chunks)} chunks from {box_doc.subfolder_name or 'root'}/{box_doc.name}")
@@ -527,6 +547,7 @@ class DocumentInjector:
         Returns:
             Dict with document info or None if failed
         """
+        logger.debug(f"Starting source document indexing for {doc_path}")
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -543,7 +564,7 @@ class DocumentInjector:
                 "summary": source_doc.summary
             }
         except Exception as e:
-            logger.error(f"Error indexing source document: {e}")
+            logger.error(f"Error indexing source document: {e}", exc_info=True)
             return None
         finally:
             loop.close()
@@ -562,10 +583,11 @@ class DocumentInjector:
             logger.info(f"Depositions parsed: {self.stats['depositions_parsed']}")
             logger.info(f"Source documents indexed: {self.stats['source_docs_indexed']}")
         
-        # Get deduplication stats
-        dedup_stats = self.deduplicator.get_statistics()
-        logger.info(f"Total unique documents in system: {dedup_stats['total_unique_documents']}")
-        logger.info(f"Total duplicate instances: {dedup_stats['total_duplicate_instances']}")
+        # Get deduplication stats if available
+        if self.deduplicator:
+            dedup_stats = self.deduplicator.get_statistics()
+            logger.info(f"Total unique documents in case: {dedup_stats['total_unique_documents']}")
+            logger.info(f"Total duplicate instances: {dedup_stats['total_duplicate_instances']}")
         
         # Get case statistics from Qdrant
         try:
@@ -641,11 +663,8 @@ def test_connection():
             collections = injector.vector_store.client.get_collections()
             logger.info(f"✓ Qdrant vector store connection successful - Collections: {[c.name for c in collections.collections]}")
             
-            # Test deduplicator collection
-            registry_info = injector.deduplicator.client.get_collection(
-                injector.deduplicator.collection_name
-            )
-            logger.info(f"✓ Qdrant deduplicator connection successful - Registry points: {registry_info.points_count}")
+            # Note: Deduplicator is now created per-case, so we skip this test
+            logger.info("✓ Qdrant deduplicator will be created per-case")
         except Exception as e:
             logger.error(f"✗ Qdrant connection failed: {str(e)}")
         
