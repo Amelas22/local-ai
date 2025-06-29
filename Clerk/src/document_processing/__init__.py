@@ -9,6 +9,7 @@ from .pdf_extractor import PDFExtractor, ExtractedDocument
 from .chunker import DocumentChunker, DocumentChunk
 from .qdrant_deduplicator import QdrantDocumentDeduplicator, DocumentRecord
 from .context_generator import ContextGenerator, ChunkWithContext
+from .source_document_indexer import SourceDocumentIndexer
 
 # Backward compatibility alias
 DocumentDeduplicator = QdrantDocumentDeduplicator
@@ -24,7 +25,8 @@ __all__ = [
     "DocumentDeduplicator",  # Backward compatibility
     "DocumentRecord",
     "ContextGenerator",
-    "ChunkWithContext"
+    "ChunkWithContext",
+    "SourceDocumentIndexer"
 ]
 
 __version__ = "0.2.0"  # Version bump for Qdrant-only implementation

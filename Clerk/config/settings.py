@@ -178,6 +178,15 @@ class CohereConfig:
     api_key: str = os.getenv("COHERE_API_KEY", "")
     rerank_model: str = "rerank-v3.5"
 
+
+class LegalSettings(BaseSettings):
+    """Legal-specific configuration settings"""
+    enable_hybrid_search: bool = Field(True, env="ENABLE_HYBRID_SEARCH")
+    
+    class Config:
+        env_prefix = "LEGAL_"
+
+
 class Settings(BaseSettings):
     """Main settings class aggregating all configurations"""
     
@@ -196,6 +205,7 @@ class Settings(BaseSettings):
     processing: DocumentProcessingSettings = Field(default_factory=DocumentProcessingSettings)
     vector: QdrantSettings = Field(default_factory=QdrantSettings)
     cost: CostConfig = Field(default_factory=CostConfig)
+    legal: LegalSettings = Field(default_factory=LegalSettings)
 
     # Application settings
     app_name: str = Field("Clerk Legal AI", env="APP_NAME")

@@ -110,7 +110,7 @@ class QdrantVectorStore:
         """Generate safe collection name from folder name"""
         # Sanitize folder name to valid Qdrant collection name
         sanitized = re.sub(r'[^a-zA-Z0-9_]', '_', folder_name)
-        return f"{sanitized}" if settings.legal["enable_hybrid_search"] else sanitized
+        return f"{sanitized}" if settings.legal.enable_hybrid_search else sanitized
     
     def ensure_collection_exists(self, folder_name: str):
         """Ensure collection exists for a specific folder"""
@@ -149,7 +149,7 @@ class QdrantVectorStore:
     
     def create_collection(self, collection_name: str):
         """Create a new collection with hybrid configuration"""
-        if settings.legal["enable_hybrid_search"]:
+        if settings.legal.enable_hybrid_search:
             self._create_hybrid_collection(collection_name)
         else:
             self._create_standard_collection(collection_name)
@@ -284,7 +284,7 @@ class QdrantVectorStore:
                     payload[key] = value
             
             # Create point for standard collection
-            if settings.legal["enable_hybrid_search"]:
+            if settings.legal.enable_hybrid_search:
                 # For hybrid collections, we need to specify multiple vectors
                 point = PointStruct(
                     id=document_id,
@@ -893,7 +893,7 @@ class QdrantVectorStore:
             )
             
             # Also delete from hybrid collection
-            if settings.legal["enable_hybrid_search"]:
+            if settings.legal.enable_hybrid_search:
                 try:
                     self.client.delete(
                         collection_name=self.get_collection_name(folder_name),
@@ -991,7 +991,7 @@ class QdrantVectorStore:
                 }
                 
                 # Create point based on collection type
-                if settings.legal.get("enable_hybrid_search", False):
+                if getattr(settings.legal, "enable_hybrid_search", False):
                     # For hybrid collections - prepare vectors dictionary
                     vectors = {
                         "semantic": chunk["embedding"]

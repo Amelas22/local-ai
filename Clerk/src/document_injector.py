@@ -5,6 +5,7 @@ All database operations now use Qdrant exclusively.
 """
 
 import logging
+import asyncio
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from datetime import datetime
@@ -20,6 +21,12 @@ from src.vector_storage.sparse_encoder import SparseVectorEncoder, LegalQueryAna
 from config.settings import settings
 from src.utils.cost_tracker import CostTracker
 
+# Fact extraction imports
+from src.ai_agents.fact_extractor import FactExtractor
+from src.document_processing.deposition_parser import DepositionParser
+from src.document_processing.source_document_indexer import SourceDocumentIndexer
+from src.utils.timeline_generator import TimelineGenerator
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -32,16 +39,21 @@ class ProcessingResult:
     chunks_created: int
     error_message: Optional[str] = None
     processing_time: Optional[float] = None
+    facts_extracted: int = 0
+    depositions_parsed: int = 0
+    source_docs_indexed: int = 0
 
 class DocumentInjector:
     """Main orchestrator for document processing pipeline"""
     
-    def __init__(self, enable_cost_tracking: bool = True, no_context: bool = False):
+    def __init__(self, enable_cost_tracking: bool = True, no_context: bool = False,
+                 enable_fact_extraction: bool = True):
         """Initialize all components
         
         Args:
             enable_cost_tracking: Whether to track API costs
             no_context: Whether to skip context generation
+            enable_fact_extraction: Whether to extract facts, depositions, and source documents
         """
         logger.info("Initializing Document Injector with Qdrant backend")
         
@@ -68,12 +80,18 @@ class DocumentInjector:
         # Conditional context generation
         self.no_context = no_context
         
+        # Fact extraction flag
+        self.enable_fact_extraction = enable_fact_extraction
+        
         # Processing statistics
         self.stats = {
             "total_processed": 0,
             "successful": 0,
             "duplicates": 0,
-            "failed": 0
+            "failed": 0,
+            "facts_extracted": 0,
+            "depositions_parsed": 0,
+            "source_docs_indexed": 0
         }
     
     def process_case_folder(self, folder_id: str, 
@@ -110,6 +128,9 @@ class DocumentInjector:
             self.stats["total_processed"] += 1
             if result.status == "success":
                 self.stats["successful"] += 1
+                self.stats["facts_extracted"] += result.facts_extracted
+                self.stats["depositions_parsed"] += result.depositions_parsed
+                self.stats["source_docs_indexed"] += result.source_docs_indexed
             elif result.status == "duplicate":
                 self.stats["duplicates"] += 1
             else:
@@ -179,6 +200,43 @@ class DocumentInjector:
             
             if not self.pdf_extractor.validate_extraction(extracted):
                 raise ValueError("Text extraction failed or produced invalid results")
+            
+            # Step 4.5: Extract facts, depositions, and index source documents if enabled
+            facts_extracted = 0
+            depositions_parsed = 0
+            source_docs_indexed = 0
+            
+            if self.enable_fact_extraction:
+                logger.info(f"Extracting facts from {box_doc.name}")
+                
+                # Extract facts
+                fact_result = self._extract_facts_sync(
+                    box_doc.case_name, doc_hash, extracted.text, 
+                    {"document_name": box_doc.name, "document_type": self._determine_document_type(box_doc.name, extracted.text)}
+                )
+                if fact_result:
+                    facts_extracted = fact_result["facts"]
+                    logger.info(f"Extracted {facts_extracted} facts")
+                
+                # Parse depositions if it's a deposition
+                doc_type = self._determine_document_type(box_doc.name, extracted.text)
+                if doc_type == "deposition":
+                    depo_result = self._parse_depositions_sync(
+                        box_doc.case_name, box_doc.path, extracted.text, 
+                        {"document_name": box_doc.name}
+                    )
+                    if depo_result:
+                        depositions_parsed = depo_result["depositions"]
+                        logger.info(f"Parsed {depositions_parsed} deposition citations")
+                
+                # Index source document for evidence discovery
+                source_doc_result = self._index_source_document_sync(
+                    box_doc.case_name, box_doc.path, extracted.text,
+                    {"document_name": box_doc.name}
+                )
+                if source_doc_result:
+                    source_docs_indexed = 1  # One document indexed
+                    logger.info(f"Indexed source document: {source_doc_result['title']}")
             
             # Step 5: Get document link
             doc_link = self.box_client.get_shared_link(box_doc.file_id)
@@ -297,7 +355,10 @@ class DocumentInjector:
                 case_name=box_doc.case_name,
                 status="success",
                 chunks_created=len(chunk_ids),
-                processing_time=(datetime.utcnow() - start_time).total_seconds()
+                processing_time=(datetime.utcnow() - start_time).total_seconds(),
+                facts_extracted=facts_extracted,
+                depositions_parsed=depositions_parsed,
+                source_docs_indexed=source_docs_indexed
             )
             
         except Exception as e:
@@ -382,7 +443,7 @@ class DocumentInjector:
         # Generate query embedding
         query_embedding, _ = self.embedding_generator.generate_embedding(query)
         
-        if use_hybrid and settings.legal["enable_hybrid_search"]:
+        if use_hybrid and settings.legal.enable_hybrid_search:
             # Generate sparse vectors
             keyword_sparse, citation_sparse = self.sparse_encoder.encode_for_hybrid_search(query)
             
@@ -407,6 +468,86 @@ class DocumentInjector:
         
         return results
     
+    def _extract_facts_sync(self, case_name: str, doc_id: str, 
+                           content: str, metadata: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Synchronous wrapper for async fact extraction
+        
+        Returns:
+            Dict with extraction results or None if failed
+        """
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            fact_extractor = FactExtractor(case_name)
+            fact_collection = loop.run_until_complete(
+                fact_extractor.extract_facts_from_document(
+                    doc_id, content, metadata
+                )
+            )
+            return {
+                "facts": len(fact_collection.facts),
+                "collection": fact_collection
+            }
+        except Exception as e:
+            logger.error(f"Error extracting facts: {e}")
+            return None
+        finally:
+            loop.close()
+    
+    def _parse_depositions_sync(self, case_name: str, doc_path: str,
+                               content: str, metadata: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Synchronous wrapper for async deposition parsing
+        
+        Returns:
+            Dict with parsing results or None if failed
+        """
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            depo_parser = DepositionParser(case_name)
+            depositions = loop.run_until_complete(
+                depo_parser.parse_deposition(
+                    doc_path, content, metadata
+                )
+            )
+            return {
+                "depositions": len(depositions),
+                "citations": depositions
+            }
+        except Exception as e:
+            logger.error(f"Error parsing depositions: {e}")
+            return None
+        finally:
+            loop.close()
+    
+    def _index_source_document_sync(self, case_name: str, doc_path: str,
+                                   content: str, metadata: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Synchronous wrapper for async source document indexing
+        
+        Returns:
+            Dict with document info or None if failed
+        """
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            source_indexer = SourceDocumentIndexer(case_name)
+            source_doc = loop.run_until_complete(
+                source_indexer.index_source_document(
+                    doc_path, content, metadata
+                )
+            )
+            return {
+                "id": source_doc.id,
+                "title": source_doc.title,
+                "document_type": source_doc.document_type.value,
+                "summary": source_doc.summary
+            }
+        except Exception as e:
+            logger.error(f"Error indexing source document: {e}")
+            return None
+        finally:
+            loop.close()
+    
     def _log_processing_summary(self):
         """Log processing summary statistics"""
         logger.info("=" * 50)
@@ -415,6 +556,11 @@ class DocumentInjector:
         logger.info(f"Successful: {self.stats['successful']}")
         logger.info(f"Duplicates: {self.stats['duplicates']}")
         logger.info(f"Failed: {self.stats['failed']}")
+        
+        if self.enable_fact_extraction:
+            logger.info(f"Facts extracted: {self.stats['facts_extracted']}")
+            logger.info(f"Depositions parsed: {self.stats['depositions_parsed']}")
+            logger.info(f"Source documents indexed: {self.stats['source_docs_indexed']}")
         
         # Get deduplication stats
         dedup_stats = self.deduplicator.get_statistics()

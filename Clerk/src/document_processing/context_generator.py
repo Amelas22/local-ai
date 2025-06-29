@@ -7,11 +7,15 @@ import logging
 from typing import List, Optional, Dict, Tuple
 import asyncio
 from dataclasses import dataclass
+import warnings
 
 import openai
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from config.settings import settings
+
+# Suppress the event loop closing warnings from httpx
+warnings.filterwarnings("ignore", message=".*Event loop is closed.*")
 
 logger = logging.getLogger(__name__)
 
@@ -180,8 +184,29 @@ Please give a short succinct context to situate this chunk within the overall do
         Returns:
             Tuple of (List of ChunkWithContext objects, total token usage)
         """
-        # Run async function in new event loop
-        return asyncio.run(self.generate_contexts_batch(chunks, full_document))
+        # Create a new event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            # Run async function
+            result = loop.run_until_complete(self.generate_contexts_batch(chunks, full_document))
+            
+            # Give pending tasks a chance to complete
+            pending = asyncio.all_tasks(loop)
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            
+            return result
+        finally:
+            # Properly close the loop
+            try:
+                # Small delay to allow httpx cleanup
+                loop.run_until_complete(asyncio.sleep(0.1))
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except:
+                pass
+            loop.close()
     
     def validate_context(self, context: str) -> bool:
         """Validate that generated context is appropriate
