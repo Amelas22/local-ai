@@ -181,4 +181,16 @@ class AuthService {
   }
 }
 
-export const authService = new AuthService();
+// Export the auth service based on environment
+export let authService: AuthService;
+
+// Initialize auth service based on environment
+if (import.meta.env.VITE_AUTH_ENABLED === 'true') {
+  authService = new AuthService();
+} else {
+  // In development, use mock auth service
+  console.log('Auth disabled - using development auth service');
+  import('./auth.service.dev').then(module => {
+    authService = module.authService as any;
+  });
+}
