@@ -401,6 +401,78 @@ Documents are automatically classified into comprehensive types:
 - New documents use unified system automatically
 - Existing collections remain intact
 
+## Discovery Production Processing
+
+### Overview
+Discovery productions often come as massive consolidated PDFs (200+ pages) containing multiple documents concatenated together. The discovery processing system automatically segments these productions into individual documents for proper processing and fact extraction.
+
+### Key Features
+1. **Automatic Multi-Document Detection**: Identifies large productions by file size and naming patterns
+2. **Intelligent Boundary Detection**: Uses 25-page sliding windows with 5-page overlap to find document boundaries
+3. **Document-Specific Context**: Generates context for each segmented document, not the entire production
+4. **Fact Extraction Override**: Forces fact extraction for all discovery materials regardless of type
+5. **Bates Number Preservation**: Maintains Bates numbering throughout processing
+6. **Production Metadata Tracking**: Tracks production batch, date, producing party, and RFP responses
+
+### Discovery Processing Endpoint
+**POST `/process/discovery`**
+```json
+{
+  "folder_id": "123456789",
+  "case_name": "Smith_v_Jones_2024",
+  "production_batch": "Defendant's First Production",
+  "producing_party": "ABC Transport Corp",
+  "production_date": "2024-06-30T12:00:00",
+  "responsive_to_requests": ["RFP 1-25", "RFA 1-15"],
+  "confidentiality_designation": "Confidential"
+}
+```
+
+### Document Segmentation Process
+1. **Boundary Detection Phase**:
+   - Process PDF in 25-page windows
+   - Identify document start/end markers
+   - Build complete document map before processing
+   
+2. **Document Classification**:
+   - Classify each segment into appropriate document type
+   - Support for 70+ discovery document types
+   - Confidence scoring for each classification
+
+3. **Context-Aware Chunking**:
+   - Generate context specific to each document
+   - Maintain standard 1200/200 character chunking
+   - Prepend document context to each chunk
+
+### Large Document Handling
+- **Single-Pass Processing**: Documents up to 50 pages
+- **Chunked Processing**: Documents over 50 pages processed in sections
+- **Section Context**: Each section gets its own context summary
+
+### Discovery-Specific Document Types
+- Driver/Employee Documentation (DQF, employment apps, drug tests)
+- Vehicle/Equipment Records (maintenance, inspection, ECM data)
+- Hours of Service (logs, trip reports, bills of lading)
+- Communication Records (emails, satellite messages, texts)
+- Safety/Compliance (violations, citations, accident reports)
+- Company Documentation (policies, handbooks, training materials)
+
+### Configuration Settings
+```python
+# Discovery processing settings
+DISCOVERY_WINDOW_SIZE = 25  # Pages per analysis window
+DISCOVERY_WINDOW_OVERLAP = 5  # Overlap between windows
+DISCOVERY_BOUNDARY_CONFIDENCE_THRESHOLD = 0.7
+DISCOVERY_BOUNDARY_DETECTION_MODEL = "gpt-4.1-mini-2025-04-14"
+DISCOVERY_MULTI_DOC_SIZE_THRESHOLD_MB = 10  # Trigger multi-doc processing
+```
+
+### Key Files
+- `src/document_processing/discovery_splitter.py`: Core segmentation and boundary detection
+- `src/models/unified_document_models.py`: Discovery-specific models and document types
+- `test_discovery_processing.py`: Test suite for discovery processing
+- `examples/discovery_processing_example.py`: Usage examples
+
 ## Motion Drafting System
 
 ### Current Implementation

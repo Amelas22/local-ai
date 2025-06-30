@@ -27,6 +27,7 @@ from src.ai_agents.motion_drafter import motion_drafter, DocumentLength
 from src.ai_agents.outline_cache_manager import outline_cache
 from src.utils.logger import setup_logging
 from config.settings import settings
+from src.models.unified_document_models import DiscoveryProcessingRequest
 
 # Setup logging
 logger = setup_logging("clerk_api", "INFO")
@@ -222,6 +223,46 @@ async def process_folder(request: ProcessFolderRequest, background_tasks: Backgr
         status="processing",
         message=f"Started processing folder {request.folder_id}",
         details={"folder_id": request.folder_id, "max_documents": request.max_documents}
+    )
+
+# Discovery processing endpoint
+@app.post("/process/discovery", response_model=ProcessingStatus)
+async def process_discovery(request: DiscoveryProcessingRequest, background_tasks: BackgroundTasks):
+    """Process discovery materials with enhanced fact extraction
+    
+    All documents in the specified folder are treated as verified discovery materials.
+    Fact extraction is forced regardless of document type.
+    """
+    if not document_injector:
+        raise HTTPException(status_code=503, detail="Document processing not available")
+    
+    # Prepare discovery metadata
+    discovery_metadata = {
+        "production_batch": request.production_batch,
+        "production_date": request.production_date.isoformat() if request.production_date else datetime.now().isoformat(),
+        "producing_party": request.producing_party,
+        "responsive_to_requests": request.responsive_to_requests,
+        "confidentiality_designation": request.confidentiality_designation
+    }
+    
+    # Run processing in background
+    background_tasks.add_task(
+        document_injector.process_discovery_folder,
+        request.folder_id,
+        request.case_name,
+        discovery_metadata
+    )
+    
+    return ProcessingStatus(
+        status="processing",
+        message=f"Started processing discovery folder {request.folder_id} for {request.case_name}",
+        details={
+            "folder_id": request.folder_id,
+            "case_name": request.case_name,
+            "production_batch": request.production_batch,
+            "producing_party": request.producing_party,
+            "responsive_to_requests": request.responsive_to_requests
+        }
     )
 
 # Search endpoint

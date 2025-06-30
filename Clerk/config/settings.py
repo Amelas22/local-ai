@@ -187,6 +187,21 @@ class LegalSettings(BaseSettings):
         env_prefix = "LEGAL_"
 
 
+class DiscoveryProcessingSettings(BaseSettings):
+    """Discovery document processing configuration"""
+    window_size: int = Field(25, env="WINDOW_SIZE", description="Pages per analysis window")
+    window_overlap: int = Field(5, env="WINDOW_OVERLAP", description="Overlap between windows")
+    boundary_confidence_threshold: float = Field(0.7, env="BOUNDARY_CONFIDENCE_THRESHOLD")
+    boundary_detection_model: str = Field("gpt-4.1-mini-2025-04-14", env="BOUNDARY_DETECTION_MODEL")
+    classification_model: str = Field("gpt-4.1-mini-2025-04-14", env="CLASSIFICATION_MODEL")
+    max_single_pass_pages: int = Field(50, env="MAX_SINGLE_PASS_PAGES", description="Max pages for single-pass processing")
+    multi_doc_size_threshold_mb: int = Field(10, env="MULTI_DOC_SIZE_THRESHOLD_MB", description="File size threshold for multi-doc detection")
+    enable_multi_doc_detection: bool = Field(True, env="ENABLE_MULTI_DOC_DETECTION")
+    
+    class Config:
+        env_prefix = "DISCOVERY_"
+
+
 class Settings(BaseSettings):
     """Main settings class aggregating all configurations"""
     
@@ -206,6 +221,7 @@ class Settings(BaseSettings):
     vector: QdrantSettings = Field(default_factory=QdrantSettings)
     cost: CostConfig = Field(default_factory=CostConfig)
     legal: LegalSettings = Field(default_factory=LegalSettings)
+    discovery: DiscoveryProcessingSettings = Field(default_factory=DiscoveryProcessingSettings)
 
     # Application settings
     app_name: str = Field("Clerk Legal AI", env="APP_NAME")

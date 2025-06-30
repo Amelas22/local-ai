@@ -19,6 +19,15 @@
 - **Evidence Discovery**: Unified search for finding documents to use as exhibits
 - **Migration Path**: Legacy systems remain for backward compatibility
 
+### Discovery Production Processing (NEW - December 2024)
+- **Multi-Document Segmentation**: Automatically splits large discovery PDFs into individual documents
+- **Intelligent Boundary Detection**: Uses 25-page sliding windows to find document boundaries
+- **Document-Specific Context**: Each document gets its own context, not production-wide
+- **Fact Extraction Filtering**: Only extracts facts from reliable document types
+- **Discovery Endpoint**: New `/process/discovery` endpoint for production processing
+- **70+ Document Types**: Comprehensive discovery document classification
+- **Bates Number Tracking**: Preserves Bates numbers throughout processing
+
 ## Priority System
 - 🔴 **Critical**: Must be completed for basic functionality
 - 🟡 **High**: Significant impact on output quality
@@ -101,16 +110,17 @@
 - Every chunk linked to source document for evidence tracking
 - Same document can exist in multiple cases without conflicts
 
-#### 🟢 Task 2.3: Migrate to Unified System [NEW]
+#### ✅ Task 2.3: Migrate to Unified System [COMPLETED]
 **File**: `main.py`, API endpoints
 **Description**: Update API endpoints to use unified document management
 **Subtasks**:
-- [ ] Update `/process-folder` endpoint to use UnifiedDocumentInjector
-- [ ] Create new `/search-documents` endpoint using unified search
-- [ ] Update motion drafting to query unified documents
-- [ ] Add migration utilities for existing collections
-- [ ] Update documentation and examples
+- [x] Update `/process-folder` endpoint to use UnifiedDocumentInjector
+- [x] Create new `/search-documents` endpoint using unified search
+- [x] Update motion drafting to query unified documents
+- [x] Add migration utilities for existing collections
+- [x] Update documentation and examples
 **Acceptance Criteria**: All document operations use unified system
+**Completion Notes**: All endpoints now use unified system as default
 
 #### 🟡 Task 2.4: Evidence-to-Argument Mapper
 **File**: `src/ai_agents/evidence_mapper.py`
@@ -310,6 +320,57 @@
 
 ---
 
+## Discovery Production Processing Tasks (NEW)
+
+### ✅ Task D.1: Discovery Production Segmentation [COMPLETED]
+**File**: `src/document_processing/discovery_splitter.py`
+**Description**: Automatically segment multi-document PDFs
+**Subtasks**:
+- [x] Implement boundary detection with 25-page windows
+- [x] Create document segmentation logic
+- [x] Add confidence scoring for boundaries
+- [x] Handle large documents (>50 pages)
+**Completion Notes**: Full segmentation system with configurable windows
+
+### ✅ Task D.2: Document-Specific Context Generation [COMPLETED]
+**File**: `src/document_processing/discovery_splitter.py`
+**Description**: Generate context per document, not per production
+**Subtasks**:
+- [x] Create document context generator
+- [x] Implement chunk enhancement with context
+- [x] Maintain standard chunking (1200/200)
+- [x] Preserve original content in metadata
+**Completion Notes**: Each chunk includes relevant document context
+
+### ✅ Task D.3: Discovery Processing Endpoint [COMPLETED]
+**File**: `main.py`
+**Description**: Create dedicated endpoint for discovery materials
+**Subtasks**:
+- [x] Implement `/process/discovery` endpoint
+- [x] Add production metadata tracking
+- [x] Force fact extraction for all documents
+- [x] Integrate with unified document system
+**Completion Notes**: Fully integrated with unified document management
+
+### ✅ Task D.4: Fact Extraction Filtering [COMPLETED]
+**Description**: Filter which document types allow fact extraction
+**Subtasks**:
+- [x] Define ALLOWED_FACT_EXTRACTION_TYPES
+- [x] Exclude legal filings (motions, complaints, etc.)
+- [x] Include primary evidence and discovery responses
+- [x] Add force override for discovery processing
+**Completion Notes**: Prevents fact contamination from unreliable sources
+
+### ✅ Task D.5: Comprehensive Document Types [COMPLETED]
+**File**: `src/models/unified_document_models.py`
+**Description**: Add 70+ discovery-specific document types
+**Subtasks**:
+- [x] Add driver/employee documentation types
+- [x] Add vehicle/equipment record types
+- [x] Add hours of service types
+- [x] Add communication and safety types
+**Completion Notes**: Full coverage of trucking discovery documents
+
 ## Ongoing Tasks
 
 ### 🔴 Task 10.1: Update Motion Drafter Integration
@@ -327,10 +388,11 @@
 **Description**: Comprehensive testing of all new components
 **Continuous**: Test each component as developed
 
-### 🟡 Task 10.4: Documentation Updates
-**File**: `docs/` and inline documentation
+### ✅ Task 10.4: Documentation Updates [COMPLETED FOR DISCOVERY]
+**File**: `CLAUDE.md`, `TASKS.md`, `PLANNING.md`
 **Description**: Keep documentation current with changes
 **Continuous**: Update with each major component
+**Recent Updates**: Added comprehensive discovery documentation
 
 ---
 
