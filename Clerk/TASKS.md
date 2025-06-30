@@ -1,6 +1,6 @@
 # Clerk Motion Drafting Enhancement Tasks
 
-## Recent Updates (December 2024)
+## Recent Updates (May 29, 2025)
 ### Completed Improvements
 1. **Fixed Qdrant ID Generation**: Replaced MD5 hashes with UUIDs for all point IDs
 2. **Fixed Entity Extraction**: Entities now extracted per-fact instead of per-document
@@ -19,7 +19,7 @@
 - **Evidence Discovery**: Unified search for finding documents to use as exhibits
 - **Migration Path**: Legacy systems remain for backward compatibility
 
-### Discovery Production Processing (NEW - December 2024)
+### Discovery Production Processing (NEW - May 29, 2025)
 - **Multi-Document Segmentation**: Automatically splits large discovery PDFs into individual documents
 - **Intelligent Boundary Detection**: Uses 25-page sliding windows to find document boundaries
 - **Document-Specific Context**: Each document gets its own context, not production-wide
@@ -48,11 +48,12 @@
 - [x] Create entity recognition for parties, locations, events
 - [x] Build fact categorization (procedural, substantive, evidentiary)
 - [x] Implement fact confidence scoring
-**Acceptance Criteria**: Successfully extracts 90% of key facts from test documents
+
 **Completion Notes**: 
 - Fixed entity extraction to be fact-specific rather than document-wide
 - Added proper party name extraction (handles "Plaintiff John Doe" correctly)
 - Integrated with document processing pipeline
+- Completion Criteria: Successfully extracts 90% of key facts from test documents
 
 #### ✅ Task 1.2: Implement Fact Database Schema [COMPLETED]
 **File**: `src/models/fact_models.py`
@@ -62,7 +63,7 @@
 - [x] Create FactCategory enum
 - [x] Implement FactTimeline model
 - [x] Build fact relationship mapping
-**Acceptance Criteria**: Can store and query facts by category, date, and relevance
+
 **Completion Notes**: Implemented CaseFact model with full metadata support
 
 #### 🟡 Task 1.3: Build Timeline Generator
@@ -73,7 +74,7 @@
 - [ ] Handle date ranges and uncertainties
 - [ ] Generate narrative timeline
 - [ ] Export timeline for motion use
-**Acceptance Criteria**: Produces accurate chronological narrative from case facts
+**Completion Criteria**: Produces accurate chronological narrative from case facts
 
 ### Week 2: Evidence Management System
 
@@ -180,15 +181,6 @@
 - [ ] Create visual case law map
 **Acceptance Criteria**: Accurately maps case law relationships
 
-#### 🟢 Task 4.2: Circuit Split Detector
-**File**: `src/ai_agents/circuit_split_detector.py`
-**Description**: Identify and analyze circuit splits
-**Subtasks**:
-- [ ] Compare holdings across circuits
-- [ ] Identify conflicting rules
-- [ ] Suggest circuit-specific arguments
-- [ ] Flag split issues for attention
-**Acceptance Criteria**: Detects known circuit splits in test cases
 
 ---
 

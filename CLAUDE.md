@@ -29,7 +29,7 @@
 1. **Box Traversal**: Recursively scans Box folders for PDF documents
 2. **Unified Document Management**: Combined deduplication and discovery system
    - SHA-256 hash-based duplicate detection
-   - AI-powered document classification (motions, depositions, medical records, etc.)
+   - AI-powered document classification (motions, depositions, etc.)
    - Metadata extraction (parties, dates, key facts)
    - Case-specific document registries
 3. **Text Extraction**: Multi-library PDF processing (pdfplumber, PyPDF2, pdfminer)
@@ -360,7 +360,7 @@ The unified document management system combines document deduplication and sourc
 Documents are automatically classified into comprehensive types:
 - **Legal Filings**: Motion, Complaint, Answer, Memorandum, Brief, Order
 - **Discovery Documents**: Deposition, Interrogatory, Request for Admission/Production
-- **Evidence Documents**: Medical Record, Police Report, Expert Report, Photos, Videos
+- **Evidence Documents**: Police Report, Expert Report, Photos, Videos
 - **Business/Financial**: Invoice, Contract, Financial Records, Employment Records, Insurance
 - **Other Evidence**: Correspondence, Incident Reports, Witness Statements, Affidavits
 
@@ -488,7 +488,6 @@ The motion drafting system is built around the `/draft-motion-cached` endpoint a
 - `PREINTRODUCTION`: Case caption and header information
 - `INTRODUCTION`: Opening statement and motion purpose
 - `PROCEDURAL_BACKGROUND`: Case history and procedural posture
-- `STATEMENT_OF_FACTS`: Factual narrative with evidence citations
 - `MEMORANDUM_OF_LAW`: Legal framework introduction
 - `LEGAL_STANDARD`: Applicable legal tests and standards
 - `ARGUMENT`/`SUB_ARGUMENT`: Main legal arguments with authorities
