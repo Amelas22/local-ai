@@ -1,0 +1,40 @@
+# Docker Compose override for Clerk frontend
+# This file adds the Clerk frontend service to the existing docker-compose setup
+
+volumes:
+  clerk-frontend-dist:
+
+services:
+  # Build container - builds the frontend and copies files to volume
+  clerk-frontend-builder:
+    build: 
+      context: ./Clerk/frontend
+      dockerfile: Dockerfile
+      target: builder
+      args:
+        - VITE_API_URL=/api
+        - VITE_WS_URL=/ws
+        - VITE_SUPABASE_URL=${SUPABASE_URL:-http://kong:8000}
+        - VITE_SUPABASE_ANON_KEY=${ANON_KEY}
+    container_name: clerk-frontend-builder
+    volumes:
+      - clerk-frontend-dist:/frontend-dist
+    # Copy built files to the volume
+    command: sh -c "cp -r /app/dist/* /frontend-dist/ && echo 'Frontend build complete'"
+
+  # Update Caddy to mount the frontend files
+  caddy:
+    volumes:
+      - clerk-frontend-dist:/srv/clerk-frontend:ro
+    depends_on:
+      clerk-frontend-builder:
+        condition: service_completed_successfully
+
+  # Update the existing clerk service to include CORS settings
+  clerk:
+    environment:
+      # Add CORS settings for frontend
+      - CORS_ORIGINS=${CLERK_FRONTEND_URL:-http://localhost:3000},${CLERK_HOSTNAME:+https://}${CLERK_HOSTNAME:-http://localhost:3000}
+      
+# To use this file, add it to your docker-compose command:
+# docker-compose -f docker-compose.yml -f docker-compose.clerk.yml up

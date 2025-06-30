@@ -10,7 +10,9 @@
       "Bash(rm:*)",
       "Bash(true)",
       "Bash(rg:*)",
-      "Bash(touch:*)"
+      "Bash(touch:*)",
+      "Bash(mkdir:*)",
+      "Bash(npm create:*)"
     ],
     "deny": []
   }

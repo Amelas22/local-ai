@@ -45,6 +45,34 @@
     reverse_proxy legal-motion-api:8000
 }
 
+# Clerk Frontend Application
+{$CLERK_HOSTNAME} {
+    # Serve static files from the frontend build
+    root * /srv/clerk-frontend
+    
+    # Enable gzip compression
+    encode gzip
+    
+    # API proxy - forward API calls to backend
+    handle /api/* {
+        reverse_proxy clerk:8000
+    }
+    
+    # WebSocket proxy
+    handle /ws/* {
+        reverse_proxy clerk:8000
+    }
+    
+    # SPA support - serve index.html for all routes
+    try_files {path} /index.html
+    file_server
+}
+
+# Clerk Backend API (if needed separately)
+{$CLERK_API_HOSTNAME} {
+    reverse_proxy clerk:8000
+}
+
 # # SearXNG
 # {$SEARXNG_HOSTNAME} {
 #     encode zstd gzip

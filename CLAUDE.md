@@ -615,3 +615,331 @@ python -c "from src.ai_agents.citation_processor import CitationProcessor; proce
    - Fine-tune advocacy voice
    - Build template learning system
    - Implement comprehensive quality metrics
+
+## Frontend Architecture
+
+### Overview
+The Clerk frontend provides a modern, responsive web interface for legal teams to interact with the document processing system. Built with React and TypeScript, it emphasizes real-time feedback, professional design, and intuitive workflows specifically tailored for legal professionals.
+
+### Technology Stack
+- **Framework**: React 18+ with TypeScript for type safety
+- **UI Library**: Material-UI (MUI) for professional, consistent design
+- **State Management**: Redux Toolkit with RTK Query for API integration
+- **Real-time Communication**: WebSockets via Socket.io for live updates
+- **Visualization**: D3.js for custom visualizations, Recharts for charts
+- **Build Tool**: Vite for fast development and optimized production builds
+- **Styling**: Tailwind CSS with custom legal-themed design system
+- **Testing**: Jest + React Testing Library for unit/integration tests
+- **E2E Testing**: Playwright for end-to-end testing
+
+### Frontend Directory Structure
+```
+Clerk/
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── discovery/          # Discovery processing components
+│   │   │   │   ├── DiscoveryForm.tsx
+│   │   │   │   ├── ProcessingVisualization.tsx
+│   │   │   │   ├── DocumentStream.tsx
+│   │   │   │   ├── ChunkingAnimation.tsx
+│   │   │   │   ├── BatesNumberDisplay.tsx
+│   │   │   │   └── ProductionMetadata.tsx
+│   │   │   ├── motion/             # Motion drafting components
+│   │   │   │   ├── MotionOutlineForm.tsx
+│   │   │   │   ├── DraftingProgress.tsx
+│   │   │   │   └── MotionPreview.tsx
+│   │   │   ├── search/             # Search interface components
+│   │   │   │   ├── SearchBar.tsx
+│   │   │   │   ├── SearchResults.tsx
+│   │   │   │   └── FilterPanel.tsx
+│   │   │   ├── common/             # Shared components
+│   │   │   │   ├── Layout.tsx
+│   │   │   │   ├── Header.tsx
+│   │   │   │   ├── Sidebar.tsx
+│   │   │   │   ├── LoadingStates.tsx
+│   │   │   │   └── ErrorBoundary.tsx
+│   │   │   └── dashboard/          # Dashboard components
+│   │   │       ├── CaseDashboard.tsx
+│   │   │       ├── ProcessingStats.tsx
+│   │   │       └── RecentActivity.tsx
+│   │   ├── services/               # API and service layers
+│   │   │   ├── api/
+│   │   │   │   ├── discoveryApi.ts
+│   │   │   │   ├── motionApi.ts
+│   │   │   │   └── searchApi.ts
+│   │   │   ├── websocket/
+│   │   │   │   ├── socketClient.ts
+│   │   │   │   └── eventHandlers.ts
+│   │   │   └── utils/
+│   │   │       ├── apiClient.ts
+│   │   │       └── errorHandler.ts
+│   │   ├── store/                  # Redux store configuration
+│   │   │   ├── store.ts
+│   │   │   ├── slices/
+│   │   │   │   ├── discoverySlice.ts
+│   │   │   │   ├── motionSlice.ts
+│   │   │   │   └── uiSlice.ts
+│   │   │   └── api/
+│   │   │       └── baseApi.ts
+│   │   ├── hooks/                  # Custom React hooks
+│   │   │   ├── useWebSocket.ts
+│   │   │   ├── useDiscoveryProcess.ts
+│   │   │   └── useAuth.ts
+│   │   ├── types/                  # TypeScript type definitions
+│   │   │   ├── discovery.types.ts
+│   │   │   ├── motion.types.ts
+│   │   │   ├── api.types.ts
+│   │   │   └── websocket.types.ts
+│   │   ├── utils/                  # Utility functions
+│   │   │   ├── validators.ts
+│   │   │   ├── formatters.ts
+│   │   │   └── constants.ts
+│   │   ├── styles/                 # Global styles and themes
+│   │   │   ├── theme.ts
+│   │   │   ├── globals.css
+│   │   │   └── tailwind.css
+│   │   ├── App.tsx
+│   │   └── main.tsx
+│   ├── public/                     # Static assets
+│   ├── tests/                      # Test files
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── vite.config.ts
+│   ├── tailwind.config.js
+│   └── .env.example
+```
+
+### Key Frontend Components
+
+#### Discovery Processing UI
+1. **DiscoveryForm Component**
+   - Form validation with react-hook-form
+   - Auto-complete for case names
+   - Date picker for production dates
+   - Multi-select for responsive requests
+   - Real-time validation feedback
+
+2. **ProcessingVisualization Component**
+   - Real-time document discovery feed
+   - Animated chunking visualization
+   - Vector embedding progress
+   - Storage confirmation animations
+   - Error state handling
+
+3. **DocumentStream Component**
+   - Live updates as documents are found
+   - Bates number highlighting
+   - Document type badges
+   - Confidence score indicators
+   - Click-to-expand details
+
+#### WebSocket Integration
+```typescript
+// Event types for discovery processing
+interface DiscoveryEvents {
+  'discovery:started': { caseId: string; totalFiles: number };
+  'discovery:document_found': { 
+    documentId: string;
+    title: string;
+    type: DocumentType;
+    batesRange?: { start: string; end: string };
+  };
+  'discovery:chunking': {
+    documentId: string;
+    progress: number;
+    chunksCreated: number;
+  };
+  'discovery:embedding': {
+    chunkId: string;
+    progress: number;
+  };
+  'discovery:stored': {
+    documentId: string;
+    vectorsStored: number;
+  };
+  'discovery:completed': {
+    summary: ProcessingSummary;
+  };
+  'discovery:error': {
+    error: string;
+    documentId?: string;
+  };
+}
+```
+
+### Frontend Development Patterns
+
+#### API Integration Pattern
+```typescript
+// Using RTK Query for API calls
+export const discoveryApi = createApi({
+  reducerPath: 'discoveryApi',
+  baseQuery: fetchBaseQuery({
+    baseUrl: '/api/discovery',
+    prepareHeaders: (headers) => {
+      const token = selectAuthToken(store.getState());
+      if (token) headers.set('authorization', `Bearer ${token}`);
+      return headers;
+    },
+  }),
+  endpoints: (builder) => ({
+    processDiscovery: builder.mutation<ProcessingResult, DiscoveryRequest>({
+      query: (request) => ({
+        url: '/process/normalized',
+        method: 'POST',
+        body: request,
+      }),
+    }),
+  }),
+});
+```
+
+#### Component Structure Pattern
+```typescript
+// Consistent component structure
+interface ComponentProps {
+  className?: string;
+  onComplete?: (result: any) => void;
+  initialData?: Partial<FormData>;
+}
+
+export const DiscoveryForm: React.FC<ComponentProps> = ({
+  className,
+  onComplete,
+  initialData,
+}) => {
+  // Hook usage at the top
+  const dispatch = useAppDispatch();
+  const { processDiscovery, isLoading } = useDiscoveryProcess();
+  
+  // Local state
+  const [formData, setFormData] = useState(initialData || {});
+  
+  // Event handlers
+  const handleSubmit = async (data: FormData) => {
+    const result = await processDiscovery(data);
+    onComplete?.(result);
+  };
+  
+  // Render
+  return (
+    <form onSubmit={handleSubmit} className={className}>
+      {/* Form content */}
+    </form>
+  );
+};
+```
+
+### Frontend Commands
+
+#### Development
+```bash
+cd frontend
+npm install                 # Install dependencies
+npm run dev                # Start development server
+npm run build             # Build for production
+npm run preview           # Preview production build
+npm run test              # Run tests
+npm run test:e2e          # Run E2E tests
+npm run lint              # Run ESLint
+npm run type-check        # Run TypeScript compiler
+```
+
+#### Testing
+```bash
+# Unit tests
+npm run test:unit         # Run unit tests
+npm run test:watch        # Run tests in watch mode
+npm run test:coverage     # Generate coverage report
+
+# E2E tests
+npm run test:e2e          # Run Playwright tests
+npm run test:e2e:ui       # Open Playwright UI
+```
+
+### Environment Configuration
+```env
+# Frontend environment variables
+VITE_API_URL=http://localhost:8000
+VITE_WS_URL=ws://localhost:8000
+VITE_AUTH_ENABLED=false
+VITE_MOCK_API=false
+VITE_LOG_LEVEL=info
+```
+
+### Security Considerations
+1. **Input Validation**: All user inputs validated client-side and server-side
+2. **XSS Prevention**: React's built-in XSS protection + Content Security Policy
+3. **CORS Configuration**: Strict origin validation for API requests
+4. **WebSocket Security**: Token-based authentication for real-time connections
+5. **Sensitive Data**: No storage of sensitive data in localStorage
+6. **HTTPS Only**: Enforce HTTPS in production environments
+
+### Performance Optimization
+1. **Code Splitting**: Route-based code splitting with React.lazy
+2. **Bundle Optimization**: Tree shaking and minification via Vite
+3. **Image Optimization**: Lazy loading and responsive images
+4. **Memoization**: React.memo for expensive components
+5. **Virtual Scrolling**: For large document lists
+6. **Debouncing**: Search and form inputs debounced
+7. **WebSocket Throttling**: Rate limiting for real-time updates
+
+### Accessibility Standards
+1. **WCAG 2.1 AA Compliance**: Full keyboard navigation support
+2. **Screen Reader Support**: Proper ARIA labels and landmarks
+3. **High Contrast Mode**: Alternative color schemes
+4. **Focus Management**: Clear focus indicators
+5. **Error Announcements**: Screen reader friendly error messages
+
+### Integration with Backend
+
+#### API Endpoints Used
+- `POST /api/discovery/process/normalized` - Main discovery processing
+- `GET /api/discovery/productions/{case_id}` - List productions
+- `GET /api/discovery/search/bates/{case_id}/{bates_number}` - Bates search
+- `GET /api/discovery/stats/{case_id}` - Processing statistics
+- `WS /ws/discovery` - WebSocket connection for real-time updates
+
+#### Authentication Flow
+1. Initial authentication via `/api/auth/login`
+2. JWT token stored in memory (not localStorage)
+3. Token included in all API requests
+4. WebSocket authentication via query parameter
+5. Automatic token refresh before expiration
+
+### Frontend Deployment
+```nginx
+# Nginx configuration for frontend
+server {
+    listen 80;
+    server_name clerk.lawfirm.com;
+    
+    root /var/www/clerk/frontend/dist;
+    index index.html;
+    
+    # API proxy
+    location /api {
+        proxy_pass http://localhost:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+    
+    # WebSocket proxy
+    location /ws {
+        proxy_pass http://localhost:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host $host;
+    }
+    
+    # SPA fallback
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
