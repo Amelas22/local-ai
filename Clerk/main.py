@@ -10,12 +10,14 @@ import asyncio
 import os
 import json
 import tempfile
+import uuid
 
 from typing import List, Dict, Any, Optional, BinaryIO
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, File, UploadFile, Form
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field
 
@@ -28,6 +30,7 @@ from src.ai_agents.outline_cache_manager import outline_cache
 from src.utils.logger import setup_logging
 from config.settings import settings
 from src.models.unified_document_models import DiscoveryProcessingRequest
+from src.document_processing.websocket_document_processor import get_websocket_processor
 
 # Setup logging
 logger = setup_logging("clerk_api", "INFO")
@@ -81,6 +84,20 @@ app = FastAPI(
     description="API for legal document processing and search",
     version="1.0.0",
     lifespan=lifespan
+)
+
+# Import and mount WebSocket app
+from src.websocket import socket_app
+app.mount("/ws", socket_app)
+
+# Configure CORS
+cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:8010").split(",")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Pydantic models for API
@@ -205,6 +222,18 @@ async def health_check():
         services=services
     )
 
+# WebSocket status endpoint
+@app.get("/websocket/status")
+async def websocket_status():
+    """Get WebSocket connection status"""
+    from src.websocket import get_active_connections
+    
+    return {
+        "status": "active",
+        "connections": get_active_connections(),
+        "endpoint": "/ws/socket.io"
+    }
+
 # Document processing endpoint
 @app.post("/process/folder", response_model=ProcessingStatus)
 async def process_folder(request: ProcessFolderRequest, background_tasks: BackgroundTasks):
@@ -264,6 +293,65 @@ async def process_discovery(request: DiscoveryProcessingRequest, background_task
             "responsive_to_requests": request.responsive_to_requests
         }
     )
+
+# WebSocket-enabled discovery processing endpoint
+@app.post("/discovery/process", response_model=Dict[str, Any])
+async def process_discovery_websocket(request: DiscoveryProcessingRequest, background_tasks: BackgroundTasks):
+    """
+    Process discovery materials with real-time WebSocket updates
+    
+    This endpoint processes discovery documents and emits real-time progress updates
+    via WebSocket events. Connect to the WebSocket endpoint at /ws/socket.io to receive updates.
+    """
+    try:
+        # Get the WebSocket-enabled processor
+        ws_processor = get_websocket_processor()
+        
+        # Start processing in the background
+        background_tasks.add_task(
+            ws_processor.process_discovery_with_updates,
+            request
+        )
+        
+        # Return immediately with processing ID
+        processing_id = str(uuid.uuid4())
+        return {
+            "processing_id": processing_id,
+            "status": "started",
+            "message": f"Discovery processing started for {request.case_name}",
+            "websocket_url": "/ws/socket.io"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to start discovery processing: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Mock discovery processing endpoint for frontend testing
+@app.post("/discovery/process/mock", response_model=Dict[str, Any])
+async def process_discovery_mock(
+    request: DiscoveryProcessingRequest,
+    background_tasks: BackgroundTasks
+):
+    """Mock endpoint for testing frontend WebSocket integration"""
+    
+    processing_id = str(uuid.uuid4())
+    
+    # Import mock processing function
+    from mock_discovery_endpoint import mock_process_discovery
+    
+    # Run mock processing in background
+    background_tasks.add_task(
+        mock_process_discovery,
+        processing_id,
+        request.case_name
+    )
+    
+    return {
+        "processing_id": processing_id,
+        "status": "started",
+        "message": f"Mock discovery processing started for {request.case_name}",
+        "websocket_url": "/ws/socket.io"
+    }
 
 # Search endpoint
 @app.post("/search")

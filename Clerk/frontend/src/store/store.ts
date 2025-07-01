@@ -4,6 +4,7 @@ import { baseApi } from './api/baseApi';
 import discoveryReducer from './slices/discoverySlice';
 import uiReducer from './slices/uiSlice';
 import authReducer from './slices/authSlice';
+import websocketReducer from './slices/websocketSlice';
 
 export const store = configureStore({
   reducer: {
@@ -11,6 +12,7 @@ export const store = configureStore({
     discovery: discoveryReducer,
     ui: uiReducer,
     auth: authReducer,
+    websocket: websocketReducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

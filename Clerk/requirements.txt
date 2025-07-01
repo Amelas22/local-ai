@@ -3,6 +3,10 @@ python-dotenv>=1.0.0
 pydantic>=2.0.0
 asyncio>=3.4.3
 
+# WebSocket support
+python-socketio[asyncio_client]>=5.11.0
+uvicorn[standard]>=0.27.0
+
 # Box SDK
 boxsdk[jwt]>=3.9.0
 python-docx>=0.8.11

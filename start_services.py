@@ -51,7 +51,7 @@ def stop_existing_containers(profile=None):
     cmd = ["docker", "compose", "-p", "localai"]
     if profile and profile != "none":
         cmd.extend(["--profile", profile])
-    cmd.extend(["-f", "docker-compose.yml", "down"])
+    cmd.extend(["-f", "docker-compose.yml", "-f", "docker-compose.clerk.yml", "down"])
     run_command(cmd)
 
 def start_supabase(environment=None):
@@ -65,11 +65,15 @@ def start_supabase(environment=None):
 
 def start_local_ai(profile=None, environment=None):
     """Start the local AI services (using its compose file)."""
-    print("Starting local AI services...")
+    print("Starting local AI services (including Clerk frontend)...")
     cmd = ["docker", "compose", "-p", "localai"]
     if profile and profile != "none":
         cmd.extend(["--profile", profile])
     cmd.extend(["-f", "docker-compose.yml"])
+    
+    # Include Clerk frontend compose file
+    cmd.extend(["-f", "docker-compose.clerk.yml"])
+    
     if environment and environment == "private":
         cmd.extend(["-f", "docker-compose.override.private.yml"])
     if environment and environment == "public":
@@ -243,6 +247,17 @@ def main():
     
     # Then start the local AI services
     start_local_ai(args.profile, args.environment)
+    
+    # Print available services
+    print("\n✅ All services started successfully!")
+    print("\nAvailable services:")
+    print("- Supabase Studio: http://localhost:3001")
+    print("- Clerk Frontend: http://localhost:8010")
+    print("- Clerk API: http://localhost:8011")
+    print("- Qdrant Dashboard: http://localhost:6333/dashboard")
+    print("- N8N: http://localhost:8001 (if configured)")
+    print("- Open WebUI: http://localhost:8002 (if configured)")
+    print("\nTo view all running containers: docker ps")
 
 if __name__ == "__main__":
     main()

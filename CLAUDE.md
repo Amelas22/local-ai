@@ -1,5 +1,32 @@
 # Clerk Legal AI System - Claude Context
 
+## 🚨 IMPORTANT: Documentation Update Rule
+
+**ALWAYS update the following files when making changes to the codebase:**
+1. **CLAUDE.md** - Update architecture, components, or configuration sections when:
+   - Adding new features or modules
+   - Changing API endpoints or services
+   - Modifying the technology stack
+   - Updating environment variables or configuration
+   - Changing deployment procedures
+
+2. **tasks.md** - Update task status when:
+   - Completing any task (mark as ✅)
+   - Starting work on a task (mark as 🚧)
+   - Identifying new tasks to add
+   - Updating the "Last Updated" date
+   - Adding to "Recent Accomplishments" section
+
+3. **planning.md** - Update when:
+   - Architectural decisions are made
+   - Development priorities change
+   - New phases or milestones are defined
+   - Technical debt is identified or resolved
+
+**This ensures the documentation remains the single source of truth for the project.**
+
+---
+
 ## Project Overview
 
 **Clerk** is a comprehensive legal AI system designed to revolutionize motion drafting and document management for law firms. The system automates document processing, provides intelligent search capabilities, and generates legal motion drafts using AI.
@@ -22,6 +49,8 @@
 - **Workflow Engine**: n8n for automation
 - **Chat Interface**: Open WebUI (planned)
 - **Embedding Model**: OpenAI text-embedding-3-small
+- **Real-time Updates**: Socket.io for WebSocket communication
+- **Frontend**: React 18 + TypeScript + Material-UI + Redux Toolkit
 
 ### Key Components
 
@@ -42,9 +71,12 @@
 #### API Endpoints
 - `/health` - System health checks
 - `/process-folder` - Process Box folder for documents
+- `/discovery/process` - Process discovery with WebSocket updates
 - `/search` - Hybrid search across case documents
 - `/generate-motion-outline` - Create motion outlines from opposing counsel's filings
 - `/generate-motion-draft` - Full motion drafting capabilities
+- `/websocket/status` - WebSocket connection status
+- `/ws/socket.io` - WebSocket endpoint for real-time updates
 
 ### Directory Structure
 ```
@@ -75,6 +107,9 @@
 │   ├── integrations/             # External API integrations
 │   │   ├── perplexity.py         # Legal research API
 │   │   └── docx_generator.py     # Document generation
+│   ├── websocket/                # WebSocket real-time updates
+│   │   ├── __init__.py
+│   │   └── socket_server.py      # Socket.io server implementation
 │   └── utils/                    # Shared utilities
 ├── config/                       # Configuration management
 ├── migrations/                   # Database migrations
@@ -226,6 +261,14 @@ outline = drafter.generate_outline(
 ## Troubleshooting
 
 ### Common Issues
+
+#### Docker Build Errors
+**Symptoms**: `failed to checksum file node_modules/.bin/acorn: archive/tar: unknown file mode`
+**Cause**: Docker trying to copy node_modules with Windows symlinks
+**Solutions:**
+- Created `.dockerignore` file to exclude node_modules
+- Clean rebuild: `docker-compose build --no-cache clerk-frontend-builder`
+- Remove node_modules if persistent: `rm -rf Clerk/frontend/node_modules`
 
 #### Box API Authentication
 ```python
@@ -908,38 +951,281 @@ VITE_LOG_LEVEL=info
 4. WebSocket authentication via query parameter
 5. Automatic token refresh before expiration
 
-### Frontend Deployment
-```nginx
-# Nginx configuration for frontend
-server {
-    listen 80;
-    server_name clerk.lawfirm.com;
+## WebSocket Real-time Architecture
+
+### Overview
+The Clerk system implements WebSocket communication using Socket.io for real-time updates during document processing. This eliminates the need for polling and provides instant feedback to users as their documents are processed.
+
+### WebSocket Components
+
+#### Frontend WebSocket Implementation
+```typescript
+// socketClient.ts - Singleton WebSocket client
+import { io, Socket } from 'socket.io-client';
+
+class SocketClient {
+  private socket: Socket | null = null;
+  
+  connect(url?: string): void {
+    this.socket = io(url || import.meta.env.VITE_WS_URL, {
+      path: '/ws/socket.io/',
+      transports: ['websocket'],
+      reconnection: false, // Manual reconnection for better control
+      auth: { token: store.getState().auth.token }
+    });
+  }
+}
+
+// Usage in components with custom hook
+const { connected, emit, on } = useWebSocket();
+
+// Subscribe to events
+useEffect(() => {
+  const unsubscribe = on('discovery:document_found', (data) => {
+    console.log('New document:', data);
+  });
+  
+  return unsubscribe; // Cleanup
+}, []);
+```
+
+#### Backend WebSocket Server
+```python
+# socket_server.py - Socket.io server with FastAPI
+import socketio
+
+sio = socketio.AsyncServer(
+    async_mode='asgi',
+    cors_allowed_origins='*'
+)
+
+# Mount on FastAPI
+app.mount("/ws", socketio.ASGIApp(sio, socketio_path='/socket.io'))
+
+# Emit events during processing
+async def emit_document_found(processing_id, document_id, title, doc_type):
+    await sio.emit('discovery:document_found', {
+        'processingId': processing_id,
+        'documentId': document_id,
+        'title': title,
+        'type': doc_type
+    })
+```
+
+### WebSocket Event Flow
+
+#### Discovery Processing Events
+1. **discovery:started**
+   ```json
+   {
+     "processingId": "uuid",
+     "caseId": "Smith_v_Jones_2024",
+     "totalFiles": 150
+   }
+   ```
+
+2. **discovery:document_found**
+   ```json
+   {
+     "documentId": "doc_123",
+     "title": "Deposition of John Smith",
+     "type": "deposition",
+     "pageCount": 45,
+     "batesRange": {"start": "DEF000001", "end": "DEF000045"},
+     "confidence": 0.95
+   }
+   ```
+
+3. **discovery:chunking**
+   ```json
+   {
+     "documentId": "doc_123",
+     "progress": 75.5,
+     "chunksCreated": 30
+   }
+   ```
+
+4. **discovery:embedding**
+   ```json
+   {
+     "documentId": "doc_123",
+     "chunkId": "chunk_456",
+     "progress": 80.0
+   }
+   ```
+
+5. **discovery:stored**
+   ```json
+   {
+     "documentId": "doc_123",
+     "vectorsStored": 30
+   }
+   ```
+
+6. **discovery:completed**
+   ```json
+   {
+     "processingId": "uuid",
+     "summary": {
+       "totalDocuments": 150,
+       "processedDocuments": 148,
+       "totalChunks": 4500,
+       "totalVectors": 4500,
+       "totalErrors": 2,
+       "processingTime": 1845.5,
+       "averageConfidence": 0.92
+     }
+   }
+   ```
+
+### WebSocket Redux Integration
+```typescript
+// WebSocket events update Redux state automatically
+const discoverySlice = createSlice({
+  name: 'discovery',
+  reducers: {
+    documentFound: (state, action) => {
+      state.documents.push(action.payload);
+      state.stats.documentsFound += 1;
+    },
+    documentChunking: (state, action) => {
+      const doc = state.documents.find(d => d.id === action.payload.documentId);
+      if (doc) {
+        doc.chunks = action.payload.chunksCreated;
+        doc.progress = action.payload.progress;
+      }
+    }
+  }
+});
+```
+
+### Connection Management
+- **Automatic Reconnection**: Exponential backoff strategy (1s, 2s, 4s, 8s, 16s)
+- **Connection States**: Tracked in Redux (disconnected, connecting, connected, error)
+- **Event Buffering**: Events queued during disconnection (planned feature)
+- **Health Monitoring**: Regular ping/pong for connection health
+
+### Testing WebSocket Connections
+```bash
+# Check WebSocket status
+curl http://localhost:8000/websocket/status
+
+# Response
+{
+  "status": "active",
+  "connections": {
+    "total": 3,
+    "connections": [
+      {
+        "sid": "abc123",
+        "connected_at": "2025-01-02T10:30:00Z",
+        "case_id": "Smith_v_Jones_2024"
+      }
+    ]
+  }
+}
+```
+
+### Security Considerations
+1. **Authentication**: JWT token passed in connection handshake
+2. **Case Isolation**: Events filtered by case_id subscription
+3. **Rate Limiting**: Prevent event flooding (planned)
+4. **SSL/TLS**: WebSocket upgraded from HTTPS in production
+
+### Performance Benefits
+- **Instant Updates**: No polling delay, updates arrive immediately
+- **Reduced Bandwidth**: Only sends data when changes occur
+- **Server Efficiency**: One persistent connection vs many HTTP requests
+- **Scalability**: Can handle thousands of concurrent connections
+
+### Frontend Deployment with Caddy
+```caddy
+# Caddyfile configuration for Clerk frontend
+{$CLERK_HOSTNAME} {
+    # Serve static files from the frontend build
+    root * /srv/clerk-frontend
     
-    root /var/www/clerk/frontend/dist;
-    index index.html;
+    # Enable gzip compression
+    encode gzip
     
-    # API proxy
-    location /api {
-        proxy_pass http://localhost:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
+    # API proxy - forward API calls to backend
+    handle /api/* {
+        reverse_proxy clerk:8000
     }
     
     # WebSocket proxy
-    location /ws {
-        proxy_pass http://localhost:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "Upgrade";
-        proxy_set_header Host $host;
+    handle /ws/* {
+        reverse_proxy clerk:8000
     }
     
-    # SPA fallback
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
+    # SPA support - serve index.html for all routes
+    try_files {path} /index.html
+    file_server
+}
+
+# Clerk Backend API (if needed separately)
+{$CLERK_API_HOSTNAME} {
+    reverse_proxy clerk:8000
 }
 ```
+
+The system uses Caddy as a reverse proxy instead of Nginx, providing:
+- Automatic HTTPS with Let's Encrypt
+- Simpler configuration syntax
+- Built-in WebSocket support
+- Automatic certificate renewal
+- Zero-downtime reloads
+
+Environment variables in `.env`:
+```bash
+CLERK_HOSTNAME=:8010        # For local development
+CLERK_API_HOSTNAME=:8011    # Backend API direct access
+```
+
+---
+
+## 📝 Documentation Maintenance Guidelines
+
+### When to Update Documentation
+
+**Every code change should trigger a documentation review:**
+
+1. **Feature Addition** → Update:
+   - CLAUDE.md: Add to architecture/components sections
+   - tasks.md: Mark related tasks as completed
+   - planning.md: Update if it affects roadmap
+
+2. **Bug Fix** → Update:
+   - tasks.md: Note in recent accomplishments
+   - CLAUDE.md: Update troubleshooting if relevant
+
+3. **Configuration Change** → Update:
+   - CLAUDE.md: Environment variables, deployment sections
+   - tasks.md: Note the change
+
+4. **API Changes** → Update:
+   - CLAUDE.md: API endpoints section
+   - tasks.md: Mark API tasks as completed
+
+5. **Dependency Updates** → Update:
+   - CLAUDE.md: Technology stack section
+   - requirements.txt or package.json as needed
+
+### Documentation Update Checklist
+
+Before committing any code changes, ask yourself:
+- [ ] Does this change affect the architecture? → Update CLAUDE.md
+- [ ] Does this complete or progress a task? → Update tasks.md
+- [ ] Does this change our technical approach? → Update planning.md
+- [ ] Would a new developer need to know about this? → Update CLAUDE.md
+- [ ] Does this add technical debt? → Update planning.md
+
+### Quick Reference
+
+```bash
+# Always update documentation in the same commit as code changes
+git add CLAUDE.md tasks.md planning.md
+git commit -m "feat: add WebSocket support + update docs"
+```
+
+Remember: **Outdated documentation is worse than no documentation!**

@@ -14,6 +14,7 @@ services:
       args:
         - VITE_API_URL=/api
         - VITE_WS_URL=/ws
+        - VITE_AUTH_ENABLED=false
         - VITE_SUPABASE_URL=${SUPABASE_URL:-http://kong:8000}
         - VITE_SUPABASE_ANON_KEY=${ANON_KEY}
     container_name: clerk-frontend-builder

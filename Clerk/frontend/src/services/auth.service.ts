@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
-import { store } from '@/store/store';
-import { loginSuccess, loginFailure, logout as logoutAction } from '@/store/slices/authSlice';
+import { store } from '../store/store';
+import { loginSuccess, loginFailure, logout as logoutAction } from '../store/slices/authSlice';
 
 export interface LoginCredentials {
   email: string;

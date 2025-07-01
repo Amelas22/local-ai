@@ -21,7 +21,9 @@ import SendIcon from '@mui/icons-material/Send';
 import { useAppDispatch } from '@/hooks/redux';
 import { addToast } from '@/store/slices/uiSlice';
 import { startProcessing } from '@/store/slices/discoverySlice';
+import { useWebSocket } from '@/hooks/useWebSocket';
 import type { DiscoveryProcessingRequest } from '@/types/discovery.types';
+import axios from 'axios';
 
 const mockCases = [
   'Smith_v_Jones_2024',
@@ -45,6 +47,7 @@ const responsiveRequests = [
 
 const DiscoveryForm = () => {
   const dispatch = useAppDispatch();
+  const { connected } = useWebSocket();
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   const { control, handleSubmit, formState: { errors } } = useForm<DiscoveryProcessingRequest>({
@@ -63,18 +66,34 @@ const DiscoveryForm = () => {
   const onSubmit = async (data: DiscoveryProcessingRequest) => {
     setIsSubmitting(true);
     try {
-      // TODO: Call API endpoint
-      console.log('Submitting discovery request:', data);
+      // Check WebSocket connection
+      if (!connected) {
+        dispatch(addToast({
+          message: 'WebSocket not connected. Please refresh the page.',
+          severity: 'warning',
+        }));
+      }
       
-      // For now, just start local processing
-      dispatch(startProcessing('mock-processing-id'));
+      // Call the API endpoint - use mock for now
+      const apiUrl = import.meta.env.VITE_API_URL || '/api';
+      const useMock = import.meta.env.VITE_MOCK_API !== 'false';
+      const endpoint = useMock ? '/discovery/process/mock' : '/discovery/process';
+      const response = await axios.post(`${apiUrl}${endpoint}`, data);
+      
+      // The processing ID will be used to track this specific job
+      const processingId = response.data.processing_id;
+      
+      // Update local state to show processing has started
+      dispatch(startProcessing(processingId));
+      
       dispatch(addToast({
         message: 'Discovery processing started successfully',
         severity: 'success',
       }));
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Error starting discovery processing:', error);
       dispatch(addToast({
-        message: 'Failed to start discovery processing',
+        message: error.response?.data?.detail || 'Failed to start discovery processing',
         severity: 'error',
       }));
     } finally {

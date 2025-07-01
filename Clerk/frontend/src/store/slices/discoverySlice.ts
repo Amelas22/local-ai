@@ -1,18 +1,9 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import type { DocumentType, ProcessingStage } from '@/types/discovery.types';
-
-interface DiscoveryDocument {
-  id: string;
-  title: string;
-  type: DocumentType;
-  batesRange?: {
-    start: string;
-    end: string;
-  };
-  confidence: number;
-  status: 'processing' | 'completed' | 'error';
-  error?: string;
-}
+import { 
+  ProcessingStage, 
+  ProcessingDocument, 
+  ProcessingSummary
+} from '../../types/discovery.types';
 
 export interface ProcessingStats {
   documentsFound: number;
@@ -20,17 +11,20 @@ export interface ProcessingStats {
   chunksCreated: number;
   vectorsStored: number;
   errors: number;
+  averageConfidence: number;
 }
 
 interface DiscoveryState {
   isProcessing: boolean;
   currentStage: ProcessingStage | null;
-  processingStartTime: Date | null;
-  processingEndTime: Date | null;
-  documents: DiscoveryDocument[];
+  processingStartTime: string | null;
+  processingEndTime: string | null;
+  documents: ProcessingDocument[];
   stats: ProcessingStats;
   currentProcessingId: string | null;
   error: string | null;
+  totalFiles: number;
+  caseId: string | null;
 }
 
 const initialState: DiscoveryState = {
@@ -45,55 +39,155 @@ const initialState: DiscoveryState = {
     chunksCreated: 0,
     vectorsStored: 0,
     errors: 0,
+    averageConfidence: 0,
   },
   currentProcessingId: null,
   error: null,
+  totalFiles: 0,
+  caseId: null,
 };
 
 const discoverySlice = createSlice({
   name: 'discovery',
   initialState,
   reducers: {
+    // Manual start processing (for form submission)
     startProcessing: (state, action: PayloadAction<string>) => {
       state.isProcessing = true;
       state.currentProcessingId = action.payload;
-      state.processingStartTime = new Date();
+      state.processingStartTime = new Date().toISOString();
       state.processingEndTime = null;
       state.documents = [];
       state.stats = initialState.stats;
       state.error = null;
+      state.currentStage = ProcessingStage.INITIALIZING;
     },
-    setCurrentStage: (state, action: PayloadAction<ProcessingStage>) => {
-      state.currentStage = action.payload;
+    
+    // WebSocket event handlers
+    processingStarted: (state, action: PayloadAction<{
+      processingId: string;
+      totalFiles: number;
+      caseId: string;
+    }>) => {
+      state.isProcessing = true;
+      state.currentProcessingId = action.payload.processingId;
+      state.totalFiles = action.payload.totalFiles;
+      state.caseId = action.payload.caseId;
+      state.processingStartTime = new Date().toISOString();
+      state.currentStage = ProcessingStage.DISCOVERING_DOCUMENTS;
     },
-    addDocument: (state, action: PayloadAction<DiscoveryDocument>) => {
+    
+    documentFound: (state, action: PayloadAction<ProcessingDocument>) => {
       state.documents.push(action.payload);
       state.stats.documentsFound += 1;
+      
+      // Update average confidence
+      const totalConfidence = state.documents.reduce((sum, doc) => sum + doc.confidence, 0);
+      state.stats.averageConfidence = totalConfidence / state.documents.length;
     },
-    updateDocument: (state, action: PayloadAction<{ id: string; updates: Partial<DiscoveryDocument> }>) => {
-      const index = state.documents.findIndex(doc => doc.id === action.payload.id);
-      if (index !== -1) {
-        state.documents[index] = { ...state.documents[index], ...action.payload.updates };
-        if (action.payload.updates.status === 'completed') {
+    
+    documentChunking: (state, action: PayloadAction<{
+      documentId: string;
+      progress: number;
+      chunksCreated: number;
+    }>) => {
+      const doc = state.documents.find(d => d.id === action.payload.documentId);
+      if (doc) {
+        doc.chunks = action.payload.chunksCreated;
+        state.stats.chunksCreated += action.payload.chunksCreated;
+      }
+      state.currentStage = ProcessingStage.CHUNKING_DOCUMENTS;
+    },
+    
+    documentEmbedding: (state, _action: PayloadAction<{
+      documentId: string;
+      chunkId: string;
+      progress: number;
+    }>) => {
+      state.currentStage = ProcessingStage.GENERATING_EMBEDDINGS;
+    },
+    
+    documentStored: (state, action: PayloadAction<{
+      documentId: string;
+      vectorsStored: number;
+    }>) => {
+      const doc = state.documents.find(d => d.id === action.payload.documentId);
+      if (doc) {
+        doc.vectors = action.payload.vectorsStored;
+        state.stats.vectorsStored += action.payload.vectorsStored;
+      }
+      state.currentStage = ProcessingStage.STORING_VECTORS;
+    },
+    
+    updateDocumentProgress: (state, action: PayloadAction<{
+      documentId: string;
+      progress: number;
+      status: 'pending' | 'processing' | 'completed' | 'error';
+      error?: string;
+    }>) => {
+      const doc = state.documents.find(d => d.id === action.payload.documentId);
+      if (doc) {
+        doc.progress = action.payload.progress;
+        doc.status = action.payload.status;
+        if (action.payload.error) {
+          doc.error = action.payload.error;
+        }
+        
+        if (action.payload.status === 'completed') {
           state.stats.documentsProcessed += 1;
-        } else if (action.payload.updates.status === 'error') {
+        } else if (action.payload.status === 'error') {
           state.stats.errors += 1;
         }
       }
     },
-    updateStats: (state, action: PayloadAction<Partial<ProcessingStats>>) => {
-      state.stats = { ...state.stats, ...action.payload };
-    },
-    completeProcessing: (state) => {
+    
+    processingCompleted: (state, action: PayloadAction<{
+      processingId: string;
+      summary: ProcessingSummary;
+    }>) => {
       state.isProcessing = false;
-      state.currentStage = null;
-      state.processingEndTime = new Date();
+      state.currentStage = ProcessingStage.COMPLETING;
+      state.processingEndTime = new Date().toISOString();
+      
+      // Update stats from summary
+      state.stats = {
+        documentsFound: action.payload.summary.totalDocuments,
+        documentsProcessed: action.payload.summary.processedDocuments,
+        chunksCreated: action.payload.summary.totalChunks,
+        vectorsStored: action.payload.summary.totalVectors,
+        errors: action.payload.summary.totalErrors,
+        averageConfidence: action.payload.summary.averageConfidence,
+      };
     },
+    
+    processingError: (state, action: PayloadAction<{
+      processingId: string;
+      documentId?: string;
+      error: string;
+      stage: ProcessingStage;
+    }>) => {
+      state.error = action.payload.error;
+      state.stats.errors += 1;
+      
+      if (action.payload.documentId) {
+        const doc = state.documents.find(d => d.id === action.payload.documentId);
+        if (doc) {
+          doc.status = 'error';
+          doc.error = action.payload.error;
+        }
+      }
+    },
+    
+    setCurrentStage: (state, action: PayloadAction<ProcessingStage>) => {
+      state.currentStage = action.payload;
+    },
+    
     setError: (state, action: PayloadAction<string>) => {
       state.error = action.payload;
       state.isProcessing = false;
     },
-    resetProcessing: (state) => {
+    
+    resetProcessing: () => {
       return initialState;
     },
   },
@@ -101,11 +195,15 @@ const discoverySlice = createSlice({
 
 export const {
   startProcessing,
+  processingStarted,
+  documentFound,
+  documentChunking,
+  documentEmbedding,
+  documentStored,
+  updateDocumentProgress,
+  processingCompleted,
+  processingError,
   setCurrentStage,
-  addDocument,
-  updateDocument,
-  updateStats,
-  completeProcessing,
   setError,
   resetProcessing,
 } = discoverySlice.actions;

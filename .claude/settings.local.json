@@ -12,7 +12,16 @@
       "Bash(rg:*)",
       "Bash(touch:*)",
       "Bash(mkdir:*)",
-      "Bash(npm create:*)"
+      "Bash(npm create:*)",
+      "Bash(pip install:*)",
+      "Bash(ls:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx tsc:*)",
+      "Bash(ss:*)",
+      "Bash(curl:*)",
+      "Bash(env)",
+      "Bash(source:*)",
+      "Bash(pkill:*)"
     ],
     "deny": []
   }

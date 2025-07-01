@@ -58,7 +58,7 @@ class DevAuthService {
     return { message: 'Dev mode: Password reset email sent' };
   }
 
-  async updatePassword(newPassword: string) {
+  async updatePassword(_newPassword: string) {
     console.log('Dev mode: Mock password update');
     return { message: 'Dev mode: Password updated' };
   }

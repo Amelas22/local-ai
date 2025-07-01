@@ -1,0 +1,160 @@
+import { io, Socket } from 'socket.io-client';
+import { store } from '../../store/store';
+import { 
+  connectionEstablished, 
+  connectionLost, 
+  connectionError 
+} from '../../store/slices/websocketSlice';
+import { handleDiscoveryEvents } from './handlers/discoveryHandlers';
+import { WebSocketEvents } from '../../types/websocket.types';
+
+class SocketClient {
+  private socket: Socket | null = null;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private reconnectDelay = 1000; // Start with 1 second
+  private eventHandlers: Map<string, Function[]> = new Map();
+
+  constructor() {
+    // Bind methods to preserve context
+    this.connect = this.connect.bind(this);
+    this.disconnect = this.disconnect.bind(this);
+    this.emit = this.emit.bind(this);
+    this.on = this.on.bind(this);
+    this.off = this.off.bind(this);
+  }
+
+  connect(url?: string): void {
+    if (this.socket?.connected) {
+      console.log('WebSocket already connected');
+      return;
+    }
+
+    // Use environment variable or default
+    const wsUrl = url || import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
+    
+    console.log('Connecting to WebSocket:', wsUrl);
+
+    this.socket = io(wsUrl, {
+      path: '/ws/socket.io/',
+      transports: ['websocket'],
+      reconnection: false, // We'll handle reconnection manually
+      auth: {
+        token: store.getState().auth.token || 'dev-token'
+      }
+    });
+
+    this.setupEventListeners();
+  }
+
+  private setupEventListeners(): void {
+    if (!this.socket) return;
+
+    // Connection events
+    this.socket.on('connect', () => {
+      console.log('WebSocket connected');
+      this.reconnectAttempts = 0;
+      this.reconnectDelay = 1000;
+      store.dispatch(connectionEstablished());
+    });
+
+    this.socket.on('disconnect', (reason) => {
+      console.log('WebSocket disconnected:', reason);
+      store.dispatch(connectionLost());
+      
+      // Attempt to reconnect
+      if (reason !== 'io client disconnect') {
+        this.attemptReconnect();
+      }
+    });
+
+    this.socket.on('connect_error', (error) => {
+      console.error('WebSocket connection error:', error.message);
+      store.dispatch(connectionError(error.message));
+    });
+
+    // Register discovery event handlers
+    handleDiscoveryEvents(this.socket);
+
+    // Handle any custom event handlers that were registered
+    this.eventHandlers.forEach((handlers, event) => {
+      handlers.forEach(handler => {
+        this.socket?.on(event, handler as any);
+      });
+    });
+  }
+
+  private attemptReconnect(): void {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error('Max reconnection attempts reached');
+      store.dispatch(connectionError('Max reconnection attempts reached'));
+      return;
+    }
+
+    this.reconnectAttempts++;
+    console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+
+    setTimeout(() => {
+      this.connect();
+      this.reconnectDelay *= 2; // Exponential backoff
+    }, this.reconnectDelay);
+  }
+
+  disconnect(): void {
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
+    }
+  }
+
+  emit<T extends keyof WebSocketEvents>(event: T, data: WebSocketEvents[T]): void {
+    if (!this.socket?.connected) {
+      console.warn('Cannot emit event: WebSocket not connected');
+      return;
+    }
+
+    this.socket.emit(event as string, data);
+  }
+
+  on<T extends keyof WebSocketEvents>(
+    event: T, 
+    handler: (data: WebSocketEvents[T]) => void
+  ): void {
+    // Store the handler for reconnection
+    if (!this.eventHandlers.has(event as string)) {
+      this.eventHandlers.set(event as string, []);
+    }
+    this.eventHandlers.get(event as string)!.push(handler as Function);
+
+    // Add to current socket if connected
+    this.socket?.on(event as string, handler as any);
+  }
+
+  off<T extends keyof WebSocketEvents>(
+    event: T, 
+    handler: (data: WebSocketEvents[T]) => void
+  ): void {
+    // Remove from stored handlers
+    const handlers = this.eventHandlers.get(event as string);
+    if (handlers) {
+      const index = handlers.indexOf(handler as Function);
+      if (index > -1) {
+        handlers.splice(index, 1);
+      }
+    }
+
+    // Remove from current socket
+    this.socket?.off(event as string, handler as any);
+  }
+
+  isConnected(): boolean {
+    return this.socket?.connected || false;
+  }
+
+  getSocket(): Socket | null {
+    return this.socket;
+  }
+}
+
+// Export singleton instance
+export const socketClient = new SocketClient();

@@ -3,12 +3,15 @@ import { useAppSelector } from '@/hooks/redux';
 import { DocumentType } from '@/types/discovery.types';
 
 const getDocumentTypeColor = (type: DocumentType): string => {
-  const colorMap: Record<DocumentType, string> = {
+  const colorMap: Partial<Record<DocumentType, string>> = {
     [DocumentType.MOTION]: '#1976d2',
     [DocumentType.DEPOSITION]: '#9c27b0',
-    [DocumentType.DISCOVERY]: '#ff9800',
+    [DocumentType.INTERROGATORY]: '#ff9800',
+    [DocumentType.REQUEST_FOR_PRODUCTION]: '#ff5722',
     [DocumentType.CORRESPONDENCE]: '#4caf50',
-    [DocumentType.REPORT]: '#f44336',
+    [DocumentType.EXPERT_REPORT]: '#f44336',
+    [DocumentType.POLICE_REPORT]: '#e91e63',
+    [DocumentType.CONTRACT]: '#3f51b5',
     [DocumentType.UNKNOWN]: '#757575',
   };
   
