@@ -25,6 +25,11 @@ services:
 
   # Update Caddy to mount the frontend files
   caddy:
+    ports:
+      - "8010:8010"
+    environment:
+      - CLERK_HOSTNAME=${CLERK_HOSTNAME:-":8010"}
+      - CLERK_API_HOSTNAME=${CLERK_API_HOSTNAME:-":8011"}
     volumes:
       - clerk-frontend-dist:/srv/clerk-frontend:ro
     depends_on:

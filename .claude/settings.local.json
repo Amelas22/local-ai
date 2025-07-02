@@ -21,7 +21,8 @@
       "Bash(curl:*)",
       "Bash(env)",
       "Bash(source:*)",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "Bash(powershell.exe:*)"
     ],
     "deny": []
   }

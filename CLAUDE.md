@@ -36,8 +36,7 @@
 - **Hybrid Search**: Combines vector similarity with full-text search for precise legal research
 - **Motion Drafting**: AI-powered generation of legal motion outlines and complete drafts
 - **Case Isolation**: Strict data separation ensuring case information never crosses between matters
-- **Cost Tracking**: Detailed API usage monitoring and reporting
-- **Workflow Automation**: n8n integration for automated document processing pipelines
+- **Discovery Processing**: AI-powered document classification and processing
 
 ## Architecture
 
@@ -46,8 +45,6 @@
 - **Vector Database**: Qdrant with hybrid search capabilities
 - **Document Storage**: Box API integration
 - **AI Models**: OpenAI GPT models for context generation and drafting
-- **Workflow Engine**: n8n for automation
-- **Chat Interface**: Open WebUI (planned)
 - **Embedding Model**: OpenAI text-embedding-3-small
 - **Real-time Updates**: Socket.io for WebSocket communication
 - **Frontend**: React 18 + TypeScript + Material-UI + Redux Toolkit
@@ -258,65 +255,6 @@ outline = drafter.generate_outline(
 - Use service accounts with minimal permissions
 - Monitor for unusual API usage patterns
 
-## Troubleshooting
-
-### Common Issues
-
-#### Docker Build Errors
-**Symptoms**: `failed to checksum file node_modules/.bin/acorn: archive/tar: unknown file mode`
-**Cause**: Docker trying to copy node_modules with Windows symlinks
-**Solutions:**
-- Created `.dockerignore` file to exclude node_modules
-- Clean rebuild: `docker-compose build --no-cache clerk-frontend-builder`
-- Remove node_modules if persistent: `rm -rf Clerk/frontend/node_modules`
-
-#### Box API Authentication
-```python
-# Test Box connection
-from src.document_processing.box_client import BoxClient
-client = BoxClient()
-client.test_connection()
-```
-**Solutions:**
-- Verify JWT credentials in .env
-- Check Box app configuration
-- Ensure service account has folder access
-- Validate private key format (proper line breaks)
-
-#### Qdrant Connection Issues
-```python
-# Test Qdrant connection
-from src.vector_storage.qdrant_store import QdrantVectorStore
-store = QdrantVectorStore()
-store.test_connection()
-```
-**Solutions:**
-- Verify QDRANT_HOST and QDRANT_API_KEY
-- Check if collections are created
-- Ensure pgvector extension is enabled
-- Test network connectivity to Qdrant instance
-
-#### OpenAI Rate Limits
-**Symptoms**: 429 errors, slow processing
-**Solutions:**
-- Reduce batch sizes in document processing
-- Implement exponential backoff (already in code)
-- Upgrade OpenAI tier if needed
-- Monitor cost tracking for usage patterns
-
-#### Memory Issues with Large PDFs
-**Symptoms**: Out of memory errors, slow processing
-**Solutions:**
-- Process fewer documents concurrently
-- Increase system memory allocation
-- Enable document size limits
-- Monitor chunk processing statistics
-
-#### Case Isolation Violations
-**Critical Issue**: Never acceptable
-**Detection**: Check logs for cross-case data leakage
-**Prevention**: Always use case_name in metadata filters
-**Testing**: Run isolation verification tests regularly
 
 ### Debug Commands
 ```bash
@@ -339,12 +277,6 @@ store.verify_case_isolation('Case Name')
 "
 ```
 
-### Performance Monitoring
-- **Document Processing**: ~10-15 seconds per document
-- **Vector Search**: <100ms typical response time
-- **Initial Import**: 4-6 hours for 4,000-6,000 documents
-- **Storage Requirements**: ~2GB for 240,000 vectors
-
 ## External Integrations
 
 ### Box API
@@ -352,17 +284,6 @@ store.verify_case_isolation('Case Name')
 - **Permissions**: Read access to matter folders
 - **Rate Limits**: Respect Box API limits
 - **Folder Structure**: Mirrors firm's case organization
-
-### n8n Workflows
-- **Motion Processing**: Automated outline and draft generation
-- **Document Monitoring**: Watches for new uploads
-- **Status Updates**: Updates Google Sheets with progress
-- **Error Handling**: Retries and notifications
-
-### External Research APIs
-- **Perplexity**: Deep legal research
-- **Jina**: Document search and analysis
-- **Integration Pattern**: Async processing with rate limiting
 
 ## Development Guidelines
 
@@ -382,7 +303,7 @@ store.verify_case_isolation('Case Name')
 
 ### Deployment
 - **Current**: Hostinger VPS deployment
-- **Docker**: containerized deployment available
+- **Docker**: containerized deployment
 - **Monitoring**: Implement logging and health checks
 - **Caching**: Redis for frequently accessed data
 - **Scaling**: Horizontal scaling for document processing
