@@ -55,12 +55,18 @@
     
     # API proxy - forward API calls to backend
     handle /api/* {
+        uri strip_prefix /api
         reverse_proxy clerk:8000
     }
     
-    # WebSocket proxy
+    # WebSocket proxy - Socket.io specific path
     handle /ws/* {
-        reverse_proxy clerk:8000
+        reverse_proxy clerk:8000 {
+            # WebSocket specific headers
+            header_up Upgrade {http.request.header.Upgrade}
+            header_up Connection {http.request.header.Connection}
+            header_up Host {http.request.header.Host}
+        }
     }
     
     # SPA support - serve index.html for all routes

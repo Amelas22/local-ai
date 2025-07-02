@@ -1,6 +1,7 @@
 import { Box, Card, CardContent, Typography, Chip, LinearProgress } from '@mui/material';
 import { useAppSelector } from '@/hooks/redux';
 import { DocumentType } from '@/types/discovery.types';
+import BatesNumberDisplay from './BatesNumberDisplay';
 
 const getDocumentTypeColor = (type: DocumentType): string => {
   const colorMap: Partial<Record<DocumentType, string>> = {
@@ -69,9 +70,9 @@ const DocumentStream = () => {
               </Box>
               
               {doc.batesRange && (
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  Bates: {doc.batesRange.start} - {doc.batesRange.end}
-                </Typography>
+                <Box sx={{ mb: 1 }}>
+                  <BatesNumberDisplay batesRange={doc.batesRange} size="small" />
+                </Box>
               )}
               
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>

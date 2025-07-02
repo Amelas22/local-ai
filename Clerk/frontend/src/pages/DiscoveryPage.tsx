@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Box, Typography, Paper, Tabs, Tab } from '@mui/material';
 import DiscoveryForm from '@/components/discovery/DiscoveryForm';
 import ProcessingVisualization from '@/components/discovery/ProcessingVisualization';
+import ProductionHistory from '@/components/discovery/ProductionHistory';
 import { useAppSelector } from '@/hooks/redux';
 
 interface TabPanelProps {
@@ -60,7 +61,7 @@ const DiscoveryPage = () => {
         </TabPanel>
         
         <TabPanel value={activeTab} index={2}>
-          <Typography>Processing history will be displayed here...</Typography>
+          <ProductionHistory />
         </TabPanel>
       </Paper>
     </Box>

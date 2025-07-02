@@ -2,9 +2,17 @@ import { Box, Typography, Grid, Paper, LinearProgress, Chip } from '@mui/materia
 import { useAppSelector } from '@/hooks/redux';
 import DocumentStream from './DocumentStream';
 import ProcessingStats from './ProcessingStats';
+import ChunkingAnimation from './ChunkingAnimation';
+import { ProcessingStage } from '@/types/discovery.types';
 
 const ProcessingVisualization = () => {
-  const { isProcessing, currentStage, stats, processingStartTime } = useAppSelector(
+  const { 
+    isProcessing, 
+    currentStage, 
+    stats, 
+    processingStartTime,
+    currentChunkingDocument
+  } = useAppSelector(
     (state) => state.discovery
   );
 
@@ -69,6 +77,18 @@ const ProcessingVisualization = () => {
             <DocumentStream />
           </Paper>
         </Grid>
+
+        {/* Show chunking animation when in chunking stage */}
+        {currentStage === ProcessingStage.CHUNKING_DOCUMENTS && currentChunkingDocument && (
+          <Grid item xs={12}>
+            <ChunkingAnimation
+              isActive={true}
+              progress={currentChunkingDocument.progress || 0}
+              chunksCreated={currentChunkingDocument.chunks || 0}
+              documentTitle={currentChunkingDocument.title}
+            />
+          </Grid>
+        )}
       </Grid>
     </Box>
   );

@@ -14,6 +14,7 @@ class SocketClient {
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000; // Start with 1 second
   private eventHandlers: Map<string, Function[]> = new Map();
+  private reconnectTimer: NodeJS.Timeout | null = null;
 
   constructor() {
     // Bind methods to preserve context
@@ -91,20 +92,45 @@ class SocketClient {
       return;
     }
 
-    this.reconnectAttempts++;
-    console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+    // Clear any existing reconnect timer
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+    }
 
-    setTimeout(() => {
+    this.reconnectAttempts++;
+    const currentDelay = this.calculateReconnectDelay();
+    
+    console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${currentDelay}ms...`);
+    
+    store.dispatch(connectionError(`Reconnecting... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`));
+
+    this.reconnectTimer = setTimeout(() => {
       this.connect();
-      this.reconnectDelay *= 2; // Exponential backoff
-    }, this.reconnectDelay);
+    }, currentDelay);
+  }
+
+  private calculateReconnectDelay(): number {
+    // Exponential backoff with jitter
+    const baseDelay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+    const jitter = Math.random() * 1000; // Add up to 1 second of jitter
+    return Math.min(baseDelay + jitter, 30000); // Max 30 seconds
   }
 
   disconnect(): void {
+    // Clear any pending reconnect timer
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;
     }
+    
+    // Reset reconnect attempts
+    this.reconnectAttempts = 0;
+    this.reconnectDelay = 1000;
   }
 
   emit<T extends keyof WebSocketEvents>(event: T, data: WebSocketEvents[T]): void {

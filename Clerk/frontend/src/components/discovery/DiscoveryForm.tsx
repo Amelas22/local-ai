@@ -23,7 +23,7 @@ import { addToast } from '@/store/slices/uiSlice';
 import { startProcessing } from '@/store/slices/discoverySlice';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import type { DiscoveryProcessingRequest } from '@/types/discovery.types';
-import axios from 'axios';
+import { apiClient } from '@/services/utils/apiClient';
 
 const mockCases = [
   'Smith_v_Jones_2024',
@@ -74,11 +74,21 @@ const DiscoveryForm = () => {
         }));
       }
       
-      // Call the API endpoint - use mock for now
-      const apiUrl = import.meta.env.VITE_API_URL || '/api';
-      const useMock = import.meta.env.VITE_MOCK_API !== 'false';
-      const endpoint = useMock ? '/discovery/process/mock' : '/discovery/process';
-      const response = await axios.post(`${apiUrl}${endpoint}`, data);
+      // Call the API endpoint with retry logic
+      // When running in production, always use the real endpoint
+      const endpoint = '/discovery/process';
+      
+      const response = await apiClient.post(endpoint, data, {
+        retries: 3,
+        retryDelay: 2000,
+        retryCondition: (error) => {
+          // Retry on network errors, 5xx errors, or specific 4xx errors
+          return !error.response || 
+                 (error.response.status >= 500) ||
+                 (error.response.status === 408) || // Request timeout
+                 (error.response.status === 429);   // Too many requests
+        }
+      });
       
       // The processing ID will be used to track this specific job
       const processingId = response.data.processing_id;

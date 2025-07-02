@@ -25,6 +25,7 @@ interface DiscoveryState {
   error: string | null;
   totalFiles: number;
   caseId: string | null;
+  currentChunkingDocument: ProcessingDocument | null;
 }
 
 const initialState: DiscoveryState = {
@@ -45,6 +46,7 @@ const initialState: DiscoveryState = {
   error: null,
   totalFiles: 0,
   caseId: null,
+  currentChunkingDocument: null,
 };
 
 const discoverySlice = createSlice({
@@ -94,7 +96,10 @@ const discoverySlice = createSlice({
       const doc = state.documents.find(d => d.id === action.payload.documentId);
       if (doc) {
         doc.chunks = action.payload.chunksCreated;
+        doc.progress = action.payload.progress;
         state.stats.chunksCreated += action.payload.chunksCreated;
+        // Set current chunking document
+        state.currentChunkingDocument = doc;
       }
       state.currentStage = ProcessingStage.CHUNKING_DOCUMENTS;
     },
@@ -105,6 +110,7 @@ const discoverySlice = createSlice({
       progress: number;
     }>) => {
       state.currentStage = ProcessingStage.GENERATING_EMBEDDINGS;
+      state.currentChunkingDocument = null; // Clear chunking document when moving to next stage
     },
     
     documentStored: (state, action: PayloadAction<{
@@ -148,6 +154,7 @@ const discoverySlice = createSlice({
       state.isProcessing = false;
       state.currentStage = ProcessingStage.COMPLETING;
       state.processingEndTime = new Date().toISOString();
+      state.currentChunkingDocument = null;
       
       // Update stats from summary
       state.stats = {
