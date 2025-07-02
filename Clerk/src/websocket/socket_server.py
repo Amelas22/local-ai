@@ -16,13 +16,17 @@ sio = socketio.AsyncServer(
     async_mode='asgi',
     cors_allowed_origins='*',  # Configure this properly in production
     logger=True,
-    engineio_logger=False
+    engineio_logger=False,
+    # Ensure compatibility with Socket.IO v4 clients
+    async_handlers=True,
+    # Allow all transports
+    transports=['polling', 'websocket']
 )
 
 # Socket.IO ASGI app
 socket_app = socketio.ASGIApp(
     sio,
-    socketio_path='/ws/socket.io'
+    socketio_path='/socket.io'
 )
 
 # Store active connections and their metadata
@@ -32,6 +36,8 @@ active_connections: Dict[str, Dict[str, Any]] = {}
 async def connect(sid, environ, auth):
     """Handle client connection"""
     logger.info(f"Client connected: {sid}")
+    logger.info(f"Connection auth: {auth}")
+    logger.info(f"Connection headers: {environ.get('HTTP_ORIGIN', 'No origin')}")
     
     # Store connection metadata
     active_connections[sid] = {
@@ -41,7 +47,11 @@ async def connect(sid, environ, auth):
     }
     
     # Send connection confirmation
-    await sio.emit('connected', {'message': 'Successfully connected to Clerk WebSocket'}, room=sid)
+    try:
+        await sio.emit('connected', {'message': 'Successfully connected to Clerk WebSocket', 'sid': sid}, room=sid)
+        logger.info(f"Sent connected event to {sid}")
+    except Exception as e:
+        logger.error(f"Error sending connected event: {e}")
     
     return True
 

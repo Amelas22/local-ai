@@ -231,8 +231,30 @@ async def websocket_status():
     return {
         "status": "active",
         "connections": get_active_connections(),
-        "endpoint": "/ws/socket.io"
+        "endpoint": "/ws/socket.io",
+        "test_url": "ws://localhost:8000/ws"
     }
+
+# Test WebSocket endpoint
+@app.get("/websocket/test")
+async def websocket_test():
+    """Test WebSocket functionality"""
+    from src.websocket import sio
+    
+    try:
+        # Emit a test event to all connected clients
+        await sio.emit('test_broadcast', {'message': 'Test broadcast from server', 'timestamp': datetime.utcnow().isoformat()})
+        
+        return {
+            "status": "success",
+            "message": "Test event broadcast to all connected clients",
+            "connected_clients": len(active_connections) if 'active_connections' in globals() else 0
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
 
 # Document processing endpoint
 @app.post("/process/folder", response_model=ProcessingStatus)

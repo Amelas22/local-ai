@@ -22,7 +22,21 @@
       "Bash(env)",
       "Bash(source:*)",
       "Bash(pkill:*)",
-      "Bash(powershell.exe:*)"
+      "Bash(powershell.exe:*)",
+      "Bash(docker-compose config:*)",
+      "Bash(docker-compose:*)",
+      "Bash(docker logs:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker cp:*)",
+      "Bash(docker restart:*)",
+      "Bash(docker stop:*)",
+      "Bash(docker start:*)",
+      "Bash(docker container ls:*)",
+      "Bash(docker volume:*)",
+      "Bash(docker run:*)",
+      "Bash(docker container prune:*)",
+      "Bash(docker rm:*)",
+      "Bash(docker inspect:*)"
     ],
     "deny": []
   }

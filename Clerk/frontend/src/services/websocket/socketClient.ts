@@ -32,17 +32,37 @@ class SocketClient {
     }
 
     // Use environment variable or default
-    const wsUrl = url || import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
+    let wsUrl = url || import.meta.env.VITE_WS_URL || '';
+    
+    // If no URL is provided, use the current host
+    if (!wsUrl) {
+      // Use the same protocol and host as the current page
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      wsUrl = `${protocol}//${window.location.host}`;
+    }
+    
+    // Handle relative WebSocket URLs
+    if (wsUrl.startsWith('/')) {
+      // Construct full WebSocket URL from current location
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      wsUrl = `${protocol}//${window.location.host}${wsUrl}`;
+    }
     
     console.log('Connecting to WebSocket:', wsUrl);
+    console.log('WebSocket path:', '/ws/socket.io/');
+    console.log('Current location:', window.location.href);
 
     this.socket = io(wsUrl, {
       path: '/ws/socket.io/',
-      transports: ['websocket'],
+      transports: ['websocket', 'polling'], // Allow fallback to polling
       reconnection: false, // We'll handle reconnection manually
       auth: {
         token: store.getState().auth.token || 'dev-token'
-      }
+      },
+      // Add timeout
+      timeout: 5000,
+      // Force new connection
+      forceNew: true
     });
 
     this.setupEventListeners();
@@ -71,7 +91,23 @@ class SocketClient {
 
     this.socket.on('connect_error', (error) => {
       console.error('WebSocket connection error:', error.message);
+      console.error('Full error:', error);
       store.dispatch(connectionError(error.message));
+    });
+
+    // Add event listener for the 'connected' event sent by the server
+    this.socket.on('connected', (data) => {
+      console.log('Received connected event from server:', data);
+    });
+
+    // Listen for any errors
+    this.socket.on('error', (error) => {
+      console.error('Socket error event:', error);
+    });
+
+    // Test broadcast handler
+    this.socket.on('test_broadcast', (data) => {
+      console.log('Received test broadcast:', data);
     });
 
     // Register discovery event handlers

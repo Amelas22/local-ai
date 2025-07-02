@@ -47,9 +47,6 @@
 
 # Clerk Frontend Application
 {$CLERK_HOSTNAME} {
-    # Serve static files from the frontend build
-    root * /srv/clerk-frontend
-    
     # Enable gzip compression
     encode gzip
     
@@ -69,9 +66,13 @@
         }
     }
     
-    # SPA support - serve index.html for all routes
-    try_files {path} /index.html
-    file_server
+    # Serve static files from the frontend build
+    handle {
+        root * /srv/clerk-frontend
+        # SPA support - serve index.html for all routes
+        try_files {path} /index.html
+        file_server
+    }
 }
 
 # Clerk Backend API (if needed separately)

@@ -367,6 +367,7 @@
 - ⚠️  **Case isolation verification** needs automated testing
 - ⚠️  **Memory management** with large PDFs needs optimization
 - ⚠️  **Error handling** inconsistencies across components
+- 🚧 **WebSocket Connection** - Frontend Socket.io v4 client connecting to backend python-socketio v5 server
 
 ### Technical Debt
 - ⚠️  **Configuration management** scattered across files
@@ -382,7 +383,7 @@
 
 ## 📝 **Notes**
 
-**Last Updated**: 2025-01-07
+**Last Updated**: 2025-01-02
 **Next Review**: Weekly on Mondays
 **Priority Focus**: Phase 1 critical path items
 **Key Stakeholders**: Legal team, IT department, external developers

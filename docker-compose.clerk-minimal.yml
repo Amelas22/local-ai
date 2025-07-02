@@ -1,0 +1,61 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    restart: unless-stopped
+
+  clerk:
+    build: ./Clerk
+    container_name: clerk
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Box API Configuration
+      - BOX_CLIENT_ID=${BOX_CLIENT_ID}
+      - BOX_CLIENT_SECRET=${BOX_CLIENT_SECRET}
+      - BOX_ENTERPRISE_ID=${BOX_ENTERPRISE_ID}
+      - BOX_JWT_KEY_ID=${BOX_JWT_KEY_ID}
+      - BOX_PRIVATE_KEY=${BOX_PRIVATE_KEY}
+      - BOX_PASSPHRASE=${BOX_PASSPHRASE}
+      - COHERE_API_KEY=${COHERE_API_KEY:-default-key}
+      # LLM Configuration
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=https://api.openai.com/v1
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CONTEXT_LLM_MODEL=gpt-4o-mini
+      # Qdrant Configuration
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_GRPC_PORT=6334
+      - QDRANT_HTTPS=false
+      # Motion Drafting Configuration
+      - MOTION_PRIMARY_MODEL=gpt-4o-mini
+      - MOTION_REVIEW_MODEL=gpt-4o-mini
+      - MOTION_CACHE_SIZE_MB=500
+      # Other settings
+      - ENABLE_COST_TRACKING=true
+      - LOG_LEVEL=INFO
+      # CORS for frontend
+      - CORS_ORIGINS=http://localhost:8010,http://localhost:3000
+    volumes:
+      - clerk_logs:/app/logs
+      - clerk_reports:/app/reports
+    depends_on:
+      - qdrant
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  qdrant_storage:
+  clerk_logs:
+  clerk_reports:

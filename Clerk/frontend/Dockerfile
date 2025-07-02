@@ -3,6 +3,9 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Force cache invalidation
+ARG CACHE_BUST=1
+
 # Copy package files
 COPY package*.json ./
 

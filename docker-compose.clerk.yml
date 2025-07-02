@@ -40,7 +40,7 @@ services:
   clerk:
     environment:
       # Add CORS settings for frontend
-      - CORS_ORIGINS=${CLERK_FRONTEND_URL:-http://localhost:3000},${CLERK_HOSTNAME:+https://}${CLERK_HOSTNAME:-http://localhost:3000}
+      - CORS_ORIGINS=http://localhost:8010,http://localhost:3000
       
 # To use this file, add it to your docker-compose command:
 # docker-compose -f docker-compose.yml -f docker-compose.clerk.yml up

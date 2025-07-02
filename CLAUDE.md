@@ -1059,6 +1059,71 @@ curl http://localhost:8000/websocket/status
 - **Server Efficiency**: One persistent connection vs many HTTP requests
 - **Scalability**: Can handle thousands of concurrent connections
 
+### WebSocket Troubleshooting
+
+#### Common Issues and Solutions
+
+1. **Socket.io Version Mismatch**
+   - **Issue**: Frontend uses Socket.io v4 client, backend uses python-socketio v5
+   - **Solution**: Ensure compatibility by:
+     - Adding `async_handlers=True` to AsyncServer configuration
+     - Allow both websocket and polling transports
+     - Use compatible versions (socket.io-client 4.7.x with python-socketio 5.x)
+
+2. **Connection Through Reverse Proxy**
+   - **Issue**: WebSocket fails when connecting through Caddy/Nginx
+   - **Solution**: 
+     - Use relative URLs in frontend (let proxy handle routing)
+     - Ensure proxy forwards WebSocket upgrade headers
+     - Configure CORS properly on backend
+
+3. **Path Configuration**
+   - **Issue**: Socket.io path mismatch between client and server
+   - **Client Path**: `/ws/socket.io/`
+   - **Server Mount**: `/ws` (Socket.io adds `/socket.io/` automatically)
+   - **Solution**: Ensure paths align: client uses `/ws/socket.io/`, server mounts at `/ws`
+
+4. **Authentication Issues**
+   - **Issue**: WebSocket connection rejected due to auth
+   - **Solution**: Pass auth token in connection options:
+     ```javascript
+     io(url, { auth: { token: 'your-token' } })
+     ```
+
+5. **CORS Problems**
+   - **Issue**: Cross-origin requests blocked
+   - **Solution**: Configure Socket.io server with:
+     ```python
+     sio = socketio.AsyncServer(cors_allowed_origins='*')
+     ```
+
+#### Debug Commands
+```bash
+# Test WebSocket connection
+curl http://localhost:8000/websocket/status
+
+# Test WebSocket events
+curl -X GET http://localhost:8000/websocket/test
+
+# Check Socket.io endpoint
+curl http://localhost:8000/ws/socket.io/
+
+# Python test script
+python test_websocket_connection.py
+
+# HTML test page
+open test_websocket_frontend.html
+```
+
+#### Configuration Checklist
+- [ ] Frontend uses compatible Socket.io client version
+- [ ] Backend python-socketio configured for v4 compatibility
+- [ ] Reverse proxy forwards WebSocket headers
+- [ ] CORS allows frontend origin
+- [ ] Socket.io paths match between client/server
+- [ ] Authentication configured (if required)
+- [ ] Both websocket and polling transports enabled
+
 ### Frontend Deployment with Caddy
 ```caddy
 # Caddyfile configuration for Clerk frontend
