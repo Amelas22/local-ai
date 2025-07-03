@@ -1194,6 +1194,28 @@ async def download_draft(draft_id: str, format: str):
     else:
         raise HTTPException(status_code=400, detail="Invalid format. Use 'docx' or 'json'")
 
+@app.get("/websocket/status")
+async def websocket_status():
+    """Get WebSocket connection status"""
+    from src.websocket import get_active_connections
+    
+    try:
+        connections = get_active_connections()
+        return {
+            "status": "active",
+            "connections": connections
+        }
+    except Exception as e:
+        logger.error(f"Error getting WebSocket status: {str(e)}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "connections": {
+                "total": 0,
+                "connections": []
+            }
+        }
+
 @app.get("/")
 async def root():
     """Root endpoint"""
@@ -1207,6 +1229,7 @@ async def root():
             "/cases",
             "/ai/query",
             "/draft-motion",
+            "/websocket/status",
             "/docs"
         ]
     }

@@ -367,7 +367,10 @@
 - ⚠️  **Case isolation verification** needs automated testing
 - ⚠️  **Memory management** with large PDFs needs optimization
 - ⚠️  **Error handling** inconsistencies across components
-- 🚧 **WebSocket Connection** - Frontend Socket.io v4 client connecting to backend python-socketio v5 server
+- 🚧 **WebSocket Connection** - Debugging connection issues between frontend and backend
+  - ✅ Added missing `/websocket/status` endpoint (2025-01-03)
+  - ✅ Created comprehensive diagnostic script `test_websocket_diagnostic.py`
+  - 🚧 Investigating Caddy proxy configuration for WebSocket upgrade
 
 ### Technical Debt
 - ⚠️  **Configuration management** scattered across files
@@ -383,7 +386,7 @@
 
 ## 📝 **Notes**
 
-**Last Updated**: 2025-01-02
+**Last Updated**: 2025-01-03
 **Next Review**: Weekly on Mondays
 **Priority Focus**: Phase 1 critical path items
 **Key Stakeholders**: Legal team, IT department, external developers

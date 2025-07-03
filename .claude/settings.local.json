@@ -36,7 +36,12 @@
       "Bash(docker run:*)",
       "Bash(docker container prune:*)",
       "Bash(docker rm:*)",
-      "Bash(docker inspect:*)"
+      "Bash(docker inspect:*)",
+      "Bash(chmod:*)",
+      "Bash(docker compose:*)",
+      "Bash(systemctl status:*)",
+      "Bash(service docker:*)",
+      "Bash(docker:*)"
     ],
     "deny": []
   }

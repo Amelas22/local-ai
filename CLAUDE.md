@@ -275,6 +275,12 @@ from src.vector_storage.qdrant_store import QdrantVectorStore
 store = QdrantVectorStore()
 store.verify_case_isolation('Case Name')
 "
+
+# Test WebSocket connections comprehensively
+python test_websocket_diagnostic.py
+
+# Check WebSocket status endpoint
+curl http://localhost:8000/websocket/status
 ```
 
 ## External Integrations
@@ -1028,10 +1034,19 @@ const discoverySlice = createSlice({
 
 ### Testing WebSocket Connections
 ```bash
-# Check WebSocket status
+# Check WebSocket status endpoint
 curl http://localhost:8000/websocket/status
 
-# Response
+# Run comprehensive WebSocket diagnostics
+python test_websocket_diagnostic.py
+
+# Test direct backend WebSocket connection
+python test_websocket_connection.py
+
+# Test WebSocket through Caddy proxy
+curl http://localhost:8010/api/websocket/status
+
+# Response example
 {
   "status": "active",
   "connections": {

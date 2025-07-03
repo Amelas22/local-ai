@@ -16,8 +16,8 @@ RUN npm ci
 COPY . .
 
 # Accept build arguments for environment variables
-ARG VITE_API_URL=/api
-ARG VITE_WS_URL=/ws
+ARG VITE_API_URL
+ARG VITE_WS_URL
 ARG VITE_AUTH_ENABLED=false
 ARG VITE_SUPABASE_URL
 ARG VITE_SUPABASE_ANON_KEY
