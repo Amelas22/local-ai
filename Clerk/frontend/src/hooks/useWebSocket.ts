@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useWebSocketContext } from '../context/WebSocketContext';
 import { WebSocketEventName, WebSocketEvents } from '../types/websocket.types';
 
-export function useWebSocket(caseId?: string) {
+export function useWebSocket(_caseId?: string) {
   const { socket, state, connect, disconnect, emit, subscribeToCase, unsubscribeFromCase } = useWebSocketContext();
   const handlersRef = useRef<Map<string, Function[]>>(new Map());
 
@@ -51,18 +51,8 @@ export function useWebSocket(caseId?: string) {
     emit(event as string, data);
   }, [emit]);
 
-  // Handle case subscription
-  useEffect(() => {
-    if (caseId && state.connected && state.subscribedCase !== caseId) {
-      subscribeToCase(caseId);
-    }
-
-    return () => {
-      if (caseId && state.subscribedCase === caseId) {
-        unsubscribeFromCase();
-      }
-    };
-  }, [caseId, state.connected, state.subscribedCase, subscribeToCase, unsubscribeFromCase]);
+  // NOTE: Case subscription is managed by CaseContext, not here
+  // This prevents duplicate subscription attempts
 
   // Cleanup all handlers on unmount
   useEffect(() => {

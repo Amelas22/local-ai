@@ -182,6 +182,17 @@ export function WebSocketProvider({ children, wsUrl }: WebSocketProviderProps): 
       return;
     }
     
+    // Don't re-subscribe if already subscribed to this case
+    if (state.subscribedCase === caseId) {
+      console.log(`Already subscribed to case: ${caseId}`);
+      return;
+    }
+    
+    // Unsubscribe from previous case if any
+    if (state.subscribedCase) {
+      emit('unsubscribe_case', { case_id: state.subscribedCase });
+    }
+    
     emit('subscribe_case', { case_id: caseId });
     setState(prev => ({ ...prev, subscribedCase: caseId }));
     console.log(`Subscribed to case: ${caseId}`);
@@ -205,12 +216,8 @@ export function WebSocketProvider({ children, wsUrl }: WebSocketProviderProps): 
     };
   }, []); // Empty dependency array - only run on mount/unmount
 
-  // Re-subscribe to case when connection is restored
-  useEffect(() => {
-    if (state.connected && state.subscribedCase && socketRef.current) {
-      emit('subscribe_case', { case_id: state.subscribedCase });
-    }
-  }, [state.connected]);
+  // Note: Re-subscription on reconnection is handled by CaseContext
+  // which watches for connection state changes
 
   const contextValue: WebSocketContextValue = {
     socket: socketRef.current,

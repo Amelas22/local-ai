@@ -103,16 +103,8 @@ export function CaseProvider({ children }: CaseProviderProps): ReactElement {
   const selectCase = (caseName: string) => {
     if (caseName === activeCase) return;
     
-    // Unsubscribe from previous case
-    if (activeCase) {
-      unsubscribeFromCase();
-    }
-    
-    // Set new active case
+    // Just set the active case - the useEffect will handle subscription
     setActiveCase(caseName);
-    
-    // Subscribe to new case via WebSocket
-    subscribeToCase(caseName);
     
     // Store in localStorage for persistence
     localStorage.setItem('activeCase', caseName);
@@ -131,12 +123,18 @@ export function CaseProvider({ children }: CaseProviderProps): ReactElement {
     }
   }, []);
 
-  // Subscribe to active case when WebSocket connects
+  // Handle case subscription changes
   useEffect(() => {
-    if (activeCase) {
-      subscribeToCase(activeCase);
-    }
-  }, [activeCase, subscribeToCase]);
+    if (!activeCase) return;
+    
+    // Subscribe to the new case
+    subscribeToCase(activeCase);
+    
+    // Cleanup: unsubscribe when case changes or component unmounts
+    return () => {
+      unsubscribeFromCase();
+    };
+  }, [activeCase, subscribeToCase, unsubscribeFromCase]);
 
   const contextValue: CaseContextValue = {
     cases,
