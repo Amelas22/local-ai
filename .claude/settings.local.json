@@ -41,7 +41,9 @@
       "Bash(docker compose:*)",
       "Bash(systemctl status:*)",
       "Bash(service docker:*)",
-      "Bash(docker:*)"
+      "Bash(docker:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs"
     ],
     "deny": []
   }
