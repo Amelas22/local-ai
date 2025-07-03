@@ -6,16 +6,52 @@ export interface WebSocketEvents extends DiscoveryWebSocketEvents {
   'connect': void;
   'disconnect': string;
   'connect_error': Error;
+  'connected': {
+    message: string;
+    sid: string;
+  };
   
   // General events
   'ping': void;
   'pong': void;
+  'test_broadcast': {
+    message: string;
+    timestamp: string;
+  };
   
-  // Future motion drafting events
+  // Case subscription events
+  'subscribe_case': {
+    case_id: string;
+  };
+  'unsubscribe_case': {
+    case_id: string;
+  };
+  'subscribed': {
+    case_id: string;
+  };
+  
+  // Motion drafting events
   'motion:started': {
     motionId: string;
     caseId: string;
     type: string;
+  };
+  'motion:outline_started': {
+    motionId: string;
+    caseId: string;
+    motionType: string;
+  };
+  'motion:outline_completed': {
+    motionId: string;
+    outline: any;
+  };
+  'motion:draft_started': {
+    motionId: string;
+    progress: number;
+  };
+  'motion:draft_completed': {
+    motionId: string;
+    downloadUrl: string;
   };
   'motion:section_completed': {
     motionId: string;
@@ -31,11 +67,20 @@ export interface WebSocketEvents extends DiscoveryWebSocketEvents {
     error: string;
   };
   
-  // Future search events
+  // Search events
+  'search:started': {
+    queryId: string;
+    query: string;
+    caseId: string;
+  };
   'search:results': {
     queryId: string;
     results: any[];
     totalResults: number;
+  };
+  'search:error': {
+    queryId: string;
+    error: string;
   };
 }
 

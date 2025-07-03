@@ -43,7 +43,13 @@
       "Bash(service docker:*)",
       "Bash(docker:*)",
       "mcp__context7__resolve-library-id",
-      "mcp__context7__get-library-docs"
+      "mcp__context7__get-library-docs",
+      "WebFetch(domain:react.dev)",
+      "WebFetch(domain:socket.io)",
+      "Bash(npm run type-check:*)",
+      "Bash(npm run dev:*)",
+      "Bash(node:*)",
+      "Bash(npm install)"
     ],
     "deny": []
   }

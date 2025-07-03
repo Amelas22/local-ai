@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Connection Test</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+<body>
+    <h1>WebSocket Connection Test</h1>
+    <div id="status">Connecting...</div>
+    <div id="log" style="white-space: pre-wrap; font-family: monospace; background: #f0f0f0; padding: 10px; margin-top: 20px;"></div>
+    
+    <script>
+        const log = (msg) => {
+            const logDiv = document.getElementById('log');
+            logDiv.textContent += new Date().toISOString() + ' - ' + msg + '\n';
+            console.log(msg);
+        };
+
+        const statusDiv = document.getElementById('status');
+        
+        // Test connection with same configuration as React app
+        const socket = io('http://localhost:8010', {
+            path: '/ws/socket.io/',
+            transports: ['websocket', 'polling'],
+            timeout: 20000,
+            forceNew: true
+        });
+
+        socket.on('connect', () => {
+            statusDiv.textContent = '✅ Connected!';
+            log('Connected to WebSocket server');
+            log('Socket ID: ' + socket.id);
+        });
+
+        socket.on('connect_error', (error) => {
+            statusDiv.textContent = '❌ Connection Error';
+            log('Connection error: ' + error.message);
+            log('Error type: ' + error.type);
+        });
+
+        socket.on('disconnect', (reason) => {
+            statusDiv.textContent = '⚠️ Disconnected';
+            log('Disconnected: ' + reason);
+        });
+
+        socket.on('connected', (data) => {
+            log('Received connected event: ' + JSON.stringify(data));
+        });
+
+        // Test case subscription
+        setTimeout(() => {
+            if (socket.connected) {
+                log('Testing case subscription...');
+                socket.emit('subscribe_case', { case_name: 'test_case' });
+            }
+        }, 2000);
+
+        socket.on('case_subscribed', (data) => {
+            log('Case subscription confirmed: ' + JSON.stringify(data));
+        });
+    </script>
+</body>
+</html>

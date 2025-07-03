@@ -1,63 +1,95 @@
-import { useEffect, useCallback } from 'react';
-import { useAppSelector } from './redux';
-import { socketClient } from '../services/websocket/socketClient';
+import { useCallback, useEffect, useRef } from 'react';
+import { useWebSocketContext } from '../context/WebSocketContext';
 import { WebSocketEventName, WebSocketEvents } from '../types/websocket.types';
 
-export const useWebSocket = () => {
-  const { connected, connecting, error } = useAppSelector(state => state.websocket);
+export function useWebSocket(caseId?: string) {
+  const { socket, state, connect, disconnect, emit, subscribeToCase, unsubscribeFromCase } = useWebSocketContext();
+  const handlersRef = useRef<Map<string, Function[]>>(new Map());
 
-  // Connect to WebSocket
-  const connect = useCallback((url?: string) => {
-    socketClient.connect(url);
-  }, []);
-
-  // Disconnect from WebSocket
-  const disconnect = useCallback(() => {
-    socketClient.disconnect();
-  }, []);
-
-  // Emit an event
-  const emit = useCallback(<T extends WebSocketEventName>(
-    event: T,
-    data: WebSocketEvents[T]
-  ) => {
-    socketClient.emit(event, data);
-  }, []);
-
-  // Subscribe to an event
+  // Subscribe to an event with proper cleanup
   const on = useCallback(<T extends WebSocketEventName>(
     event: T,
     handler: (data: WebSocketEvents[T]) => void
   ) => {
-    socketClient.on(event, handler);
-    
-    // Return cleanup function
-    return () => {
-      socketClient.off(event, handler);
-    };
-  }, []);
-
-  // Connect on mount if not already connected
-  useEffect(() => {
-    if (!connected && !connecting) {
-      connect();
+    if (!socket) {
+      console.warn('Cannot subscribe to event: WebSocket not connected');
+      return () => {};
     }
 
-    // Cleanup on unmount
+    // Store handler for cleanup
+    const eventName = event as string;
+    if (!handlersRef.current.has(eventName)) {
+      handlersRef.current.set(eventName, []);
+    }
+    handlersRef.current.get(eventName)!.push(handler);
+
+    // Add listener to socket
+    socket.on(eventName, handler as any);
+
+    // Return cleanup function
     return () => {
-      // Don't disconnect on unmount to maintain connection across routes
-      // disconnect();
+      if (socket) {
+        socket.off(eventName, handler as any);
+      }
+      
+      // Remove from stored handlers
+      const handlers = handlersRef.current.get(eventName);
+      if (handlers) {
+        const index = handlers.indexOf(handler);
+        if (index > -1) {
+          handlers.splice(index, 1);
+        }
+      }
     };
-  }, []);
+  }, [socket]);
+
+  // Typed emit function
+  const typedEmit = useCallback(<T extends WebSocketEventName>(
+    event: T,
+    data: WebSocketEvents[T]
+  ) => {
+    emit(event as string, data);
+  }, [emit]);
+
+  // Handle case subscription
+  useEffect(() => {
+    if (caseId && state.connected && state.subscribedCase !== caseId) {
+      subscribeToCase(caseId);
+    }
+
+    return () => {
+      if (caseId && state.subscribedCase === caseId) {
+        unsubscribeFromCase();
+      }
+    };
+  }, [caseId, state.connected, state.subscribedCase, subscribeToCase, unsubscribeFromCase]);
+
+  // Cleanup all handlers on unmount
+  useEffect(() => {
+    return () => {
+      // Remove all event listeners
+      handlersRef.current.forEach((handlers, event) => {
+        handlers.forEach(handler => {
+          if (socket) {
+            socket.off(event, handler as any);
+          }
+        });
+      });
+      handlersRef.current.clear();
+    };
+  }, [socket]);
 
   return {
-    connected,
-    connecting,
-    error,
+    connected: state.connected,
+    connecting: state.connecting,
+    error: state.error,
+    subscribedCase: state.subscribedCase,
+    socket,
     connect,
     disconnect,
-    emit,
+    emit: typedEmit,
     on,
-    isConnected: socketClient.isConnected(),
+    subscribeToCase,
+    unsubscribeFromCase
   };
-};
+}

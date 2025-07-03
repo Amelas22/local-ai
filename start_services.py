@@ -54,16 +54,19 @@ def stop_existing_containers(profile=None):
     cmd.extend(["-f", "docker-compose.yml", "-f", "docker-compose.clerk.yml", "down"])
     run_command(cmd)
 
-def start_supabase(environment=None):
+def start_supabase(environment=None, rebuild=False):
     """Start the Supabase services (using its compose file)."""
     print("Starting Supabase services...")
     cmd = ["docker", "compose", "-p", "localai", "-f", "supabase/docker/docker-compose.yml"]
     if environment and environment == "public":
         cmd.extend(["-f", "docker-compose.override.public.supabase.yml"])
-    cmd.extend(["up", "-d"])
+    cmd.extend(["up"])
+    if rebuild:
+        cmd.extend(["--build", "--force-recreate"])
+    cmd.append("-d")
     run_command(cmd)
 
-def start_local_ai(profile=None, environment=None):
+def start_local_ai(profile=None, environment=None, rebuild=False):
     """Start the local AI services (using its compose file)."""
     print("Starting local AI services (including Clerk frontend)...")
     cmd = ["docker", "compose", "-p", "localai"]
@@ -78,7 +81,10 @@ def start_local_ai(profile=None, environment=None):
         cmd.extend(["-f", "docker-compose.override.private.yml"])
     if environment and environment == "public":
         cmd.extend(["-f", "docker-compose.override.public.yml"])
-    cmd.extend(["up", "-d"])
+    cmd.extend(["up"])
+    if rebuild:
+        cmd.extend(["--build", "--force-recreate"])
+    cmd.append("-d")
     run_command(cmd)
 
 def generate_searxng_secret_key():
@@ -227,6 +233,8 @@ def main():
                       help='Profile to use for Docker Compose (default: cpu)')
     parser.add_argument('--environment', choices=['private', 'public'], default='private',
                       help='Environment to use for Docker Compose (default: private)')
+    parser.add_argument('--rebuild', action='store_true',
+                    help='Force rebuild of all Docker images and containers')
     args = parser.parse_args()
 
     clone_supabase_repo()
@@ -239,14 +247,14 @@ def main():
     stop_existing_containers(args.profile)
     
     # Start Supabase first
-    start_supabase(args.environment)
+    start_supabase(args.environment, args.rebuild)
     
     # Give Supabase some time to initialize
     print("Waiting for Supabase to initialize...")
     time.sleep(10)
     
     # Then start the local AI services
-    start_local_ai(args.profile, args.environment)
+    start_local_ai(args.profile, args.environment, args.rebuild)
     
     # Print available services
     print("\n✅ All services started successfully!")

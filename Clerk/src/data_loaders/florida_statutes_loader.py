@@ -14,6 +14,7 @@ import uuid
 from src.models.fact_models import SharedKnowledgeEntry
 from src.vector_storage.qdrant_store import QdrantVectorStore
 from src.vector_storage.embeddings import EmbeddingGenerator
+from qdrant_client.models import VectorParams, Distance
 
 logger = logging.getLogger("clerk_api")
 
@@ -51,10 +52,10 @@ class FloridaStatutesLoader:
         except:
             self.vector_store.client.create_collection(
                 collection_name=self.collection_name,
-                vectors_config={
-                    "size": 1536,  # OpenAI embedding size
-                    "distance": "Cosine"
-                }
+                vectors_config=VectorParams(
+                    size=1536,  # OpenAI embedding size
+                    distance=Distance.COSINE
+                )
             )
             logger.info(f"Created shared collection: {self.collection_name}")
     

@@ -10,6 +10,8 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import App from './App';
 import { store } from './store/store';
 import { theme } from './styles/theme';
+import { WebSocketProvider } from './context/WebSocketContext';
+import { CaseProvider } from './context/CaseContext';
 import './styles/globals.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -19,7 +21,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <ThemeProvider theme={theme}>
           <CssBaseline />
           <LocalizationProvider dateAdapter={AdapterDateFns}>
-            <App />
+            <WebSocketProvider>
+              <CaseProvider>
+                <App />
+              </CaseProvider>
+            </WebSocketProvider>
           </LocalizationProvider>
         </ThemeProvider>
       </BrowserRouter>

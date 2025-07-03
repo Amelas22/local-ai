@@ -448,8 +448,10 @@ async def search_unified_documents(request: SearchRequest):
 async def list_cases():
     """List all available cases"""
     try:
-        cases = vector_store.list_cases()
-        return {"cases": cases}
+        cases_data = vector_store.list_cases()
+        # Return just the collection names as strings for simplicity
+        case_names = [case.get('collection_name', case.get('original_name', '')) for case in cases_data if case.get('collection_name') or case.get('original_name')]
+        return {"cases": case_names}
     except Exception as e:
         logger.error(f"Error listing cases: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to list cases: {str(e)}")

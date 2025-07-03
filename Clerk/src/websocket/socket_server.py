@@ -20,13 +20,19 @@ sio = socketio.AsyncServer(
     # Ensure compatibility with Socket.IO v4 clients
     async_handlers=True,
     # Allow all transports
-    transports=['polling', 'websocket']
+    transports=['polling', 'websocket'],
+    # Additional CORS configuration for development
+    cors_credentials=True,
+    # Accept any origin in development
+    allow_upgrades=True,
+    http_compression=True
 )
 
 # Socket.IO ASGI app
 socket_app = socketio.ASGIApp(
     sio,
-    socketio_path='/socket.io'
+    socketio_path='/ws/socket.io',
+    other_asgi_app=None
 )
 
 # Store active connections and their metadata

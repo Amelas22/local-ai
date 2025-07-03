@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Raw WebSocket Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        .success { color: green; }
+        .error { color: red; }
+        .info { color: blue; }
+        #log { background: #f0f0f0; padding: 10px; margin-top: 20px; max-height: 400px; overflow-y: auto; }
+        .log-entry { margin: 5px 0; }
+    </style>
+</head>
+<body>
+    <h1>Raw WebSocket Connection Test</h1>
+    
+    <button onclick="testWebSocket()">Test Raw WebSocket</button>
+    <button onclick="testSocketIO()">Test Socket.IO</button>
+    
+    <div id="log"></div>
+    
+    <script>
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `${new Date().toLocaleTimeString()} - ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function testWebSocket() {
+            log('Testing raw WebSocket connection...', 'info');
+            
+            try {
+                const ws = new WebSocket('ws://localhost:8010/ws/socket.io/?EIO=4&transport=websocket');
+                
+                ws.onopen = () => {
+                    log('✅ WebSocket opened!', 'success');
+                };
+                
+                ws.onmessage = (event) => {
+                    log(`📨 Received: ${event.data}`, 'info');
+                };
+                
+                ws.onerror = (error) => {
+                    log(`❌ WebSocket error: ${error}`, 'error');
+                };
+                
+                ws.onclose = (event) => {
+                    log(`WebSocket closed. Code: ${event.code}, Reason: ${event.reason}`, event.code === 1000 ? 'info' : 'error');
+                };
+                
+            } catch (e) {
+                log(`❌ Failed to create WebSocket: ${e}`, 'error');
+            }
+        }
+        
+        function testSocketIO() {
+            log('Testing Socket.IO handshake...', 'info');
+            
+            // First, try polling handshake
+            fetch('http://localhost:8010/ws/socket.io/?EIO=4&transport=polling')
+                .then(response => {
+                    log(`Polling response status: ${response.status}`, response.ok ? 'success' : 'error');
+                    return response.text();
+                })
+                .then(data => {
+                    log(`Polling response: ${data}`, 'info');
+                })
+                .catch(error => {
+                    log(`❌ Polling error: ${error}`, 'error');
+                });
+        }
+    </script>
+</body>
+</html>

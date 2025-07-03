@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test</title>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        .success { color: green; }
+        .error { color: red; }
+        .info { color: blue; }
+        #log { background: #f0f0f0; padding: 10px; margin-top: 20px; max-height: 400px; overflow-y: auto; }
+        .log-entry { margin: 5px 0; }
+    </style>
+</head>
+<body>
+    <h1>Clerk WebSocket Connection Test</h1>
+    
+    <button onclick="testConnection()">Test Connection</button>
+    <button onclick="testCaseSubscription()">Test Case Subscription</button>
+    <button onclick="disconnect()">Disconnect</button>
+    
+    <div id="status">Status: <span id="status-text">Not Connected</span></div>
+    
+    <div id="log"></div>
+    
+    <script>
+        let socket = null;
+        
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `${new Date().toLocaleTimeString()} - ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function updateStatus(text, type = 'info') {
+            const statusText = document.getElementById('status-text');
+            statusText.textContent = text;
+            statusText.className = type;
+        }
+        
+        function testConnection() {
+            if (socket && socket.connected) {
+                log('Already connected!', 'info');
+                return;
+            }
+            
+            const wsUrl = 'http://localhost:8010';
+            log(`Attempting to connect to ${wsUrl}/ws/socket.io/`, 'info');
+            
+            socket = io(wsUrl, {
+                path: '/ws/socket.io/',
+                transports: ['websocket', 'polling'],
+                timeout: 20000,
+                forceNew: true
+            });
+            
+            socket.on('connect', () => {
+                log('✅ Connected successfully!', 'success');
+                log(`Socket ID: ${socket.id}`, 'info');
+                updateStatus('Connected', 'success');
+            });
+            
+            socket.on('connect_error', (error) => {
+                log(`❌ Connection error: ${error.message}`, 'error');
+                log(`Error type: ${error.type}`, 'error');
+                updateStatus('Connection Error', 'error');
+            });
+            
+            socket.on('disconnect', (reason) => {
+                log(`Disconnected: ${reason}`, 'info');
+                updateStatus('Disconnected', 'error');
+            });
+            
+            socket.on('connected', (data) => {
+                log(`📨 Received 'connected' event: ${JSON.stringify(data)}`, 'success');
+            });
+            
+            socket.on('pong', () => {
+                log('🏓 Received pong', 'success');
+            });
+            
+            socket.on('subscribed', (data) => {
+                log(`📋 Subscribed to case: ${JSON.stringify(data)}`, 'success');
+            });
+            
+            socket.on('discovery:started', (data) => {
+                log(`🔍 Discovery started: ${JSON.stringify(data)}`, 'info');
+            });
+            
+            socket.on('discovery:document_found', (data) => {
+                log(`📄 Document found: ${data.title}`, 'info');
+            });
+        }
+        
+        function testCaseSubscription() {
+            if (!socket || !socket.connected) {
+                log('Not connected! Connect first.', 'error');
+                return;
+            }
+            
+            const caseId = 'test_case_' + Date.now();
+            log(`Subscribing to case: ${caseId}`, 'info');
+            socket.emit('subscribe_case', { case_id: caseId });
+            
+            // Test ping
+            socket.emit('ping');
+        }
+        
+        function disconnect() {
+            if (socket) {
+                socket.disconnect();
+                socket = null;
+                log('Disconnected', 'info');
+                updateStatus('Disconnected', 'info');
+            }
+        }
+        
+        // Auto-connect on load
+        window.onload = () => {
+            log('Page loaded. Click "Test Connection" to start.', 'info');
+        };
+    </script>
+</body>
+</html>
