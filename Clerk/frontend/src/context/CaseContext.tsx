@@ -13,10 +13,12 @@ export interface CaseInfo {
 interface CaseContextValue {
   cases: CaseInfo[];
   activeCase: string | null;
+  activeCaseId: string | null;  // Add case ID for API headers
   loading: boolean;
   error: string | null;
   selectCase: (caseName: string) => void;
   refreshCases: () => Promise<void>;
+  createCase: (name: string, metadata?: any) => Promise<any>;
 }
 
 // Create context with undefined default
@@ -139,10 +141,17 @@ export function CaseProvider({ children }: CaseProviderProps): ReactElement {
   const contextValue: CaseContextValue = {
     cases,
     activeCase,
+    activeCaseId: activeCase, // For now, case ID is same as case name
     loading,
     error,
     selectCase,
-    refreshCases
+    refreshCases,
+    createCase: async (name: string, metadata?: any) => {
+      // Placeholder implementation - should be replaced with actual API call
+      console.log('Creating case:', name, metadata);
+      await refreshCases();
+      return { collection_name: name };
+    }
   };
 
   return (

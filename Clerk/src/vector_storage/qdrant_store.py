@@ -112,9 +112,35 @@ class QdrantVectorStore:
         sanitized = re.sub(r'[^a-zA-Z0-9_]', '_', folder_name)
         return f"{sanitized}" if settings.legal.enable_hybrid_search else sanitized
     
-    def ensure_collection_exists(self, folder_name: str):
-        """Ensure collection exists for a specific folder"""
-        collection_name = self.get_collection_name(folder_name)
+    def ensure_collection_exists(self, folder_name: str, use_case_manager: bool = True):
+        """Ensure collection exists for a specific folder
+        
+        Args:
+            folder_name: Name of the folder/case
+            use_case_manager: Whether to use case manager for collection naming
+            
+        Returns:
+            Collection name
+        """
+        # Import here to avoid circular dependency
+        from src.services.case_manager import case_manager
+        from src.config.shared_resources import is_shared_resource
+        
+        # For shared resources, use the folder name directly
+        if is_shared_resource(folder_name):
+            collection_name = self.get_collection_name(folder_name)
+        elif use_case_manager and case_manager._client:
+            # Try to get collection name from case manager
+            try:
+                # This assumes we have law_firm_id in context or use a default
+                law_firm_id = "default-firm"  # TODO: Get from context
+                collection_name = case_manager.case_name_to_collection(folder_name, law_firm_id)
+            except Exception:
+                # Fall back to legacy method
+                collection_name = self.get_collection_name(folder_name)
+        else:
+            # Use legacy collection naming
+            collection_name = self.get_collection_name(folder_name)
         
         try:
             # Check if collection exists
@@ -1211,35 +1237,49 @@ class QdrantVectorStore:
             logger.error(f"Error getting case name mapping: {str(e)}")
             return {}
 
-    def list_cases(self) -> List[Dict[str, Any]]:
+    def list_cases(self, include_shared: bool = False) -> List[Dict[str, Any]]:
         """List all cases (collections) in the system
+        
+        Args:
+            include_shared: Whether to include shared resource collections
         
         Returns:
             List of case information dictionaries
         """
+        # Import here to avoid circular dependency
+        from src.config.shared_resources import is_shared_resource
+        
         try:
             collections = self.client.get_collections().collections
             cases = []
             
             for collection in collections:
+                # Skip shared resources unless explicitly requested
+                if not include_shared and is_shared_resource(collection.name):
+                    continue
+                    
                 try:
                     # Get collection info
                     info = self.client.get_collection(collection.name)
                     
-                    cases.append({
+                    case_info = {
                         "collection_name": collection.name,
                         "original_name": collection.name,  # Would be from metadata
                         "vector_count": info.vectors_count,
                         "points_count": info.points_count,
                         "indexed_vectors_count": getattr(info, 'indexed_vectors_count', 0),
-                        "status": info.status
-                    })
+                        "status": info.status,
+                        "is_shared": is_shared_resource(collection.name)
+                    }
+                    
+                    cases.append(case_info)
                     
                 except Exception as e:
                     logger.warning(f"Could not get details for {collection.name}: {e}")
                     cases.append({
                         "collection_name": collection.name,
-                        "error": str(e)
+                        "error": str(e),
+                        "is_shared": is_shared_resource(collection.name)
                     })
             
             return cases

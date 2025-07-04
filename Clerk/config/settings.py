@@ -202,6 +202,17 @@ class DiscoveryProcessingSettings(BaseSettings):
         env_prefix = "DISCOVERY_"
 
 
+class SupabaseSettings(BaseSettings):
+    """Supabase database configuration"""
+    url: str = Field(..., env="SUPABASE_URL")
+    anon_key: str = Field(..., env="SUPABASE_ANON_KEY")
+    service_role_key: Optional[str] = Field(None, env="SUPABASE_SERVICE_ROLE_KEY")
+    jwt_secret: Optional[str] = Field(None, env="SUPABASE_JWT_SECRET")
+    
+    class Config:
+        env_prefix = "SUPABASE_"
+
+
 class Settings(BaseSettings):
     """Main settings class aggregating all configurations"""
     
@@ -222,6 +233,10 @@ class Settings(BaseSettings):
     cost: CostConfig = Field(default_factory=CostConfig)
     legal: LegalSettings = Field(default_factory=LegalSettings)
     discovery: DiscoveryProcessingSettings = Field(default_factory=DiscoveryProcessingSettings)
+    supabase: SupabaseSettings = Field(default_factory=lambda: SupabaseSettings(
+        url=os.getenv("SUPABASE_URL", ""),
+        anon_key=os.getenv("SUPABASE_ANON_KEY", "")
+    ))
 
     # Application settings
     app_name: str = Field("Clerk Legal AI", env="APP_NAME")

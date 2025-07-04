@@ -49,7 +49,8 @@
       "Bash(npm run type-check:*)",
       "Bash(npm run dev:*)",
       "Bash(node:*)",
-      "Bash(npm install)"
+      "Bash(npm install)",
+      "mcp__brave-search__brave_web_search"
     ],
     "deny": []
   }

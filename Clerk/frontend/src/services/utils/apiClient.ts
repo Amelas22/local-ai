@@ -21,7 +21,8 @@ class ApiClient {
   };
 
   constructor() {
-    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    // Get base URL from environment
+    const baseURL = import.meta.env.VITE_API_URL || '';
     
     this.client = axios.create({
       baseURL,
@@ -31,13 +32,23 @@ class ApiClient {
       },
     });
 
-    // Request interceptor to add auth token
+    // Request interceptor to add auth token and case ID
     this.client.interceptors.request.use(
       (config) => {
-        const token = store.getState().auth.token;
+        const state = store.getState();
+        
+        // Add auth token
+        const token = state.auth.token;
         if (token) {
           config.headers['Authorization'] = `Bearer ${token}`;
         }
+        
+        // Add case ID from localStorage (since context is not accessible here)
+        const activeCase = localStorage.getItem('activeCase');
+        if (activeCase) {
+          config.headers['X-Case-ID'] = activeCase;
+        }
+        
         return config;
       },
       (error) => {
