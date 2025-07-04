@@ -144,7 +144,7 @@ tD @ http://localhost:8010/assets/index-DnTjMGeI.js:37
 
 ## EXAMPLES:
 
-[Include relevant files here]
+`clerk/frontend/`: Frontend Clerk files
 
 ## DOCUMENTATION:
 
