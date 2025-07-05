@@ -1,0 +1,8 @@
+# Docker Compose override for local development
+# This file is automatically loaded by docker-compose and exposes PostgreSQL
+# for Clerk JWT authentication development
+
+services:
+  postgres:
+    ports:
+      - "${POSTGRES_HOST_PORT:-5433}:5432"  # Expose PostgreSQL on host machine for development (default 5433 to avoid conflicts)

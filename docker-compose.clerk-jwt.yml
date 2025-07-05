@@ -1,0 +1,28 @@
+# Docker Compose override for Clerk JWT authentication
+# This adds the necessary environment variables for PostgreSQL + JWT
+
+services:
+  clerk:
+    environment:
+      # PostgreSQL Database Configuration
+      - DATABASE_URL=${DATABASE_URL}
+      
+      # JWT Authentication Configuration
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - JWT_ALGORITHM=${JWT_ALGORITHM}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES}
+      - REFRESH_TOKEN_EXPIRE_DAYS=${REFRESH_TOKEN_EXPIRE_DAYS}
+      
+      # Admin User Configuration
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      
+      # Shared Collections Configuration
+      - SHARED_COLLECTIONS=${SHARED_COLLECTIONS}
+      
+      # Disable Supabase
+      - SUPABASE_URL=
+      - SUPABASE_ANON_KEY=
+      - SUPABASE_SERVICE_ROLE_KEY=
+    depends_on:
+      - postgres

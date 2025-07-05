@@ -13,7 +13,8 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
-from src.services.case_manager import case_manager
+from src.database.connection import AsyncSessionLocal
+from src.services.case_service import CaseService
 from src.models.case_models import CaseContext
 from src.utils.logger import log_case_access
 
@@ -102,34 +103,36 @@ class CaseContextMiddleware(BaseHTTPMiddleware):
                     # Cache expired, remove it
                     del self._access_cache[cache_key]
             
-            # Validate case access
-            has_access = await case_manager.validate_case_access(
-                case_id=case_id,
-                user_id=user_id,
-                required_permission="read"
-            )
-            
-            # Update cache
-            self._access_cache[cache_key] = (time.time(), has_access)
-            
-            if not has_access:
-                logger.warning(f"User {user_id} denied access to case {case_id}")
-                log_case_access(
+            # Validate case access using PostgreSQL
+            async with AsyncSessionLocal() as db:
+                has_access = await CaseService.validate_case_access(
+                    db=db,
                     case_id=case_id,
                     user_id=user_id,
-                    action="access_denied",
-                    metadata={
-                        "path": request.url.path,
-                        "method": request.method
-                    }
+                    required_permission="read"
                 )
-                return JSONResponse(
-                    status_code=403,
-                    content={"detail": "Access denied to this case"}
-                )
-            
-            # Get full case context
-            case_context = await case_manager.get_case_context(case_id, user_id)
+                
+                # Update cache
+                self._access_cache[cache_key] = (time.time(), has_access)
+                
+                if not has_access:
+                    logger.warning(f"User {user_id} denied access to case {case_id}")
+                    log_case_access(
+                        case_id=case_id,
+                        user_id=user_id,
+                        action="access_denied",
+                        metadata={
+                            "path": request.url.path,
+                            "method": request.method
+                        }
+                    )
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": "Access denied to this case"}
+                    )
+                
+                # Get full case context
+                case_context = await CaseService.get_case_context(db, case_id, user_id)
             if not case_context:
                 return JSONResponse(
                     status_code=404,

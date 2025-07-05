@@ -82,6 +82,12 @@ CONTEXT_LLM_MODEL=gpt-3.5-turbo
 # Cohere Configuration (for reranking)
 COHERE_API_KEY=your_cohere_api_key
 
+# Supabase Configuration (for case management)
+SUPABASE_URL=your_supabase_url
+SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key  # Optional, for server-side operations
+SUPABASE_JWT_SECRET=your_jwt_secret  # Optional, for JWT verification
+
 # Optional Overrides
 CHUNK_SIZE=1400
 CHUNK_OVERLAP=200
@@ -93,6 +99,21 @@ CHUNK_OVERLAP=200
 cd /mnt/c/Webapps/local-ai/Clerk
 pip install -r requirements.txt
 ```
+
+### Docker Compose Setup
+
+When running with Docker Compose, ensure proper environment variable configuration:
+
+1. **Supabase URL for Containers**: Use `http://kong:8000` instead of `http://localhost:8000` for container-to-container communication
+2. **Environment Variables**: The docker-compose.yml file should include all required Supabase variables:
+   ```yaml
+   environment:
+     - SUPABASE_URL=http://kong:8000
+     - SUPABASE_ANON_KEY=${ANON_KEY}
+     - SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}
+     - SUPABASE_JWT_SECRET=${JWT_SECRET}
+   ```
+3. **Dependencies**: Ensure the clerk service depends on the kong service (Supabase API gateway)
 
 ### 3. Start the Application
 

@@ -50,7 +50,26 @@
       "Bash(npm run dev:*)",
       "Bash(node:*)",
       "Bash(npm install)",
-      "mcp__brave-search__brave_web_search"
+      "mcp__brave-search__brave_web_search",
+      "Bash(dos2unix:*)",
+      "Bash(sed -i 's/\\r$//' update_supabase_env.sh)",
+      "WebFetch(domain:openalternative.co)",
+      "Bash(ruff check:*)",
+      "Bash(cat:*)",
+      "Bash(pip3 install:*)",
+      "Bash(./reset_supabase_jwt.sh:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:testdriven.io)",
+      "WebFetch(domain:www.freecodecamp.org)",
+      "Bash(tree:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(/mnt/c/Users/jlemr/PycharmProjects/day-17-start/venv/Scripts/python.exe -m pip install psycopg2-binary)",
+      "Bash(/mnt/c/Users/jlemr/PycharmProjects/day-17-start/venv/Scripts/python.exe fix_alembic_state.py)",
+      "Bash(/mnt/c/Users/jlemr/PycharmProjects/day-17-start/venv/Scripts/python.exe -m alembic -c src/migrations/alembic.ini revision -m \"add password_hash column\")",
+      "Bash(/mnt/c/Users/jlemr/PycharmProjects/day-17-start/venv/Scripts/python.exe -m alembic -c src/migrations/alembic.ini upgrade head)",
+      "Bash(/mnt/c/Users/jlemr/PycharmProjects/day-17-start/venv/Scripts/python.exe init_db.py)"
     ],
     "deny": []
   }

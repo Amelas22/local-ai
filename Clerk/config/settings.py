@@ -42,7 +42,6 @@ class QdrantSettings(BaseSettings):
     batch_size: int = Field(500, env="QDRANT_BATCH_SIZE")
     max_workers: int = Field(16, env="QDRANT_MAX_WORKERS")
     embedding_dimensions: int = Field(1536, env="QDRANT_EMBEDDING_DIMENSIONS")
-    https: bool = os.getenv("QDRANT_HTTPS", "false").lower() == "true"
 
     # Qdrant-specific settings
     distance_metric: str = "cosine"
@@ -204,13 +203,36 @@ class DiscoveryProcessingSettings(BaseSettings):
 
 class SupabaseSettings(BaseSettings):
     """Supabase database configuration"""
-    url: str = Field(..., env="SUPABASE_URL")
-    anon_key: str = Field(..., env="SUPABASE_ANON_KEY")
+    url: str = Field("", env="SUPABASE_URL")
+    anon_key: str = Field("", env="SUPABASE_ANON_KEY")
     service_role_key: Optional[str] = Field(None, env="SUPABASE_SERVICE_ROLE_KEY")
     jwt_secret: Optional[str] = Field(None, env="SUPABASE_JWT_SECRET")
     
     class Config:
         env_prefix = "SUPABASE_"
+
+
+class AuthSettings(BaseSettings):
+    """JWT Authentication configuration"""
+    jwt_secret_key: str = Field(
+        default_factory=lambda: os.getenv("JWT_SECRET_KEY", "dev-secret-key-change-in-production"),
+        env="JWT_SECRET_KEY"
+    )
+    jwt_algorithm: str = Field("HS256", env="JWT_ALGORITHM")
+    access_token_expire_minutes: int = Field(30, env="ACCESS_TOKEN_EXPIRE_MINUTES")
+    refresh_token_expire_days: int = Field(7, env="REFRESH_TOKEN_EXPIRE_DAYS")
+    
+    class Config:
+        env_prefix = ""
+
+
+class AdminSettings(BaseSettings):
+    """Admin user configuration for initial setup"""
+    admin_email: str = Field("admin@example.com", env="ADMIN_EMAIL")
+    admin_password: str = Field("admin123456", env="ADMIN_PASSWORD")
+    
+    class Config:
+        env_prefix = ""
 
 
 class Settings(BaseSettings):
@@ -237,6 +259,8 @@ class Settings(BaseSettings):
         url=os.getenv("SUPABASE_URL", ""),
         anon_key=os.getenv("SUPABASE_ANON_KEY", "")
     ))
+    auth: AuthSettings = Field(default_factory=AuthSettings)
+    admin: AdminSettings = Field(default_factory=AdminSettings)
 
     # Application settings
     app_name: str = Field("Clerk Legal AI", env="APP_NAME")
@@ -244,6 +268,12 @@ class Settings(BaseSettings):
     debug: bool = Field(False, env="DEBUG")
     api_v1_prefix: str = Field("/api/v1", env="API_V1_PREFIX")
     cors_origins: str = Field("http://localhost:3000", env="CORS_ORIGINS")
+    
+    # Shared collections configuration
+    shared_collections: str = Field(
+        "florida_statutes,fmcsr_regulations,federal_rules,case_law_precedents",
+        env="SHARED_COLLECTIONS"
+    )
     
     # Paths
     data_dir: Path = Field(Path("./data"), env="DATA_DIR")
@@ -254,6 +284,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
+        extra = "ignore"  # Ignore extra environment variables
     
     @validator("data_dir", "upload_dir", "export_dir")
     @classmethod

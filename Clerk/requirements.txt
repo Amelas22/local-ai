@@ -19,10 +19,16 @@ pypdf>=3.17.0
 # Qdrant vector database
 qdrant-client[fastembed]>=1.14.3
 
-# Supabase for case management
-supabase>=2.0.0
-grpcio>=1.60.0
-grpcio-tools>=1.60.0
+# PostgreSQL and SQLAlchemy for case management
+sqlalchemy[asyncio]>=2.0.0
+asyncpg>=0.29.0
+psycopg2-binary>=2.9.0
+alembic>=1.13.0
+
+# JWT Authentication
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.6
 
 # OpenAI for embeddings
 openai>=1.0.0

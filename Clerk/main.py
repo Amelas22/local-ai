@@ -28,33 +28,23 @@ from src.ai_agents.legal_document_agent import legal_document_agent
 from src.ai_agents.motion_drafter import motion_drafter, DocumentLength
 from src.ai_agents.outline_cache_manager import outline_cache
 from src.utils.logger import setup_logging
+from src.utils.env_validator import validate_all as validate_environment, EnvironmentError
 from config.settings import settings
 from src.models.unified_document_models import DiscoveryProcessingRequest
 from src.document_processing.websocket_document_processor import get_websocket_processor
-from src.services.case_manager import case_manager
 from src.models.case_models import (
     Case, CaseStatus, CaseCreateRequest, CaseUpdateRequest,
     CaseListResponse, CasePermissionRequest
 )
 from src.middleware.case_context import get_case_context, require_case_context
+from src.database.connection import init_db, close_db
+
+# Import new routers
+from src.api.auth_endpoints import router as auth_router
+from src.api.case_endpoints import router as case_router
 
 # Setup logging
 logger = setup_logging("clerk_api", "INFO")
-
-# Helper dependencies for authentication (temporary until auth is implemented)
-async def get_current_user_id(request: Request) -> str:
-    """Get current user ID from request state"""
-    if hasattr(request.state, 'user_id'):
-        return request.state.user_id
-    # Temporary default for development
-    return "test-user"
-
-async def get_current_law_firm_id(request: Request) -> str:
-    """Get current law firm ID from request state"""
-    if hasattr(request.state, 'law_firm_id'):
-        return request.state.law_firm_id
-    # Temporary default for development
-    return "test-firm"
 
 # Global instances
 document_injector = None
@@ -75,6 +65,24 @@ async def lifespan(app: FastAPI):
     if not settings.validate():
         logger.error("Invalid configuration. Please check environment variables.")
         raise RuntimeError("Invalid configuration")
+    
+    # Validate environment variables
+    try:
+        validate_environment()
+        logger.info("Environment validation passed")
+    except EnvironmentError as e:
+        logger.error(f"Environment validation failed: {str(e)}")
+        # Continue startup but log the issue - some services may work without all configs
+        logger.warning("Starting with incomplete configuration - some features may not work")
+    
+    # Initialize database
+    try:
+        logger.info("Initializing database...")
+        await init_db()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {str(e)}")
+        # Continue - the app might work with existing database
     
     # Initialize components
     try:
@@ -98,6 +106,9 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Clerk API service...")
     if vector_store:
         vector_store.close()
+    
+    # Close database connections
+    await close_db()
 
 # Create FastAPI app
 app = FastAPI(
@@ -121,9 +132,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Add Case Context Middleware
+# Add Authentication Middleware
+from src.middleware.auth_middleware import AuthMiddleware
+app.add_middleware(AuthMiddleware)
+
+# Add Case Context Middleware (must be after auth)
 from src.middleware.case_context import CaseContextMiddleware
 app.add_middleware(CaseContextMiddleware)
+
+# Include routers
+app.include_router(auth_router)
+app.include_router(case_router)
 
 # Pydantic models for API
 class ProcessFolderRequest(BaseModel):
@@ -476,129 +495,17 @@ async def search_unified_documents(request: SearchRequest):
         logger.error(f"Unified search error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
-# Case Management Endpoints
-@app.get("/api/cases", response_model=CaseListResponse)
-async def list_user_cases(
-    law_firm_id: Optional[str] = None,
-    include_archived: bool = False,
-    user_id: str = Depends(get_current_user_id)
-):
-    """List cases accessible to the authenticated user"""
-    try:
-        cases = await case_manager.get_user_cases(
-            user_id=user_id,
-            law_firm_id=law_firm_id,
-            include_archived=include_archived
-        )
-        
-        return CaseListResponse(
-            cases=cases,
-            total=len(cases),
-            has_more=False
-        )
-    except Exception as e:
-        logger.error(f"Error listing cases: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to list cases: {str(e)}")
-
-@app.post("/api/cases", response_model=Case)
-async def create_case(
-    request: CaseCreateRequest,
-    user_id: str = Depends(get_current_user_id),
-    law_firm_id: str = Depends(get_current_law_firm_id)
-):
-    """Create a new case"""
-    try:
-        case = await case_manager.create_case(
-            name=request.name,
-            law_firm_id=law_firm_id,
-            created_by=user_id,
-            metadata=request.metadata
-        )
-        
-        logger.info(f"Created case '{case.name}' with ID {case.id}")
-        return case
-        
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Error creating case: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to create case: {str(e)}")
-
-@app.put("/api/cases/{case_id}", response_model=Case)
-async def update_case(
-    case_id: str,
-    request: CaseUpdateRequest,
-    case_context: dict = Depends(require_case_context("admin"))
-):
-    """Update a case (requires admin permission)"""
-    try:
-        # Only status updates are implemented for now
-        if request.status:
-            case = await case_manager.update_case_status(
-                case_id=case_id,
-                status=request.status,
-                user_id=case_context.user_id
-            )
-            
-            if not case:
-                raise HTTPException(status_code=404, detail="Case not found")
-                
-            return case
-        else:
-            raise HTTPException(status_code=400, detail="No updates provided")
-            
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error updating case: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to update case: {str(e)}")
-
-@app.post("/api/cases/{case_id}/permissions")
-async def grant_case_permission(
-    case_id: str,
-    request: CasePermissionRequest,
-    case_context: dict = Depends(require_case_context("admin"))
-):
-    """Grant case permission to a user (requires admin permission)"""
-    try:
-        success = await case_manager._grant_case_permission(
-            user_id=request.user_id,
-            case_id=case_id,
-            permission_level=request.permission_level.value,
-            granted_by=case_context.user_id,
-            expires_at=request.expires_at
-        )
-        
-        if success:
-            return {"status": "success", "message": "Permission granted"}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to grant permission")
-            
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error granting permission: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to grant permission: {str(e)}")
-
 # Legacy endpoint for backward compatibility
 @app.get("/cases")
 async def list_cases_legacy():
     """List all available cases (legacy endpoint for compatibility)"""
     try:
-        # Try to use the new case manager first
-        if case_manager._client:
-            # Get cases from Supabase
-            user_id = "default-user"  # For legacy endpoint without auth
-            cases = await case_manager.get_user_cases(user_id)
-            case_names = [case.collection_name for case in cases]
-            return {"cases": case_names}
-        else:
-            # Fall back to vector store listing
-            cases_data = vector_store.list_cases()
-            case_names = [case.get('collection_name', case.get('original_name', '')) 
-                         for case in cases_data 
-                         if case.get('collection_name') or case.get('original_name')]
-            return {"cases": case_names}
+        # Fall back to vector store listing
+        cases_data = vector_store.list_cases()
+        case_names = [case.get('collection_name', case.get('original_name', '')) 
+                     for case in cases_data 
+                     if case.get('collection_name') or case.get('original_name')]
+        return {"cases": case_names}
     except Exception as e:
         logger.error(f"Error listing cases: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to list cases: {str(e)}")

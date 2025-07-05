@@ -368,3 +368,100 @@ class TestCaseManagerIntegration:
         
         manager = CaseManager()
         assert manager._client is None
+
+
+class TestSupabaseInitializationRetry:
+    """Test Supabase client initialization with retry logic"""
+    
+    @patch('src.services.case_manager.create_client')
+    @patch('src.services.case_manager.settings')
+    @patch('src.services.case_manager.time.sleep')
+    def test_initialization_retry_success_second_attempt(self, mock_sleep, mock_settings, mock_create_client):
+        """Test successful initialization on second retry attempt"""
+        # Configure settings
+        mock_settings.supabase.url = "http://kong:8000"
+        mock_settings.supabase.anon_key = "test-anon-key"
+        mock_settings.supabase.service_role_key = "test-service-key"
+        
+        # First attempt fails, second succeeds
+        mock_client = MagicMock()
+        mock_create_client.side_effect = [
+            Exception("Connection failed"),
+            mock_client
+        ]
+        
+        # Create manager - should succeed after retry
+        manager = CaseManager()
+        
+        # Verify retry happened
+        assert mock_create_client.call_count == 2
+        assert mock_sleep.call_count == 1
+        mock_sleep.assert_called_with(1)  # First retry waits 1 second
+        assert manager._client == mock_client
+    
+    @patch('src.services.case_manager.create_client')
+    @patch('src.services.case_manager.settings')
+    @patch('src.services.case_manager.time.sleep')
+    def test_initialization_retry_all_attempts_fail(self, mock_sleep, mock_settings, mock_create_client):
+        """Test initialization fails after all retry attempts"""
+        # Configure settings
+        mock_settings.supabase.url = "http://kong:8000"
+        mock_settings.supabase.anon_key = "test-anon-key"
+        mock_settings.supabase.service_role_key = None
+        
+        # All attempts fail
+        mock_create_client.side_effect = Exception("Connection failed")
+        
+        # Create manager - should not raise but client should be None
+        manager = CaseManager()
+        
+        # Verify all retries happened
+        assert mock_create_client.call_count == 3
+        assert mock_sleep.call_count == 2  # Sleep between attempts
+        mock_sleep.assert_any_call(1)  # First retry
+        mock_sleep.assert_any_call(2)  # Second retry (exponential backoff)
+        assert manager._client is None
+    
+    @patch('src.services.case_manager.create_client')
+    @patch('src.services.case_manager.settings')
+    def test_initialization_success_first_attempt(self, mock_settings, mock_create_client):
+        """Test successful initialization on first attempt"""
+        # Configure settings
+        mock_settings.supabase.url = "http://kong:8000"
+        mock_settings.supabase.anon_key = "test-anon-key"
+        mock_settings.supabase.service_role_key = "test-service-key"
+        
+        # First attempt succeeds
+        mock_client = MagicMock()
+        mock_create_client.return_value = mock_client
+        
+        # Create manager
+        manager = CaseManager()
+        
+        # Verify no retries needed
+        assert mock_create_client.call_count == 1
+        assert manager._client == mock_client
+    
+    @patch('src.services.case_manager.create_client')
+    @patch('src.services.case_manager.settings')
+    @patch('src.services.case_manager.logger')
+    def test_initialization_logs_retry_attempts(self, mock_logger, mock_settings, mock_create_client):
+        """Test that retry attempts are properly logged"""
+        # Configure settings
+        mock_settings.supabase.url = "http://kong:8000"
+        mock_settings.supabase.anon_key = "test-anon-key"
+        mock_settings.supabase.service_role_key = None
+        
+        # All attempts fail
+        mock_create_client.side_effect = Exception("Connection failed")
+        
+        # Create manager
+        manager = CaseManager()
+        
+        # Verify logging
+        assert mock_logger.info.call_count >= 3  # At least one per attempt
+        assert mock_logger.warning.call_count == 3  # One warning per failed attempt
+        assert mock_logger.error.call_count == 1  # Final error after all attempts
+        
+        # Check log messages
+        mock_logger.error.assert_called_with("Failed to initialize Supabase client after 3 attempts")
