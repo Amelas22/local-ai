@@ -166,34 +166,44 @@ class AuthMiddleware(BaseHTTPMiddleware):
                             request.state.law_firm_id = "dev-firm-123"
                             request.state.is_admin = True
                             
-                            # Create a mock user object for compatibility
-                            class MockUser:
-                                id = "dev-user-123"
-                                email = "dev@clerk.ai"
-                                name = "Development User"
-                                law_firm_id = "dev-firm-123"
-                                is_admin = True
-                                is_active = True
-                            
-                            request.state.user = MockUser()
+                            # Create a mock user object with law firm for compatibility
+                            from src.database.models import User, LawFirm
+                            mock_law_firm = LawFirm(
+                                id="dev-firm-123",
+                                name="Development Law Firm",
+                                domain="dev.clerk.ai",
+                                is_active=True
+                            )
+                            mock_user = User(
+                                id="dev-user-123",
+                                email="dev@clerk.ai",
+                                name="Development User",
+                                law_firm_id="dev-firm-123",
+                                law_firm=mock_law_firm,
+                                is_active=True,
+                                is_admin=True,
+                                password_hash="$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewKyNiGHTGpFyNBC"
+                            )
+                            request.state.user = mock_user
                 except Exception as e:
-                    logger.error(f"Error fetching dev user: {e}")
-                    # Fallback to mock user on error
+                    logger.error(f"Database error in dev mode: {e}")
+                    # Fallback to mock user on any database error
                     request.state.user_id = "dev-user-123"
                     request.state.user_email = "dev@clerk.ai"
                     request.state.user_name = "Development User"
                     request.state.law_firm_id = "dev-firm-123"
                     request.state.is_admin = True
                     
-                    class MockUser:
-                        id = "dev-user-123"
-                        email = "dev@clerk.ai"
-                        name = "Development User"
-                        law_firm_id = "dev-firm-123"
-                        is_admin = True
-                        is_active = True
-                    
-                    request.state.user = MockUser()
+                    # Return minimal mock user on database error
+                    from types import SimpleNamespace
+                    request.state.user = SimpleNamespace(
+                        id='dev-user-123',
+                        email='dev@clerk.ai',
+                        name='Development User',
+                        law_firm_id='dev-firm-123',
+                        is_active=True,
+                        is_admin=True
+                    )
             else:
                 logger.warning(f"Development mode: Invalid mock token provided: {token[:20]}...")
                 return JSONResponse(

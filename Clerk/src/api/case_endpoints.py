@@ -117,7 +117,7 @@ async def list_user_cases(
                 created_by=case.created_by,
                 metadata=metadata,
                 created_at=case.created_at,
-                updated_at=case.updated_at
+                updated_at=case.updated_at or case.created_at  # Fallback to created_at if updated_at is NULL
             )
             case_models.append(case_model)
         

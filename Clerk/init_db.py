@@ -197,6 +197,17 @@ async def main():
         logger.error("Failed to seed initial data")
         sys.exit(1)
     
+    # Also ensure dev data exists in development mode
+    if not settings.auth.auth_enabled:
+        logger.info("Development mode detected, ensuring dev data exists...")
+        try:
+            from scripts.fix_dev_database import ensure_dev_data
+            await ensure_dev_data()
+            logger.info("Development data ensured")
+        except Exception as e:
+            logger.warning(f"Failed to ensure dev data: {e}")
+            # Don't fail the entire init if dev data creation fails
+    
     logger.info("Database initialization completed successfully!")
     
     # Print access information

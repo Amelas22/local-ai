@@ -15,6 +15,7 @@ class TokenService {
    * Store tokens in localStorage and update Redux state.
    */
   setTokens(tokens: TokenResponse): void {
+    console.log('[TokenService] Setting tokens');
     localStorage.setItem(this.ACCESS_TOKEN_KEY, tokens.access_token);
     localStorage.setItem(this.REFRESH_TOKEN_KEY, tokens.refresh_token);
     
@@ -27,9 +28,18 @@ class TokenService {
 
   /**
    * Get the access token from localStorage.
+   * In development mode without auth, returns the mock token.
    */
   getAccessToken(): string | null {
-    return localStorage.getItem(this.ACCESS_TOKEN_KEY);
+    const token = localStorage.getItem(this.ACCESS_TOKEN_KEY);
+    
+    // In dev mode without auth, use mock token
+    if (import.meta.env.DEV && !import.meta.env.VITE_AUTH_ENABLED) {
+      console.log('[TokenService] Dev mode - returning mock token');
+      return 'dev-token-123456';
+    }
+    
+    return token;
   }
 
   /**
@@ -43,6 +53,7 @@ class TokenService {
    * Clear all tokens from localStorage and Redux state.
    */
   clearTokens(): void {
+    console.log('[TokenService] Clearing tokens');
     localStorage.removeItem(this.ACCESS_TOKEN_KEY);
     localStorage.removeItem(this.REFRESH_TOKEN_KEY);
     
