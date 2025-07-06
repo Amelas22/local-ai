@@ -134,6 +134,9 @@ app.add_middleware(
 
 # Add Authentication Middleware
 from src.middleware.auth_middleware import AuthMiddleware
+from config.settings import settings
+
+# Always add auth middleware - it will handle dev mode internally
 app.add_middleware(AuthMiddleware)
 
 # Add Case Context Middleware (must be after auth)
@@ -219,6 +222,17 @@ class MotionDraftingResponse(BaseModel):
     quality_metrics: Dict[str, float] = Field(default_factory=dict)
     processing_time_seconds: Optional[float] = None
     outline_id: Optional[str] = None
+
+# Debug endpoint to check settings
+@app.get("/debug/settings")
+async def debug_settings():
+    """Debug endpoint to check current settings"""
+    return {
+        "auth_enabled": settings.auth.auth_enabled,
+        "environment": settings.environment,
+        "is_development": settings.is_development,
+        "dev_mock_token": settings.auth.dev_mock_token[:10] + "..." if settings.auth.dev_mock_token else None
+    }
 
 # Health check endpoint
 @app.get("/health", response_model=HealthResponse)

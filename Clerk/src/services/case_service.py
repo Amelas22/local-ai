@@ -135,10 +135,10 @@ class CaseService:
         
         # Log case creation
         log_case_access(
-            case_id=case.id,
+            logger=logger,
             user_id=created_by,
-            action="case_created",
-            metadata={"case_name": name, "law_firm_id": law_firm_id}
+            case_name=name,
+            action="case_created"
         )
         
         logger.info(f"Created case '{name}' with collection '{collection_name}'")
@@ -288,10 +288,10 @@ class CaseService:
         
         # Log status change
         log_case_access(
-            case_id=case_id,
+            logger=logger,
             user_id=user_id,
-            action="case_status_updated",
-            metadata={"new_status": status.value}
+            case_name=case.name,
+            action="case_status_updated"
         )
         
         return case
@@ -493,12 +493,12 @@ class CaseService:
         await db.commit()
         
         # Log permission grant
-        log_case_access(
-            case_id=case_id,
-            user_id=granted_by,
-            action="permission_granted",
-            metadata={
-                "target_user": user_id,
-                "permission_level": permission_level.value
-            }
-        )
+        # Need to get case name for logging
+        case = await db.get(Case, case_id)
+        if case:
+            log_case_access(
+                logger=logger,
+                user_id=granted_by,
+                case_name=case.name,
+                action="permission_granted"
+            )

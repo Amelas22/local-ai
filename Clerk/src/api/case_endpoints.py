@@ -20,7 +20,7 @@ from src.models.case_models import (
     CaseUpdateRequest,
     CaseListResponse,
     CaseContext,
-    PermissionGrantRequest
+    CasePermissionRequest as PermissionGrantRequest
 )
 from src.api.auth_endpoints import get_current_user
 from src.middleware.auth_middleware import get_current_user_id, get_current_law_firm_id
@@ -156,15 +156,15 @@ async def create_case(
         HTTPException: If creation fails.
     """
     try:
-        # Use user's law firm if not specified
-        law_firm_id = request.law_firm_id or current_user.law_firm_id
+        # Use current user's law firm ID
+        law_firm_id = current_user.law_firm_id
         
         case = await CaseService.create_case(
             db=db,
             name=request.name,
             law_firm_id=law_firm_id,
             created_by=current_user.id,
-            description=request.description,
+            description=None,  # Description not part of CaseCreateRequest
             metadata=request.metadata
         )
         

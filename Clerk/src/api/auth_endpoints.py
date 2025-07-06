@@ -3,12 +3,16 @@ Authentication API endpoints for Clerk Legal AI System.
 
 Provides OAuth2-compatible endpoints for user registration, login, and token refresh.
 """
-from typing import Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Dict, Any, Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 import logging
+
+# Using str instead of EmailStr to avoid email-validator dependency
+# TODO: Replace with EmailStr after installing email-validator
+EmailStr = str
 
 from src.database.connection import get_db
 from src.services.auth_service import AuthService
@@ -65,13 +69,18 @@ class PasswordChangeRequest(BaseModel):
 
 
 async def get_current_user(
+    request: Request,
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db)
 ) -> User:
     """
     Dependency to get current authenticated user.
     
+    First checks if user was already authenticated by middleware (in development mode),
+    otherwise validates JWT token.
+    
     Args:
+        request: FastAPI request object.
         token: JWT token from Authorization header.
         db: Database session.
         
@@ -81,6 +90,11 @@ async def get_current_user(
     Raises:
         HTTPException: If authentication fails.
     """
+    # Check if user was already authenticated by middleware
+    if hasattr(request.state, "user") and request.state.user:
+        return request.state.user
+    
+    # Otherwise, validate token normally
     user = await AuthService.get_current_user_from_token(db, token)
     if not user:
         raise HTTPException(

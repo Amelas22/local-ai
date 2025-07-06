@@ -6,13 +6,15 @@ Handles environment variables and configuration management
 import os
 from typing import Optional, Dict, Any
 from pydantic_settings import BaseSettings
-from pydantic import Field, validator, computed_field
+from pydantic import Field, validator, computed_field, field_validator
 from pathlib import Path
 from dotenv import load_dotenv
 from dataclasses import dataclass
 
 # Load environment variables
-load_dotenv()
+# Look for .env file in the parent directory (Clerk/)
+env_path = Path(__file__).parent.parent / '.env'
+load_dotenv(env_path)
 
 
 class OpenAISettings(BaseSettings):
@@ -221,6 +223,18 @@ class AuthSettings(BaseSettings):
     jwt_algorithm: str = Field("HS256", env="JWT_ALGORITHM")
     access_token_expire_minutes: int = Field(30, env="ACCESS_TOKEN_EXPIRE_MINUTES")
     refresh_token_expire_days: int = Field(7, env="REFRESH_TOKEN_EXPIRE_DAYS")
+    auth_enabled: bool = Field(True, env="AUTH_ENABLED")
+    dev_mock_token: str = Field("dev-token-123456", env="DEV_MOCK_TOKEN")
+    
+    @validator('auth_enabled', pre=True)
+    @classmethod
+    def parse_bool(cls, v):
+        """Parse boolean from string environment variable"""
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.lower() in ('true', '1', 'yes', 'on')
+        return bool(v)
     
     class Config:
         env_prefix = ""

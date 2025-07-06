@@ -16,61 +16,16 @@ class EnvironmentError(Exception):
     pass
 
 
-def validate_supabase_config() -> None:
+def validate_database_config() -> None:
     """
-    Validate Supabase configuration on startup.
+    Validate PostgreSQL database configuration.
     
     Raises:
         EnvironmentError: If required variables are missing or invalid
     """
-    required_vars = ['SUPABASE_URL', 'SUPABASE_ANON_KEY']
-    missing = []
-    
-    # Check for required variables
-    for var in required_vars:
-        if not os.getenv(var):
-            missing.append(var)
-    
-    if missing:
-        error_msg = f"Missing required environment variables: {missing}"
-        logger.error(error_msg)
-        raise EnvironmentError(error_msg)
-    
-    # Validate URL format
-    url = os.getenv('SUPABASE_URL', '')
-    if not url.startswith(('http://', 'https://')):
-        error_msg = f"Invalid SUPABASE_URL format: {url}. Must start with http:// or https://"
-        logger.error(error_msg)
-        raise EnvironmentError(error_msg)
-    
-    # Try to parse the URL
-    try:
-        parsed = urlparse(url)
-        if not parsed.netloc:
-            raise ValueError("URL has no network location")
-    except Exception as e:
-        error_msg = f"Invalid SUPABASE_URL format: {url}. Error: {str(e)}"
-        logger.error(error_msg)
-        raise EnvironmentError(error_msg)
-    
-    # Validate key format (should be a JWT token)
-    anon_key = os.getenv('SUPABASE_ANON_KEY', '')
-    if len(anon_key) < 50:  # JWT tokens are typically much longer
-        error_msg = f"SUPABASE_ANON_KEY appears to be invalid (too short). Length: {len(anon_key)}"
-        logger.error(error_msg)
-        raise EnvironmentError(error_msg)
-    
-    # Check optional but recommended variables
-    optional_vars = {
-        'SUPABASE_SERVICE_ROLE_KEY': 'Recommended for server-side operations',
-        'SUPABASE_JWT_SECRET': 'Recommended for JWT verification'
-    }
-    
-    for var, description in optional_vars.items():
-        if not os.getenv(var):
-            logger.warning(f"{var} not set. {description}")
-    
-    logger.info("Supabase configuration validated successfully")
+    # Database URL is constructed from individual components in settings.py
+    # Just log that we're using PostgreSQL
+    logger.info("Using PostgreSQL database for case management")
 
 
 def validate_required_services() -> None:
@@ -120,11 +75,11 @@ def get_environment_info() -> Dict[str, Any]:
         return f"{value[:4]}...{value[-4:]}"
     
     info = {
-        "supabase": {
-            "url": os.getenv('SUPABASE_URL', 'NOT SET'),
-            "anon_key": mask_value(os.getenv('SUPABASE_ANON_KEY')),
-            "service_role_key": mask_value(os.getenv('SUPABASE_SERVICE_ROLE_KEY')),
-            "jwt_secret": mask_value(os.getenv('SUPABASE_JWT_SECRET'))
+        "database": {
+            "type": "PostgreSQL",
+            "host": os.getenv('POSTGRES_HOST', 'localhost'),
+            "port": os.getenv('POSTGRES_PORT', '5432'),
+            "database": os.getenv('POSTGRES_DB', 'clerk_db')
         },
         "box": {
             "client_id": mask_value(os.getenv('BOX_CLIENT_ID')),
@@ -153,8 +108,8 @@ def validate_all() -> None:
     logger.info("Starting environment validation...")
     
     try:
-        # Validate Supabase first as it's critical for case management
-        validate_supabase_config()
+        # Validate database configuration
+        validate_database_config()
         
         # Validate other required services
         validate_required_services()

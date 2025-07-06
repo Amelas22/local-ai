@@ -69,7 +69,11 @@
       "Bash(/mnt/c/Users/jlemr/PycharmProjects/day-17-start/venv/Scripts/python.exe fix_alembic_state.py)",
       "Bash(/mnt/c/Users/jlemr/PycharmProjects/day-17-start/venv/Scripts/python.exe -m alembic -c src/migrations/alembic.ini revision -m \"add password_hash column\")",
       "Bash(/mnt/c/Users/jlemr/PycharmProjects/day-17-start/venv/Scripts/python.exe -m alembic -c src/migrations/alembic.ini upgrade head)",
-      "Bash(/mnt/c/Users/jlemr/PycharmProjects/day-17-start/venv/Scripts/python.exe init_db.py)"
+      "Bash(/mnt/c/Users/jlemr/PycharmProjects/day-17-start/venv/Scripts/python.exe init_db.py)",
+      "Bash(npm run lint)",
+      "Bash(./venv/bin/python:*)",
+      "Bash(./venv/bin/ruff check src/middleware/auth_middleware.py)",
+      "Bash(bash:*)"
     ],
     "deny": []
   }

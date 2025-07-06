@@ -13,6 +13,7 @@ import re
 
 from src.database.connection import AsyncSessionLocal
 from src.services.auth_service import AuthService
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -96,8 +97,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
         Returns:
             JSONResponse: Response from the endpoint or error response.
         """
+        # Debug logging
+        logger.info(f"Auth middleware processing: {request.url.path}")
+        logger.info(f"AUTH_ENABLED: {settings.auth.auth_enabled}")
+        logger.info(f"Is Development: {settings.is_development}")
+        
         # Check if path is exempt
         if self.is_exempt(request.url.path):
+            logger.info(f"Path {request.url.path} is exempt from auth")
             return await call_next(request)
         
         # Extract token from Authorization header
@@ -121,41 +128,115 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 headers={"WWW-Authenticate": "Bearer"}
             )
         
-        # Validate token and get user
-        try:
-            async with AsyncSessionLocal() as db:
-                user = await AuthService.get_current_user_from_token(db, token)
-                
-                if not user:
-                    return JSONResponse(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        content={"detail": "Invalid or expired token"},
-                        headers={"WWW-Authenticate": "Bearer"}
-                    )
-                
-                if not user.is_active:
-                    return JSONResponse(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        content={"detail": "User account is disabled"}
-                    )
-                
-                # Inject user info into request state
-                request.state.user_id = user.id
-                request.state.user_email = user.email
-                request.state.user_name = user.name
-                request.state.law_firm_id = user.law_firm_id
-                request.state.is_admin = user.is_admin
-                request.state.user = user  # Full user object
-                
-                logger.debug(f"Authenticated request from user: {user.email}")
-                
-        except Exception as e:
-            logger.error(f"Authentication error: {e}")
-            return JSONResponse(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                content={"detail": "Authentication failed"},
-                headers={"WWW-Authenticate": "Bearer"}
-            )
+        # Check if auth is disabled in development mode
+        if not settings.auth.auth_enabled and settings.is_development:
+            # Check if it's the development mock token
+            if token == settings.auth.dev_mock_token:
+                # Fetch the actual dev user from the database
+                logger.info("Development mode: Fetching dev user from database")
+                try:
+                    async with AsyncSessionLocal() as db:
+                        # Get the dev user by ID
+                        from sqlalchemy import select
+                        from sqlalchemy.orm import selectinload
+                        from src.database.models import User
+                        
+                        result = await db.execute(
+                            select(User)
+                            .options(selectinload(User.law_firm))
+                            .where(User.id == "dev-user-123")
+                        )
+                        dev_user = result.scalar_one_or_none()
+                        
+                        if dev_user:
+                            # Use the actual user from the database
+                            request.state.user_id = dev_user.id
+                            request.state.user_email = dev_user.email
+                            request.state.user_name = dev_user.name
+                            request.state.law_firm_id = dev_user.law_firm_id
+                            request.state.is_admin = dev_user.is_admin
+                            request.state.user = dev_user
+                            logger.info(f"Development mode: Authenticated as {dev_user.email} with law_firm_id {dev_user.law_firm_id}")
+                        else:
+                            # Fallback to mock user if dev user doesn't exist
+                            logger.warning("Development mode: Dev user not found in database, using mock user")
+                            request.state.user_id = "dev-user-123"
+                            request.state.user_email = "dev@clerk.ai"
+                            request.state.user_name = "Development User"
+                            request.state.law_firm_id = "dev-firm-123"
+                            request.state.is_admin = True
+                            
+                            # Create a mock user object for compatibility
+                            class MockUser:
+                                id = "dev-user-123"
+                                email = "dev@clerk.ai"
+                                name = "Development User"
+                                law_firm_id = "dev-firm-123"
+                                is_admin = True
+                                is_active = True
+                            
+                            request.state.user = MockUser()
+                except Exception as e:
+                    logger.error(f"Error fetching dev user: {e}")
+                    # Fallback to mock user on error
+                    request.state.user_id = "dev-user-123"
+                    request.state.user_email = "dev@clerk.ai"
+                    request.state.user_name = "Development User"
+                    request.state.law_firm_id = "dev-firm-123"
+                    request.state.is_admin = True
+                    
+                    class MockUser:
+                        id = "dev-user-123"
+                        email = "dev@clerk.ai"
+                        name = "Development User"
+                        law_firm_id = "dev-firm-123"
+                        is_admin = True
+                        is_active = True
+                    
+                    request.state.user = MockUser()
+            else:
+                logger.warning(f"Development mode: Invalid mock token provided: {token[:20]}...")
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content={"detail": "Invalid development token. Use the configured DEV_MOCK_TOKEN."},
+                    headers={"WWW-Authenticate": "Bearer"}
+                )
+        else:
+            # Production mode or auth enabled - validate token normally
+            try:
+                async with AsyncSessionLocal() as db:
+                    user = await AuthService.get_current_user_from_token(db, token)
+                    
+                    if not user:
+                        return JSONResponse(
+                            status_code=status.HTTP_401_UNAUTHORIZED,
+                            content={"detail": "Invalid or expired token"},
+                            headers={"WWW-Authenticate": "Bearer"}
+                        )
+                    
+                    if not user.is_active:
+                        return JSONResponse(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            content={"detail": "User account is disabled"}
+                        )
+                    
+                    # Inject user info into request state
+                    request.state.user_id = user.id
+                    request.state.user_email = user.email
+                    request.state.user_name = user.name
+                    request.state.law_firm_id = user.law_firm_id
+                    request.state.is_admin = user.is_admin
+                    request.state.user = user  # Full user object
+                    
+                    logger.debug(f"Authenticated request from user: {user.email}")
+                    
+            except Exception as e:
+                logger.error(f"Authentication error: {e}")
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content={"detail": "Authentication failed"},
+                    headers={"WWW-Authenticate": "Bearer"}
+                )
         
         # Process request
         response = await call_next(request)

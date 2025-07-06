@@ -40,7 +40,7 @@ user_case_permissions = Table(
     Column('granted_by', String(36), ForeignKey('users.id'), nullable=True),
     Column('expires_at', DateTime(timezone=True), nullable=True),
     Column('created_at', DateTime(timezone=True), server_default=func.now()),
-    Column('updated_at', DateTime(timezone=True), onupdate=func.now()),
+    Column('updated_at', DateTime(timezone=True), server_default=func.now(), onupdate=func.now()),
     Index('idx_user_case_permissions_user_id', 'user_id'),
     Index('idx_user_case_permissions_case_id', 'case_id'),
     Index('idx_user_case_permissions_user_case', 'user_id', 'case_id', unique=True),
@@ -56,7 +56,7 @@ class LawFirm(Base):
     domain = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
     # Relationships
     users = relationship("User", back_populates="law_firm", cascade="all, delete-orphan")
@@ -81,7 +81,7 @@ class User(Base):
     is_admin = Column(Boolean, default=False)
     last_login = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
     # Relationships
     law_firm = relationship("LawFirm", back_populates="users")
@@ -125,7 +125,7 @@ class Case(Base):
     created_by = Column(String(36), ForeignKey('users.id'), nullable=False)
     case_metadata = Column(Text, nullable=True)  # JSON stored as text
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
     # Relationships
     law_firm = relationship("LawFirm", back_populates="cases")
@@ -161,7 +161,7 @@ class UserCasePermission(Base):
     granted_by = Column(String(36), ForeignKey('users.id'), nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
     # Relationships
     user = relationship("User", foreign_keys=[user_id], back_populates="permissions")

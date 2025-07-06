@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    container_name: clerk-postgres
+    environment:
+      POSTGRES_DB: clerk_legal_ai
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - clerk-network
+
+  # Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: clerk-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - clerk-network
+
+  # Clerk Backend API
+  clerk-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: clerk-backend
+    environment:
+      # Copy all environment variables from .env
+      - AUTH_ENABLED=false
+      - DEV_MOCK_TOKEN=dev-token-123456
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - DATABASE_URL=postgresql://postgres:postgres123@postgres:5432/clerk_legal_ai
+      - ENVIRONMENT=development
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - qdrant
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+      - ./main.py:/app/main.py
+      - ./.env:/app/.env
+    networks:
+      - clerk-network
+    command: python main.py
+
+volumes:
+  postgres_data:
+  qdrant_data:
+
+networks:
+  clerk-network:
+    driver: bridge

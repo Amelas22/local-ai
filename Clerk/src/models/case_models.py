@@ -29,6 +29,7 @@ class Case(BaseModel):
     name: str = Field(..., max_length=50, description="User-friendly case name")
     law_firm_id: str = Field(..., description="Law firm UUID")
     collection_name: str = Field(..., max_length=63, description="Hashed name for Qdrant")
+    description: Optional[str] = Field(None, description="Case description")
     status: CaseStatus = Field(default=CaseStatus.ACTIVE)
     created_by: str = Field(..., description="User UUID")
     created_at: datetime

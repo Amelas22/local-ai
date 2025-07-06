@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import axios from 'axios';
 import { useCaseSelection } from './useCaseSelection';
+import { tokenService } from '@/services/token.service';
 
 interface CreateCaseRequest {
   name: string;
@@ -47,8 +48,8 @@ export const useCaseManagement = () => {
           headers: {
             'Content-Type': 'application/json',
             // Include auth headers if available
-            ...(localStorage.getItem('access_token') && {
-              Authorization: `Bearer ${localStorage.getItem('access_token')}`,
+            ...(tokenService.getAccessToken() && {
+              Authorization: `Bearer ${tokenService.getAccessToken()}`,
             }),
           },
         }
@@ -83,8 +84,8 @@ export const useCaseManagement = () => {
           headers: {
             'Content-Type': 'application/json',
             'X-Case-ID': caseId,
-            ...(localStorage.getItem('access_token') && {
-              Authorization: `Bearer ${localStorage.getItem('access_token')}`,
+            ...(tokenService.getAccessToken() && {
+              Authorization: `Bearer ${tokenService.getAccessToken()}`,
             }),
           },
         }
@@ -119,8 +120,8 @@ export const useCaseManagement = () => {
           headers: {
             'Content-Type': 'application/json',
             'X-Case-ID': caseId,
-            ...(localStorage.getItem('access_token') && {
-              Authorization: `Bearer ${localStorage.getItem('access_token')}`,
+            ...(tokenService.getAccessToken() && {
+              Authorization: `Bearer ${tokenService.getAccessToken()}`,
             }),
           },
         }
@@ -148,8 +149,8 @@ export const useCaseManagement = () => {
         `${API_BASE_URL}/api/cases?${params.toString()}`,
         {
           headers: {
-            ...(localStorage.getItem('access_token') && {
-              Authorization: `Bearer ${localStorage.getItem('access_token')}`,
+            ...(tokenService.getAccessToken() && {
+              Authorization: `Bearer ${tokenService.getAccessToken()}`,
             }),
           },
         }

@@ -1,196 +1,274 @@
-import { supabase } from './supabase';
+import axios from 'axios';
 import { store } from '../store/store';
-import { loginSuccess, loginFailure, logout as logoutAction } from '../store/slices/authSlice';
-
-export interface LoginCredentials {
-  email: string;
-  password: string;
-}
-
-export interface SignUpData extends LoginCredentials {
-  name: string;
-}
+import { loginStart, loginSuccess, loginFailure, logout as logoutAction } from '../store/slices/authSlice';
+import { tokenService } from './token.service';
+import type { TokenResponse, User, LoginCredentials, SignUpData } from '@/types/auth.types';
+export type { LoginCredentials, SignUpData } from '@/types/auth.types';
 
 class AuthService {
-  constructor() {
-    // Set up auth state listener
-    supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session) {
-        // Fetch user profile from database
-        const { data: userData } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
+  private baseURL: string;
 
-        if (userData) {
-          store.dispatch(loginSuccess({
-            user: {
-              id: userData.id,
-              email: userData.email,
-              name: userData.name,
-              role: userData.role,
-            },
-            token: session.access_token,
-          }));
+  constructor() {
+    this.baseURL = import.meta.env.VITE_API_URL || '';
+    // Check for existing tokens on initialization
+    this.initializeAuth();
+  }
+
+  private async initializeAuth() {
+    const accessToken = tokenService.getAccessToken();
+    const refreshToken = tokenService.getRefreshToken();
+    
+    if (accessToken && refreshToken) {
+      // Verify token is still valid
+      if (!tokenService.isAccessTokenExpired()) {
+        try {
+          const user = await this.getCurrentUser();
+          if (user) {
+            store.dispatch(loginSuccess({
+              user,
+              token: accessToken,
+              refreshToken
+            }));
+          }
+        } catch (error) {
+          // Token invalid, clear it
+          tokenService.clearTokens();
         }
-      } else if (event === 'SIGNED_OUT') {
-        store.dispatch(logoutAction());
       }
-    });
+    }
   }
 
   async login(credentials: LoginCredentials) {
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: credentials.email,
-        password: credentials.password,
-      });
+      store.dispatch(loginStart());
+      
+      // Create FormData for OAuth2 compliance
+      const formData = new URLSearchParams();
+      formData.append('username', credentials.email); // OAuth2 uses 'username' field
+      formData.append('password', credentials.password);
 
-      if (error) throw error;
-
-      if (data.user && data.session) {
-        // Fetch user profile
-        const { data: userData, error: profileError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', data.user.id)
-          .single();
-
-        if (profileError) throw profileError;
-
-        // Track session start
-        await supabase.from('user_sessions').insert({
-          user_id: data.user.id,
-          started_at: new Date().toISOString(),
-        });
-
-        return {
-          user: {
-            id: userData.id,
-            email: userData.email,
-            name: userData.name,
-            role: userData.role,
+      // Make login request
+      const response = await axios.post<TokenResponse>(
+        `${this.baseURL}/api/auth/login`,
+        formData,
+        {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
           },
-          token: data.session.access_token,
-        };
-      }
+        }
+      );
 
-      throw new Error('Login failed');
-    } catch (error) {
-      store.dispatch(loginFailure(error instanceof Error ? error.message : 'Login failed'));
-      throw error;
+      const tokens = response.data;
+      
+      // Store tokens
+      tokenService.setTokens(tokens);
+      
+      // Get user info
+      const user = await this.getCurrentUser();
+      
+      // Update Redux state
+      store.dispatch(loginSuccess({
+        user,
+        token: tokens.access_token,
+        refreshToken: tokens.refresh_token
+      }));
+
+      return {
+        user,
+        token: tokens.access_token,
+      };
+    } catch (error: any) {
+      const message = error.response?.data?.detail || error.message || 'Login failed';
+      store.dispatch(loginFailure(message));
+      throw new Error(message);
     }
   }
 
   async signUp(data: SignUpData) {
     try {
-      // Sign up with Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: data.email,
-        password: data.password,
-      });
-
-      if (authError) throw authError;
-
-      if (authData.user) {
-        // Create user profile in database
-        const { error: profileError } = await supabase.from('users').insert({
-          id: authData.user.id,
+      // Make registration request
+      const response = await axios.post(
+        `${this.baseURL}/api/auth/register`,
+        {
           email: data.email,
+          password: data.password,
           name: data.name,
-          role: 'user', // Default role
-        });
+          law_firm_id: data.law_firm_id || 'default', // TODO: Get from context or form
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
 
-        if (profileError) throw profileError;
-
-        return {
-          user: authData.user,
-          message: 'Please check your email to confirm your account.',
-        };
-      }
-
-      throw new Error('Sign up failed');
-    } catch (error) {
-      throw error;
+      return {
+        user: response.data,
+        message: 'Account created successfully. Please log in.',
+      };
+    } catch (error: any) {
+      const message = error.response?.data?.detail || error.message || 'Sign up failed';
+      throw new Error(message);
     }
   }
 
   async logout() {
     try {
-      const session = await this.getSession();
-      if (session?.user) {
-        // Update session end time
-        await supabase
-          .from('user_sessions')
-          .update({ ended_at: new Date().toISOString() })
-          .eq('user_id', session.user.id)
-          .is('ended_at', null);
+      const token = tokenService.getAccessToken();
+      
+      if (token) {
+        // Call logout endpoint to revoke refresh tokens
+        await axios.post(
+          `${this.baseURL}/api/auth/logout`,
+          {},
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
       }
-
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
     } catch (error) {
+      // Log error but continue with local logout
       console.error('Logout error:', error);
-      throw error;
+    } finally {
+      // Always clear local tokens and state
+      tokenService.clearTokens();
+      store.dispatch(logoutAction());
     }
   }
 
-  async resetPassword(email: string) {
+  async resetPassword(_email: string) {
+    // TODO: Implement password reset when backend endpoint is available
+    throw new Error('Password reset not yet implemented');
+  }
+
+  async updatePassword(currentPassword: string, newPassword: string) {
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
+      const token = tokenService.getAccessToken();
+      
+      const response = await axios.post(
+        `${this.baseURL}/api/auth/change-password`,
+        {
+          current_password: currentPassword,
+          new_password: newPassword,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
 
-      if (error) throw error;
-
-      return { message: 'Password reset email sent. Please check your inbox.' };
-    } catch (error) {
-      throw error;
+      return response.data;
+    } catch (error: any) {
+      const message = error.response?.data?.detail || error.message || 'Password update failed';
+      throw new Error(message);
     }
   }
 
-  async updatePassword(newPassword: string) {
-    try {
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword,
-      });
-
-      if (error) throw error;
-
-      return { message: 'Password updated successfully.' };
-    } catch (error) {
-      throw error;
+  async getCurrentUser(): Promise<User> {
+    const token = tokenService.getAccessToken();
+    
+    if (!token) {
+      throw new Error('No authentication token');
     }
+
+    const response = await axios.get<User>(
+      `${this.baseURL}/api/auth/me`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    return response.data;
   }
 
-  async getSession() {
-    const { data: { session } } = await supabase.auth.getSession();
-    return session;
+  async refreshAccessToken(): Promise<TokenResponse> {
+    const refreshToken = tokenService.getRefreshToken();
+    
+    if (!refreshToken) {
+      throw new Error('No refresh token available');
+    }
+
+    const response = await axios.post<TokenResponse>(
+      `${this.baseURL}/api/auth/refresh`,
+      {
+        refresh_token: refreshToken,
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    const tokens = response.data;
+    tokenService.setTokens(tokens);
+    
+    return tokens;
   }
 
-  async refreshSession() {
-    const { data: { session }, error } = await supabase.auth.refreshSession();
-    if (error) throw error;
-    return session;
-  }
-
-  async isAuthenticated(): Promise<boolean> {
-    const session = await this.getSession();
-    return !!session;
+  isAuthenticated(): boolean {
+    return tokenService.hasTokens() && !tokenService.isAccessTokenExpired();
   }
 }
 
-// Export the auth service based on environment
-export let authService: AuthService;
+// Create a promise-based auth service manager
+class AuthServiceManager {
+  private authServicePromise: Promise<AuthService>;
+  private authServiceInstance: AuthService | null = null;
 
-// Initialize auth service based on environment
-if (import.meta.env.VITE_AUTH_ENABLED === 'true') {
-  authService = new AuthService();
-} else {
-  // In development, use mock auth service
-  console.log('Auth disabled - using development auth service');
-  import('./auth.service.dev').then(module => {
-    authService = module.authService as any;
-  });
+  constructor() {
+    this.authServicePromise = this.initializeAuthService();
+  }
+
+  private async initializeAuthService(): Promise<AuthService> {
+    if (import.meta.env.VITE_AUTH_ENABLED === 'true') {
+      this.authServiceInstance = new AuthService();
+    } else {
+      // In development, use mock auth service
+      console.log('Auth disabled - using development auth service');
+      const module = await import('./auth.service.dev');
+      this.authServiceInstance = module.authService as any;
+      // Wait for dev auth to be ready
+      await (this.authServiceInstance as any).waitForReady();
+    }
+    return this.authServiceInstance!;
+  }
+
+  async getAuthService(): Promise<AuthService> {
+    if (this.authServiceInstance) {
+      return this.authServiceInstance;
+    }
+    return this.authServicePromise;
+  }
+
+  // Convenience method to check if auth is ready
+  isReady(): boolean {
+    return this.authServiceInstance !== null;
+  }
 }
+
+// Export a singleton instance
+const authServiceManager = new AuthServiceManager();
+
+// Export both the manager and a proxy that will wait for initialization
+export { authServiceManager };
+
+// Export a proxy that maintains backward compatibility but logs warnings
+export const authService = new Proxy({} as AuthService, {
+  get(_target, prop) {
+    if (!authServiceManager.isReady()) {
+      console.warn(`Auth service accessed before initialization. Property: ${String(prop)}`);
+    }
+    const service = (authServiceManager as any).authServiceInstance;
+    if (service) {
+      return service[prop];
+    }
+    throw new Error('Auth service not initialized. Use authServiceManager.getAuthService() for async initialization.');
+  }
+});

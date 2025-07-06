@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { Box, CircularProgress } from '@mui/material';
 import { useAppSelector } from '@/hooks/redux';
+import { tokenService } from '@/services/token.service';
 import { authService } from '@/services/auth.service';
+import { store } from '@/store/store';
+import { loginSuccess } from '@/store/slices/authSlice';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -17,10 +20,43 @@ const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const authenticated = await authService.isAuthenticated();
-        if (!authenticated && isAuthenticated) {
-          // Token might be expired, try to refresh
-          await authService.refreshSession();
+        // Check if we have tokens but no Redux state (page refresh)
+        if (!isAuthenticated && tokenService.hasTokens()) {
+          // Check if access token is expired
+          if (tokenService.isAccessTokenExpired()) {
+            // Try to refresh the token
+            try {
+              const tokens = await authService.refreshAccessToken();
+              const user = await authService.getCurrentUser();
+              
+              store.dispatch(loginSuccess({
+                user,
+                token: tokens.access_token,
+                refreshToken: tokens.refresh_token
+              }));
+            } catch (error) {
+              // Refresh failed, clear tokens
+              tokenService.clearTokens();
+            }
+          } else {
+            // Token is valid, restore user session
+            try {
+              const user = await authService.getCurrentUser();
+              const accessToken = tokenService.getAccessToken();
+              const refreshToken = tokenService.getRefreshToken();
+              
+              if (user && accessToken && refreshToken) {
+                store.dispatch(loginSuccess({
+                  user,
+                  token: accessToken,
+                  refreshToken
+                }));
+              }
+            } catch (error) {
+              // Failed to get user, clear tokens
+              tokenService.clearTokens();
+            }
+          }
         }
       } catch (error) {
         console.error('Auth check failed:', error);
@@ -30,7 +66,7 @@ const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
     };
 
     checkAuth();
-  }, [isAuthenticated]);
+  }, []);
 
   if (isChecking) {
     return (
@@ -51,7 +87,7 @@ const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
   }
 
   // Check role-based access
-  if (requiredRole && user?.role !== requiredRole && user?.role !== 'admin') {
+  if (requiredRole && user && !user.is_admin && user.law_firm_id !== requiredRole) {
     return <Navigate to="/unauthorized" replace />;
   }
 

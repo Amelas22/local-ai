@@ -1,10 +1,10 @@
-# Docker Compose override for Clerk JWT authentication
+# Docker Compose override for Clerk JWT authentication (FIXED)
 # This adds the necessary environment variables for PostgreSQL + JWT
 
 services:
   clerk:
     environment:
-      # PostgreSQL Database Configuration
+      # PostgreSQL Database Configuration - FIXED for Docker network
       - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/postgres
       
       # JWT Authentication Configuration
@@ -20,7 +20,7 @@ services:
       # Shared Collections Configuration
       - SHARED_COLLECTIONS=${SHARED_COLLECTIONS}
       
-      # Auth Settings for Development
+      # Authentication Settings
       - AUTH_ENABLED=false
       - DEV_MOCK_TOKEN=dev-token-123456
       
