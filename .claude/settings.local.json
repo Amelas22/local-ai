@@ -73,7 +73,10 @@
       "Bash(npm run lint)",
       "Bash(./venv/bin/python:*)",
       "Bash(./venv/bin/ruff check src/middleware/auth_middleware.py)",
-      "Bash(bash:*)"
+      "Bash(bash:*)",
+      "Bash(for file in docker-compose*.yml)",
+      "Bash(do echo \"Fixing $file\")",
+      "Bash(done)"
     ],
     "deny": []
   }

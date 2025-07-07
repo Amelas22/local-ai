@@ -1,7 +1,6 @@
 import { useState, useCallback } from 'react';
-import axios from 'axios';
 import { useCaseSelection } from './useCaseSelection';
-import { tokenService } from '@/services/token.service';
+import { apiClient } from '@/services/utils/apiClient';
 
 interface CreateCaseRequest {
   name: string;
@@ -41,18 +40,9 @@ export const useCaseManagement = () => {
     setError(null);
 
     try {
-      const response = await axios.post<Case>(
+      const response = await apiClient.post<Case>(
         `${API_BASE_URL}/api/cases`,
-        caseData,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            // Include auth headers if available
-            ...(tokenService.getAccessToken() && {
-              Authorization: `Bearer ${tokenService.getAccessToken()}`,
-            }),
-          },
-        }
+        caseData
       );
 
       // Refresh the case list after successful creation
@@ -77,17 +67,13 @@ export const useCaseManagement = () => {
     setError(null);
 
     try {
-      const response = await axios.put<Case>(
+      const response = await apiClient.put<Case>(
         `${API_BASE_URL}/api/cases/${caseId}`,
         { status },
         {
           headers: {
-            'Content-Type': 'application/json',
-            'X-Case-ID': caseId,
-            ...(tokenService.getAccessToken() && {
-              Authorization: `Bearer ${tokenService.getAccessToken()}`,
-            }),
-          },
+            'X-Case-ID': caseId
+          }
         }
       );
 
@@ -113,17 +99,13 @@ export const useCaseManagement = () => {
     setError(null);
 
     try {
-      await axios.post(
+      await apiClient.post(
         `${API_BASE_URL}/api/cases/${caseId}/permissions`,
         permissionData,
         {
           headers: {
-            'Content-Type': 'application/json',
-            'X-Case-ID': caseId,
-            ...(tokenService.getAccessToken() && {
-              Authorization: `Bearer ${tokenService.getAccessToken()}`,
-            }),
-          },
+            'X-Case-ID': caseId
+          }
         }
       );
     } catch (err: any) {
@@ -145,15 +127,8 @@ export const useCaseManagement = () => {
       if (lawFirmId) params.append('law_firm_id', lawFirmId);
       if (includeArchived) params.append('include_archived', 'true');
 
-      const response = await axios.get<{ cases: Case[] }>(
-        `${API_BASE_URL}/api/cases?${params.toString()}`,
-        {
-          headers: {
-            ...(tokenService.getAccessToken() && {
-              Authorization: `Bearer ${tokenService.getAccessToken()}`,
-            }),
-          },
-        }
+      const response = await apiClient.get<{ cases: Case[] }>(
+        `${API_BASE_URL}/api/cases?${params.toString()}`
       );
 
       return response.data.cases || [];

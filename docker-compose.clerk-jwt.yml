@@ -1,6 +1,3 @@
-# Docker Compose override for Clerk JWT authentication
-# This adds the necessary environment variables for PostgreSQL + JWT
-
 services:
   clerk:
     environment:

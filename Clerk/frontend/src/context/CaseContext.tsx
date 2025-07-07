@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactElement, ReactNode } from 'react';
 import { useWebSocketContext } from './WebSocketContext';
+import { apiClient } from '@/services/utils/apiClient';
 
 // Case information interface
 export interface CaseInfo {
@@ -43,12 +44,8 @@ export function CaseProvider({ children }: CaseProviderProps): ReactElement {
     setError(null);
     
     try {
-      const response = await fetch('/api/cases');
-      if (!response.ok) {
-        throw new Error('Failed to fetch cases');
-      }
-      
-      const data = await response.json();
+      const response = await apiClient.get('/api/cases');
+      const data = response.data;
       
       // Ensure data.cases is an array before mapping
       const cases = data.cases || [];

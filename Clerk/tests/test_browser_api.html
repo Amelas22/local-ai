@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clerk API Test</title>
+</head>
+<body>
+    <h1>Clerk Frontend API Test</h1>
+    <div id="status">Testing...</div>
+    <pre id="result"></pre>
+    
+    <script>
+        // Test 1: Basic fetch without headers
+        async function testBasicFetch() {
+            console.log('Test 1: Basic fetch without headers');
+            try {
+                const response = await fetch('/api/cases');
+                const data = await response.json();
+                return { success: response.ok, status: response.status, data };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        }
+        
+        // Test 2: Fetch with Authorization header
+        async function testAuthFetch() {
+            console.log('Test 2: Fetch with Authorization header');
+            try {
+                const response = await fetch('/api/cases', {
+                    headers: {
+                        'Authorization': 'Bearer dev-token-123456'
+                    }
+                });
+                const data = await response.json();
+                return { success: response.ok, status: response.status, data };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        }
+        
+        // Run tests
+        async function runTests() {
+            const statusEl = document.getElementById('status');
+            const resultEl = document.getElementById('result');
+            
+            statusEl.textContent = 'Running tests...';
+            
+            const results = {
+                basicFetch: await testBasicFetch(),
+                authFetch: await testAuthFetch(),
+                location: window.location.href,
+                origin: window.location.origin
+            };
+            
+            resultEl.textContent = JSON.stringify(results, null, 2);
+            
+            if (results.authFetch.success) {
+                statusEl.textContent = '✓ API is accessible with auth header';
+                statusEl.style.color = 'green';
+            } else if (results.basicFetch.success) {
+                statusEl.textContent = '✓ API is accessible without auth header';
+                statusEl.style.color = 'orange';
+            } else {
+                statusEl.textContent = '✗ API is not accessible';
+                statusEl.style.color = 'red';
+            }
+        }
+        
+        // Run tests when page loads
+        runTests();
+    </script>
+</body>
+</html>

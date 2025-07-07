@@ -1,7 +1,4 @@
-# Docker Compose override to expose PostgreSQL for development
-# This file exposes PostgreSQL on the host machine for database initialization
-# and development access
 services:
   postgres:
     ports:
-      - "${POSTGRES_HOST_PORT:-5433}:5432"  # Expose PostgreSQL on host machine (default 5433 to avoid conflicts)
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
