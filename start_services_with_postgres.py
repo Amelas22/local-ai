@@ -14,6 +14,8 @@ import time
 import argparse
 import platform
 import sys
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 def run_command(cmd, cwd=None):
     """Run a shell command and print it."""
@@ -54,19 +56,59 @@ def stop_existing_containers(profile=None):
     cmd.extend(["-f", "docker-compose.yml", "-f", "docker-compose.clerk.yml", "down"])
     run_command(cmd)
 
-def start_supabase(environment=None, rebuild=False):
+def rebuild_container(container_name, profile=None):
+    """Rebuild a specific container without cache."""
+    print(f"Rebuilding container: {container_name}")
+    
+    # Map container names to their compose files
+    compose_files_map = {
+        "clerk": ["docker-compose.clerk.yml"],
+        "supabase": ["supabase/docker/docker-compose.yml"],
+        "all": None  # Special case for all containers
+    }
+    
+    if container_name == "all":
+        # Rebuild all containers
+        print("Rebuilding all containers...")
+        # Rebuild Supabase
+        cmd = ["docker", "compose", "-p", "localai", "-f", "supabase/docker/docker-compose.yml", "build", "--no-cache"]
+        run_command(cmd)
+        
+        # Rebuild local AI services
+        cmd = ["docker", "compose", "-p", "localai"]
+        if profile and profile != "none":
+            cmd.extend(["--profile", profile])
+        cmd.extend(["-f", "docker-compose.yml", "-f", "docker-compose.clerk.yml", "-f", "docker-compose.clerk-jwt.yml", "build", "--no-cache"])
+        run_command(cmd)
+    else:
+        # Rebuild specific container
+        if container_name in compose_files_map:
+            compose_files = compose_files_map[container_name]
+            cmd = ["docker", "compose", "-p", "localai"]
+            if profile and profile != "none" and container_name != "supabase":
+                cmd.extend(["--profile", profile])
+            for cf in compose_files:
+                cmd.extend(["-f", cf])
+            cmd.extend(["build", "--no-cache"])
+            run_command(cmd)
+        else:
+            # Try to rebuild any service by name
+            cmd = ["docker", "compose", "-p", "localai"]
+            if profile and profile != "none":
+                cmd.extend(["--profile", profile])
+            cmd.extend(["-f", "docker-compose.yml", "-f", "docker-compose.clerk.yml", "build", "--no-cache", container_name])
+            run_command(cmd)
+
+def start_supabase(environment=None):
     """Start the Supabase services (using its compose file)."""
     print("Starting Supabase services...")
     cmd = ["docker", "compose", "-p", "localai", "-f", "supabase/docker/docker-compose.yml"]
     if environment and environment == "public":
         cmd.extend(["-f", "docker-compose.override.public.supabase.yml"])
-    cmd.extend(["up"])
-    if rebuild:
-        cmd.extend(["--build", "--force-recreate"])
-    cmd.append("-d")
+    cmd.extend(["up", "-d"])
     run_command(cmd)
 
-def start_local_ai(profile=None, environment=None, rebuild=False, expose_postgres=True):
+def start_local_ai(profile=None, environment=None, expose_postgres=True):
     """Start the local AI services (using its compose file)."""
     print("Starting local AI services (including Clerk frontend)...")
     cmd = ["docker", "compose", "-p", "localai"]
@@ -89,10 +131,7 @@ def start_local_ai(profile=None, environment=None, rebuild=False, expose_postgre
         cmd.extend(["-f", "docker-compose.override.private.yml"])
     if environment and environment == "public":
         cmd.extend(["-f", "docker-compose.override.public.yml"])
-    cmd.extend(["up"])
-    if rebuild:
-        cmd.extend(["--build", "--force-recreate"])
-    cmd.append("-d")
+    cmd.extend(["up", "-d"])
     run_command(cmd)
 
 def wait_for_postgres():
@@ -119,25 +158,171 @@ def wait_for_postgres():
     print("Warning: PostgreSQL may not be ready after waiting")
     return False
 
-def init_clerk_database():
-    """Initialize the Clerk database if needed."""
-    print("\nChecking if Clerk database needs initialization...")
-    init_db_path = os.path.join("Clerk", "init_db.py")
+def get_db_connection():
+    """Get a connection to the PostgreSQL database."""
+    try:
+        conn = psycopg2.connect(
+            host="localhost",
+            port=5432,
+            database="postgres",
+            user="postgres",
+            password="postgres"
+        )
+        return conn
+    except Exception as e:
+        print(f"Error connecting to database: {e}")
+        return None
+
+def check_database_schema(conn):
+    """Check if the database schema is properly initialized."""
+    required_tables = ['law_firms', 'users', 'cases', 'case_permissions']
+    missing_tables = []
+    incomplete_tables = {}
     
-    if os.path.exists(init_db_path):
-        print("Found Clerk database initialization script.")
-        response = input("Would you like to initialize the Clerk database now? (y/N): ")
-        if response.lower() == 'y':
-            print("Initializing Clerk database...")
-            os.chdir("Clerk")
-            run_command([sys.executable, "init_db.py"])
-            os.chdir("..")
-            print("Clerk database initialized successfully!")
-        else:
-            print("Skipping database initialization. You can run it later with:")
-            print("  cd Clerk && python init_db.py")
-    else:
-        print("Clerk database initialization script not found.")
+    with conn.cursor() as cur:
+        # Check which tables exist
+        for table in required_tables:
+            cur.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = %s
+                );
+            """, (table,))
+            exists = cur.fetchone()[0]
+            if not exists:
+                missing_tables.append(table)
+        
+        # Check table structures for existing tables
+        if 'cases' in required_tables and 'cases' not in missing_tables:
+            # Check if cases table has all required columns
+            cur.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'cases' 
+                AND table_schema = 'public';
+            """)
+            columns = [row[0] for row in cur.fetchall()]
+            required_columns = ['id', 'name', 'law_firm_id', 'collection_name', 
+                              'description', 'status', 'created_by', 'created_at', 
+                              'updated_at', 'metadata']
+            missing_columns = [col for col in required_columns if col not in columns]
+            if missing_columns:
+                incomplete_tables['cases'] = missing_columns
+    
+    return missing_tables, incomplete_tables
+
+def init_database(conn):
+    """Initialize the database with the SQL script."""
+    print("Initializing database with dev data...")
+    sql_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "init_clerk_db.sql")
+    
+    if not os.path.exists(sql_file):
+        print(f"Error: SQL initialization file not found at {sql_file}")
+        return False
+    
+    try:
+        with open(sql_file, 'r') as f:
+            sql_content = f.read()
+        
+        with conn.cursor() as cur:
+            cur.execute(sql_content)
+            conn.commit()
+        
+        print("Database initialized successfully with dev data!")
+        return True
+    except Exception as e:
+        print(f"Error initializing database: {e}")
+        conn.rollback()
+        return False
+
+def run_migration(conn, incomplete_tables):
+    """Run migration to add missing columns to existing tables."""
+    print("Running database migration to add missing columns...")
+    
+    try:
+        with conn.cursor() as cur:
+            for table, missing_columns in incomplete_tables.items():
+                print(f"Updating table '{table}' with missing columns: {missing_columns}")
+                
+                if table == 'cases':
+                    # Add missing columns to cases table
+                    if 'metadata' in missing_columns:
+                        cur.execute("ALTER TABLE cases ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;")
+                    if 'collection_name' in missing_columns:
+                        cur.execute("ALTER TABLE cases ADD COLUMN IF NOT EXISTS collection_name VARCHAR(255) UNIQUE;")
+                    if 'status' in missing_columns:
+                        cur.execute("ALTER TABLE cases ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active';")
+                    if 'description' in missing_columns:
+                        cur.execute("ALTER TABLE cases ADD COLUMN IF NOT EXISTS description TEXT;")
+                    if 'updated_at' in missing_columns:
+                        cur.execute("ALTER TABLE cases ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();")
+                        # Also add the trigger for updated_at
+                        cur.execute("""
+                            CREATE OR REPLACE FUNCTION update_updated_at_column()
+                            RETURNS TRIGGER AS $$
+                            BEGIN
+                                NEW.updated_at = NOW();
+                                RETURN NEW;
+                            END;
+                            $$ language 'plpgsql';
+                        """)
+                        cur.execute("""
+                            CREATE TRIGGER update_cases_updated_at BEFORE UPDATE ON cases
+                            FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+                        """)
+            
+            conn.commit()
+            print("Migration completed successfully!")
+            return True
+    except Exception as e:
+        print(f"Error during migration: {e}")
+        conn.rollback()
+        return False
+
+def check_and_init_database():
+    """Check database status and initialize/migrate as needed."""
+    print("\nChecking PostgreSQL database status...")
+    
+    conn = get_db_connection()
+    if not conn:
+        print("Could not connect to database. Skipping initialization.")
+        return
+    
+    try:
+        missing_tables, incomplete_tables = check_database_schema(conn)
+        
+        if not missing_tables and not incomplete_tables:
+            print("Database is properly initialized!")
+            # Check if dev data exists
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT COUNT(*) as count FROM law_firms WHERE id = 'dev-firm-123';")
+                result = cur.fetchone()
+                if result['count'] == 0:
+                    print("Dev data not found. Adding dev law firm and user...")
+                    init_database(conn)
+        elif missing_tables == ['law_firms', 'users', 'cases', 'case_permissions']:
+            # All tables missing - fresh database
+            print("Database is empty. Initializing with schema and dev data...")
+            init_database(conn)
+        elif missing_tables:
+            # Some tables missing - partial setup
+            print(f"Missing tables: {missing_tables}")
+            print("Running full initialization...")
+            init_database(conn)
+        elif incomplete_tables:
+            # Tables exist but missing columns
+            print(f"Incomplete tables found: {list(incomplete_tables.keys())}")
+            run_migration(conn, incomplete_tables)
+            # After migration, ensure dev data exists
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT COUNT(*) as count FROM law_firms WHERE id = 'dev-firm-123';")
+                result = cur.fetchone()
+                if result['count'] == 0:
+                    print("Adding dev data after migration...")
+                    init_database(conn)
+    finally:
+        conn.close()
 
 def generate_searxng_secret_key():
     """Generate a secret key for SearXNG based on the current platform."""
@@ -223,7 +408,7 @@ def wait_for_services():
         "n8n": ("http://localhost:5678/", "n8n"),
         "open-webui": ("http://localhost:3000/", "Open WebUI"),
         "searxng": ("http://localhost:4000/", "SearXNG"),
-        "clerk": ("http://localhost:3001/", "Clerk Frontend")
+        "clerk": ("http://localhost:8010/", "Clerk Frontend (via Caddy)")
     }
     
     print("\nChecking service availability:")
@@ -251,7 +436,7 @@ def wait_for_services():
     
     print("\nYou can now access:")
     print("- Open WebUI (Chat Interface): http://localhost:3000")
-    print("- Clerk Legal AI Frontend: http://localhost:3001") 
+    print("- Clerk Legal AI Frontend: http://localhost:8010") 
     print("- n8n Workflow Automation: http://localhost:5678")
     print("- SearXNG Search: http://localhost:4000")
     print("- Qdrant Vector Database: http://localhost:6333/dashboard")
@@ -266,8 +451,8 @@ def main():
                       help="Environment override file to use (default: none)")
     parser.add_argument("--skip-supabase", action="store_true",
                       help="Skip starting Supabase services")
-    parser.add_argument("--rebuild", action="store_true",
-                      help="Force rebuild of all containers")
+    parser.add_argument("--rebuild", type=str, metavar="CONTAINER",
+                      help="Rebuild specific container without cache (e.g., 'clerk', 'all')")
     parser.add_argument("--no-postgres-expose", action="store_true",
                       help="Don't expose PostgreSQL on host (disables Clerk JWT auth)")
     args = parser.parse_args()
@@ -287,6 +472,10 @@ def main():
             print("Falling back to CPU profile.")
             args.profile = "cpu"
 
+    # Handle rebuild flag if provided
+    if args.rebuild:
+        rebuild_container(args.rebuild, args.profile)
+
     # Stop existing containers first
     stop_existing_containers(args.profile)
 
@@ -295,8 +484,8 @@ def main():
         clone_supabase_repo()
         prepare_supabase_env()
         
-        # Start Supabase
-        start_supabase(args.environment, args.rebuild)
+        # Start Supabase (step 1: start services in order)
+        start_supabase(args.environment)
         
         # Give Supabase time to initialize (it needs to be ready before local AI services)
         print("Waiting 20 seconds for Supabase to initialize...")
@@ -305,18 +494,25 @@ def main():
     # Generate SearXNG secret key if needed
     generate_searxng_secret_key()
 
-    # Start local AI services with PostgreSQL exposed by default
-    start_local_ai(args.profile, args.environment, args.rebuild, 
-                   expose_postgres=not args.no_postgres_expose)
+    # Start local AI services with PostgreSQL exposed by default (step 2)
+    start_local_ai(args.profile, args.environment, expose_postgres=not args.no_postgres_expose)
     
     # Wait for PostgreSQL if exposed
     if not args.no_postgres_expose:
         if wait_for_postgres():
-            # Ask about database initialization
-            init_clerk_database()
+            # Check and initialize database (steps 3-6)
+            check_and_init_database()
     
     # Wait for all services with improved UI
     wait_for_services()
 
 if __name__ == "__main__":
+    # Check if psycopg2 is installed
+    try:
+        import psycopg2
+    except ImportError:
+        print("Error: psycopg2 is required for database operations.")
+        print("Please install it with: pip install psycopg2-binary")
+        sys.exit(1)
+    
     main()
