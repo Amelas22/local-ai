@@ -2,7 +2,7 @@ services:
   clerk:
     environment:
       # PostgreSQL Database Configuration
-      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/postgres
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/clerk
       
       # JWT Authentication Configuration
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}

@@ -144,7 +144,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         result = await db.execute(
                             select(User)
                             .options(selectinload(User.law_firm))
-                            .where(User.id == "dev-user-123")
+                            .where(User.id == "123e4567-e89b-12d3-a456-426614174001")
                         )
                         dev_user = result.scalar_one_or_none()
                         
@@ -160,25 +160,25 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         else:
                             # Fallback to mock user if dev user doesn't exist
                             logger.warning("Development mode: Dev user not found in database, using mock user")
-                            request.state.user_id = "dev-user-123"
+                            request.state.user_id = "123e4567-e89b-12d3-a456-426614174001"
                             request.state.user_email = "dev@clerk.ai"
-                            request.state.user_name = "Development User"
-                            request.state.law_firm_id = "dev-firm-123"
+                            request.state.user_name = "Dev User"
+                            request.state.law_firm_id = "123e4567-e89b-12d3-a456-426614174000"
                             request.state.is_admin = True
                             
                             # Create a mock user object with law firm for compatibility
                             from src.database.models import User, LawFirm
                             mock_law_firm = LawFirm(
-                                id="dev-firm-123",
+                                id="123e4567-e89b-12d3-a456-426614174000",
                                 name="Development Law Firm",
                                 domain="dev.clerk.ai",
                                 is_active=True
                             )
                             mock_user = User(
-                                id="dev-user-123",
+                                id="123e4567-e89b-12d3-a456-426614174001",
                                 email="dev@clerk.ai",
-                                name="Development User",
-                                law_firm_id="dev-firm-123",
+                                name="Dev User",
+                                law_firm_id="123e4567-e89b-12d3-a456-426614174000",
                                 law_firm=mock_law_firm,
                                 is_active=True,
                                 is_admin=True,

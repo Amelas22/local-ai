@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     ports:
@@ -8,7 +6,7 @@ services:
   clerk:
     environment:
       # CRITICAL: Override DATABASE_URL for Docker network
-      - DATABASE_URL=postgresql://postgres:80c109c09667f3311facc86b57167644d85f0d5afd523cbcc19899d54a22cf9e@postgres:5432/postgres
+      - DATABASE_URL=postgresql://postgres:80c109c09667f3311facc86b57167644d85f0d5afd523cbcc19899d54a22cf9e@postgres:5432/clerk
       - AUTH_ENABLED=false
       - DEV_MOCK_TOKEN=dev-token-123456
     depends_on:

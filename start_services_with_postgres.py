@@ -16,6 +16,10 @@ import platform
 import sys
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 def run_command(cmd, cwd=None):
     """Run a shell command and print it."""
@@ -108,9 +112,13 @@ def start_supabase(environment=None):
     cmd.extend(["up", "-d"])
     run_command(cmd)
 
-def start_local_ai(profile=None, environment=None, expose_postgres=True):
+def start_local_ai(profile=None, environment=None, expose_postgres=True, exclude_clerk=False):
     """Start the local AI services (using its compose file)."""
-    print("Starting local AI services (including Clerk frontend)...")
+    if exclude_clerk:
+        print("Starting local AI services (excluding Clerk for now)...")
+    else:
+        print("Starting local AI services (including Clerk frontend)...")
+    
     cmd = ["docker", "compose", "-p", "localai"]
     if profile and profile != "none":
         cmd.extend(["--profile", profile])
@@ -131,8 +139,24 @@ def start_local_ai(profile=None, environment=None, expose_postgres=True):
         cmd.extend(["-f", "docker-compose.override.private.yml"])
     if environment and environment == "public":
         cmd.extend(["-f", "docker-compose.override.public.yml"])
-    cmd.extend(["up", "-d"])
+    
+    if exclude_clerk:
+        # Start all services except clerk
+        cmd.extend(["up", "-d", "--scale", "clerk=0"])
+    else:
+        cmd.extend(["up", "-d"])
+    
     run_command(cmd)
+
+def get_compose_files(profile=None, expose_postgres=True):
+    """Get the list of compose files to use."""
+    compose_files = ["-f", "docker-compose.yml", "-f", "docker-compose.clerk.yml", 
+                     "-f", "docker-compose.clerk-jwt.yml"]
+    
+    if expose_postgres:
+        compose_files.extend(["-f", "docker-compose.postgres-expose.yml"])
+    
+    return compose_files
 
 def wait_for_postgres():
     """Wait for PostgreSQL to be ready."""
@@ -158,15 +182,18 @@ def wait_for_postgres():
     print("Warning: PostgreSQL may not be ready after waiting")
     return False
 
-def get_db_connection():
+def get_db_connection(database="clerk"):
     """Get a connection to the PostgreSQL database."""
     try:
+        # Get password from environment or use default
+        postgres_password = os.getenv('POSTGRES_PASSWORD', 'postgres')
+        
         conn = psycopg2.connect(
             host="localhost",
-            port=5432,
-            database="postgres",
+            port=5433,  # Changed to match the exposed port
+            database=database,
             user="postgres",
-            password="postgres"
+            password=postgres_password
         )
         return conn
     except Exception as e:
@@ -175,7 +202,9 @@ def get_db_connection():
 
 def check_database_schema(conn):
     """Check if the database schema is properly initialized."""
-    required_tables = ['law_firms', 'users', 'cases', 'case_permissions']
+    # Updated to match Clerk's actual schema
+    required_tables = ['law_firms', 'users', 'cases', 'user_case_permissions', 
+                      'user_case_permissions_orm', 'refresh_tokens', 'alembic_version']
     missing_tables = []
     incomplete_tables = {}
     
@@ -193,9 +222,23 @@ def check_database_schema(conn):
             if not exists:
                 missing_tables.append(table)
         
-        # Check table structures for existing tables
+        # Check if users table has password_hash column (critical for JWT auth)
+        if 'users' in required_tables and 'users' not in missing_tables:
+            cur.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'users' 
+                AND table_schema = 'public';
+            """)
+            columns = [row[0] for row in cur.fetchall()]
+            required_columns = ['id', 'email', 'password_hash', 'name', 'law_firm_id', 
+                              'is_active', 'is_admin', 'last_login', 'created_at', 'updated_at']
+            missing_columns = [col for col in required_columns if col not in columns]
+            if missing_columns:
+                incomplete_tables['users'] = missing_columns
+        
+        # Check if cases table has all required columns
         if 'cases' in required_tables and 'cases' not in missing_tables:
-            # Check if cases table has all required columns
             cur.execute("""
                 SELECT column_name 
                 FROM information_schema.columns 
@@ -205,10 +248,20 @@ def check_database_schema(conn):
             columns = [row[0] for row in cur.fetchall()]
             required_columns = ['id', 'name', 'law_firm_id', 'collection_name', 
                               'description', 'status', 'created_by', 'created_at', 
-                              'updated_at', 'metadata']
+                              'updated_at', 'case_metadata']
             missing_columns = [col for col in required_columns if col not in columns]
             if missing_columns:
                 incomplete_tables['cases'] = missing_columns
+        
+        # Check if ENUMs exist
+        cur.execute("""
+            SELECT typname FROM pg_type 
+            WHERE typname IN ('permissionlevel', 'casestatus') 
+            AND typtype = 'e';
+        """)
+        existing_enums = [row[0] for row in cur.fetchall()]
+        if len(existing_enums) < 2:
+            incomplete_tables['enums'] = ['permissionlevel', 'casestatus']
     
     return missing_tables, incomplete_tables
 
@@ -242,35 +295,93 @@ def run_migration(conn, incomplete_tables):
     
     try:
         with conn.cursor() as cur:
+            # First ensure update trigger function exists
+            cur.execute("""
+                CREATE OR REPLACE FUNCTION update_updated_at_column()
+                RETURNS TRIGGER AS $$
+                BEGIN
+                    NEW.updated_at = NOW();
+                    RETURN NEW;
+                END;
+                $$ language 'plpgsql';
+            """)
+            
             for table, missing_columns in incomplete_tables.items():
                 print(f"Updating table '{table}' with missing columns: {missing_columns}")
                 
-                if table == 'cases':
+                if table == 'users':
+                    # Add missing columns to users table
+                    if 'password_hash' in missing_columns:
+                        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255) NOT NULL DEFAULT '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewKyNiGHTyF4JXH.';")
+                    if 'is_active' in missing_columns:
+                        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;")
+                    if 'is_admin' in missing_columns:
+                        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false;")
+                    if 'last_login' in missing_columns:
+                        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMPTZ;")
+                    if 'updated_at' in missing_columns:
+                        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();")
+                        cur.execute("""
+                            DROP TRIGGER IF EXISTS update_users_updated_at ON users;
+                            CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
+                            FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+                        """)
+                
+                elif table == 'cases':
                     # Add missing columns to cases table
-                    if 'metadata' in missing_columns:
-                        cur.execute("ALTER TABLE cases ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;")
+                    if 'case_metadata' in missing_columns:
+                        cur.execute("ALTER TABLE cases ADD COLUMN IF NOT EXISTS case_metadata TEXT;")
                     if 'collection_name' in missing_columns:
-                        cur.execute("ALTER TABLE cases ADD COLUMN IF NOT EXISTS collection_name VARCHAR(255) UNIQUE;")
+                        cur.execute("ALTER TABLE cases ADD COLUMN IF NOT EXISTS collection_name VARCHAR(100) UNIQUE;")
                     if 'status' in missing_columns:
-                        cur.execute("ALTER TABLE cases ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active';")
+                        # First create enum if it doesn't exist
+                        cur.execute("""
+                            DO $$ BEGIN
+                                CREATE TYPE casestatus AS ENUM ('active', 'archived', 'closed', 'deleted');
+                            EXCEPTION
+                                WHEN duplicate_object THEN null;
+                            END $$;
+                        """)
+                        cur.execute("ALTER TABLE cases ADD COLUMN IF NOT EXISTS status casestatus DEFAULT 'active';")
                     if 'description' in missing_columns:
                         cur.execute("ALTER TABLE cases ADD COLUMN IF NOT EXISTS description TEXT;")
                     if 'updated_at' in missing_columns:
                         cur.execute("ALTER TABLE cases ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();")
-                        # Also add the trigger for updated_at
                         cur.execute("""
-                            CREATE OR REPLACE FUNCTION update_updated_at_column()
-                            RETURNS TRIGGER AS $$
-                            BEGIN
-                                NEW.updated_at = NOW();
-                                RETURN NEW;
-                            END;
-                            $$ language 'plpgsql';
-                        """)
-                        cur.execute("""
+                            DROP TRIGGER IF EXISTS update_cases_updated_at ON cases;
                             CREATE TRIGGER update_cases_updated_at BEFORE UPDATE ON cases
                             FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
                         """)
+                
+                elif table == 'enums':
+                    # Create missing enums
+                    cur.execute("""
+                        DO $$ BEGIN
+                            CREATE TYPE permissionlevel AS ENUM ('read', 'write', 'admin');
+                        EXCEPTION
+                            WHEN duplicate_object THEN null;
+                        END $$;
+                    """)
+                    cur.execute("""
+                        DO $$ BEGIN
+                            CREATE TYPE casestatus AS ENUM ('active', 'archived', 'closed', 'deleted');
+                        EXCEPTION
+                            WHEN duplicate_object THEN null;
+                        END $$;
+                    """)
+            
+            # Ensure alembic_version table exists and is marked as migrated
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS alembic_version (
+                    version_num VARCHAR(32) NOT NULL,
+                    CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
+                );
+            """)
+            cur.execute("""
+                INSERT INTO alembic_version (version_num) 
+                VALUES ('002_add_password_hash')
+                ON CONFLICT (version_num) DO NOTHING;
+            """)
             
             conn.commit()
             print("Migration completed successfully!")
@@ -284,9 +395,26 @@ def check_and_init_database():
     """Check database status and initialize/migrate as needed."""
     print("\nChecking PostgreSQL database status...")
     
+    # First, check if clerk database exists
+    try:
+        # Connect to default postgres database to create clerk database
+        conn = get_db_connection(database="postgres")
+        if conn:
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                # Check if clerk database exists
+                cur.execute("SELECT 1 FROM pg_database WHERE datname = 'clerk'")
+                if not cur.fetchone():
+                    print("Creating clerk database...")
+                    cur.execute("CREATE DATABASE clerk")
+            conn.close()
+    except Exception as e:
+        print(f"Error checking/creating clerk database: {e}")
+    
+    # Now connect to clerk database
     conn = get_db_connection()
     if not conn:
-        print("Could not connect to database. Skipping initialization.")
+        print("Could not connect to clerk database. Skipping initialization.")
         return
     
     try:
@@ -296,13 +424,13 @@ def check_and_init_database():
             print("Database is properly initialized!")
             # Check if dev data exists
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT COUNT(*) as count FROM law_firms WHERE id = 'dev-firm-123';")
+                cur.execute("SELECT COUNT(*) as count FROM law_firms WHERE id = '123e4567-e89b-12d3-a456-426614174000';")
                 result = cur.fetchone()
                 if result['count'] == 0:
                     print("Dev data not found. Adding dev law firm and user...")
                     init_database(conn)
-        elif missing_tables == ['law_firms', 'users', 'cases', 'case_permissions']:
-            # All tables missing - fresh database
+        elif len(missing_tables) >= 4:
+            # Most tables missing - fresh database
             print("Database is empty. Initializing with schema and dev data...")
             init_database(conn)
         elif missing_tables:
@@ -316,7 +444,7 @@ def check_and_init_database():
             run_migration(conn, incomplete_tables)
             # After migration, ensure dev data exists
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT COUNT(*) as count FROM law_firms WHERE id = 'dev-firm-123';")
+                cur.execute("SELECT COUNT(*) as count FROM law_firms WHERE id = '123e4567-e89b-12d3-a456-426614174000';")
                 result = cur.fetchone()
                 if result['count'] == 0:
                     print("Adding dev data after migration...")
@@ -495,13 +623,20 @@ def main():
     generate_searxng_secret_key()
 
     # Start local AI services with PostgreSQL exposed by default (step 2)
-    start_local_ai(args.profile, args.environment, expose_postgres=not args.no_postgres_expose)
+    # But exclude Clerk initially since it needs the database to exist
+    start_local_ai(args.profile, args.environment, expose_postgres=not args.no_postgres_expose, exclude_clerk=True)
     
     # Wait for PostgreSQL if exposed
     if not args.no_postgres_expose:
         if wait_for_postgres():
             # Check and initialize database (steps 3-6)
             check_and_init_database()
+            
+            # Now start Clerk after database is ready
+            print("Starting Clerk service after database initialization...")
+            compose_files = get_compose_files(args.profile, expose_postgres=not args.no_postgres_expose)
+            cmd = ["docker", "compose", "-p", "localai"] + compose_files + ["up", "-d", "clerk"]
+            run_command(cmd)
     
     # Wait for all services with improved UI
     wait_for_services()
