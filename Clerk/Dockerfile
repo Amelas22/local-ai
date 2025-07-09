@@ -46,7 +46,7 @@ RUN mkdir -p /app/logs /app/reports && \
 
 # Install curl for health checks
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl && rm -rf /var/lib/apt/lists/*
+    curl netcat-openbsd && rm -rf /var/lib/apt/lists/*
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
@@ -55,4 +55,5 @@ USER appuser
 
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# Run init_db.py then start the app
+CMD sh -c "python init_db.py || true && uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1"

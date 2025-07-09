@@ -1,4 +1,4 @@
-import { ReactElement } from 'react';
+import { ReactElement, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Drawer,
@@ -10,23 +10,20 @@ import {
   Toolbar,
   Divider,
   Box,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  Typography,
-  CircularProgress,
-  Alert,
+  Button,
+  Stack,
 } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import FolderIcon from '@mui/icons-material/Folder';
 import GavelIcon from '@mui/icons-material/Gavel';
 import SearchIcon from '@mui/icons-material/Search';
 import SettingsIcon from '@mui/icons-material/Settings';
-import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
+import AddIcon from '@mui/icons-material/Add';
 import { useAppSelector } from '@/hooks/redux';
 import { useCaseSelection } from '@/hooks/useCaseSelection';
 import { ConnectionStatus } from '../realtime/ConnectionStatus';
+import { AddCaseModal } from '../cases/AddCaseModal';
+import { CaseSelector } from '../cases/CaseSelector';
 
 const menuItems = [
   { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
@@ -39,15 +36,23 @@ const Sidebar = (): ReactElement => {
   const navigate = useNavigate();
   const location = useLocation();
   const sidebarOpen = useAppSelector((state) => state.ui.sidebarOpen);
+  const [addCaseModalOpen, setAddCaseModalOpen] = useState(false);
   const { 
     cases, 
     activeCase, 
     switchCase, 
     casesLoading, 
-    casesError
+    casesError,
+    refreshCases
   } = useCaseSelection();
 
   const drawerWidth = sidebarOpen ? 240 : 64;
+
+  const handleCaseCreated = async (newCase: any) => {
+    // Refresh cases list and switch to the new case
+    await refreshCases();
+    switchCase(newCase.collection_name);
+  };
 
   return (
     <Drawer
@@ -73,50 +78,35 @@ const Sidebar = (): ReactElement => {
         {/* Case Selection */}
         {sidebarOpen && (
           <Box sx={{ px: 2, pb: 2 }}>
-            <FormControl fullWidth size="small" disabled={casesLoading}>
-              <InputLabel id="case-select-label">
-                <Box display="flex" alignItems="center" gap={1}>
-                  <BusinessCenterIcon fontSize="small" />
-                  <span>Active Case</span>
-                </Box>
-              </InputLabel>
-              <Select
-                labelId="case-select-label"
-                value={activeCase || ''}
-                onChange={(e) => switchCase(e.target.value)}
-                label="Active Case"
+            <Stack spacing={1}>
+              {/* Add Case Button */}
+              <Button
+                variant="outlined"
+                startIcon={<AddIcon />}
+                onClick={() => setAddCaseModalOpen(true)}
+                fullWidth
+                size="small"
+                sx={{ mb: 1 }}
               >
-                {casesLoading && (
-                  <MenuItem disabled>
-                    <CircularProgress size={20} />
-                    <Typography sx={{ ml: 1 }}>Loading cases...</Typography>
-                  </MenuItem>
-                )}
-                {!casesLoading && cases.length === 0 && (
-                  <MenuItem disabled>
-                    <Typography>No cases available</Typography>
-                  </MenuItem>
-                )}
-                {cases.map((caseInfo) => (
-                  <MenuItem key={caseInfo.case_name} value={caseInfo.case_name}>
-                    <Box>
-                      <Typography variant="body2">
-                        {caseInfo.display_name}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {caseInfo.document_count} documents
-                      </Typography>
-                    </Box>
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            
-            {casesError && (
-              <Alert severity="error" sx={{ mt: 1 }}>
-                {casesError}
-              </Alert>
-            )}
+                Add Case
+              </Button>
+
+              {/* Case Selector */}
+              <CaseSelector
+                value={activeCase || ''}
+                onChange={switchCase}
+                cases={cases.map((c) => ({
+                  id: c.case_name,
+                  name: c.display_name,
+                  collection_name: c.case_name,
+                  status: 'active' as const,
+                  vector_count: c.document_count,
+                }))}
+                loading={casesLoading}
+                error={casesError || undefined}
+                label="Active Case"
+              />
+            </Stack>
           </Box>
         )}
         
@@ -178,6 +168,13 @@ const Sidebar = (): ReactElement => {
           </ListItem>
         </List>
       </Box>
+
+      {/* Add Case Modal */}
+      <AddCaseModal
+        open={addCaseModalOpen}
+        onClose={() => setAddCaseModalOpen(false)}
+        onCaseCreated={handleCaseCreated}
+      />
     </Drawer>
   );
 };

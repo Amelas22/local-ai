@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  clerk-test:
+    build: .
+    container_name: clerk-test
+    environment:
+      # Use Docker internal hostnames
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=clerk_db
+      - POSTGRES_USER=clerk_user
+      - POSTGRES_PASSWORD=clerk_password
+      - TESTING=true
+      - PYTHONPATH=/app
+      # Copy other env vars from main docker-compose
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - COHERE_API_KEY=${COHERE_API_KEY}
+    volumes:
+      - ./:/app
+      - ./logs:/app/logs
+    networks:
+      - clerk-network
+    depends_on:
+      - qdrant
+      - postgres
+    command: python -m pytest -v -m container src/tests/test_container_connectivity.py
+    working_dir: /app
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant-test
+    ports:
+      - "6333:6333"
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+    networks:
+      - clerk-network
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres-test
+    environment:
+      - POSTGRES_DB=clerk_db
+      - POSTGRES_USER=clerk_user
+      - POSTGRES_PASSWORD=clerk_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - clerk-network
+
+networks:
+  clerk-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

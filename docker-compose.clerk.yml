@@ -1,6 +1,3 @@
-# Docker Compose override for Clerk frontend
-# This file adds the Clerk frontend service to the existing docker-compose setup
-
 volumes:
   clerk-frontend-dist:
 

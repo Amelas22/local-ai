@@ -16,7 +16,7 @@ from typing import List, Dict, Any, Optional, BinaryIO
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, File, UploadFile, Form
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, File, UploadFile, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field
@@ -28,9 +28,20 @@ from src.ai_agents.legal_document_agent import legal_document_agent
 from src.ai_agents.motion_drafter import motion_drafter, DocumentLength
 from src.ai_agents.outline_cache_manager import outline_cache
 from src.utils.logger import setup_logging
+from src.utils.env_validator import validate_all as validate_environment, EnvironmentError
 from config.settings import settings
 from src.models.unified_document_models import DiscoveryProcessingRequest
 from src.document_processing.websocket_document_processor import get_websocket_processor
+from src.models.case_models import (
+    Case, CaseStatus, CaseCreateRequest, CaseUpdateRequest,
+    CaseListResponse, CasePermissionRequest
+)
+from src.middleware.case_context import get_case_context, require_case_context
+from src.database.connection import init_db, close_db
+
+# Import new routers
+from src.api.auth_endpoints import router as auth_router
+from src.api.case_endpoints import router as case_router
 
 # Setup logging
 logger = setup_logging("clerk_api", "INFO")
@@ -55,6 +66,24 @@ async def lifespan(app: FastAPI):
         logger.error("Invalid configuration. Please check environment variables.")
         raise RuntimeError("Invalid configuration")
     
+    # Validate environment variables
+    try:
+        validate_environment()
+        logger.info("Environment validation passed")
+    except EnvironmentError as e:
+        logger.error(f"Environment validation failed: {str(e)}")
+        # Continue startup but log the issue - some services may work without all configs
+        logger.warning("Starting with incomplete configuration - some features may not work")
+    
+    # Initialize database
+    try:
+        logger.info("Initializing database...")
+        await init_db()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {str(e)}")
+        # Continue - the app might work with existing database
+    
     # Initialize components
     try:
         document_injector = UnifiedDocumentInjector(enable_cost_tracking=True)
@@ -77,6 +106,9 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Clerk API service...")
     if vector_store:
         vector_store.close()
+    
+    # Close database connections
+    await close_db()
 
 # Create FastAPI app
 app = FastAPI(
@@ -100,13 +132,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add Authentication Middleware
+from src.middleware.auth_middleware import AuthMiddleware
+from config.settings import settings
+
+# Always add auth middleware - it will handle dev mode internally
+app.add_middleware(AuthMiddleware)
+
+# Add Case Context Middleware (must be after auth)
+from src.middleware.case_context import CaseContextMiddleware
+app.add_middleware(CaseContextMiddleware)
+
+# Include routers
+app.include_router(auth_router)
+app.include_router(case_router)
+
 # Pydantic models for API
 class ProcessFolderRequest(BaseModel):
     folder_id: str = Field(..., description="Box folder ID to process")
     max_documents: Optional[int] = Field(None, description="Maximum number of documents to process")
 
 class SearchRequest(BaseModel):
-    case_name: str = Field(..., description="Case name to search within")
+    case_name: Optional[str] = Field(None, description="Case name to search within (deprecated, use X-Case-ID header)")
     query: str = Field(..., description="Search query")
     limit: int = Field(10, ge=1, le=50, description="Maximum results to return")
     use_hybrid: bool = Field(True, description="Use hybrid search")
@@ -175,6 +222,17 @@ class MotionDraftingResponse(BaseModel):
     quality_metrics: Dict[str, float] = Field(default_factory=dict)
     processing_time_seconds: Optional[float] = None
     outline_id: Optional[str] = None
+
+# Debug endpoint to check settings
+@app.get("/debug/settings")
+async def debug_settings():
+    """Debug endpoint to check current settings"""
+    return {
+        "auth_enabled": settings.auth.auth_enabled,
+        "environment": settings.environment,
+        "is_development": settings.is_development,
+        "dev_mock_token": settings.auth.dev_mock_token[:10] + "..." if settings.auth.dev_mock_token else None
+    }
 
 # Health check endpoint
 @app.get("/health", response_model=HealthResponse)
@@ -377,16 +435,24 @@ async def process_discovery_mock(
 
 # Search endpoint
 @app.post("/search")
-async def search_documents(request: SearchRequest):
+async def search_documents(
+    request: SearchRequest,
+    case_context = Depends(get_case_context)
+):
     """Search for documents within a case"""
     try:
+        # Use case from context if available, otherwise fall back to request
+        case_name = case_context.case_name if case_context else request.case_name
+        if not case_name:
+            raise HTTPException(status_code=400, detail="Case context required")
+            
         # Generate embedding for query
         query_embedding, _ = embedding_generator.generate_embedding(request.query)
         
         # Perform search
         if request.use_hybrid and hasattr(document_injector, 'search_case'):
             results = document_injector.search_case(
-                request.case_name,
+                case_name,
                 request.query,
                 request.limit,
                 request.use_hybrid
@@ -443,14 +509,16 @@ async def search_unified_documents(request: SearchRequest):
         logger.error(f"Unified search error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
-# Case listing endpoint
+# Legacy endpoint for backward compatibility
 @app.get("/cases")
-async def list_cases():
-    """List all available cases"""
+async def list_cases_legacy():
+    """List all available cases (legacy endpoint for compatibility)"""
     try:
+        # Fall back to vector store listing
         cases_data = vector_store.list_cases()
-        # Return just the collection names as strings for simplicity
-        case_names = [case.get('collection_name', case.get('original_name', '')) for case in cases_data if case.get('collection_name') or case.get('original_name')]
+        case_names = [case.get('collection_name', case.get('original_name', '')) 
+                     for case in cases_data 
+                     if case.get('collection_name') or case.get('original_name')]
         return {"cases": case_names}
     except Exception as e:
         logger.error(f"Error listing cases: {str(e)}")

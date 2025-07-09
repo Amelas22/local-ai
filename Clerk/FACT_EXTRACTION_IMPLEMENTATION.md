@@ -96,9 +96,9 @@ We've successfully implemented a comprehensive Fact Extraction Engine for the Cl
 ```
 Qdrant Collections:
 ├── Case-Specific (Isolated per matter)
+│   ├── {case_name}               # Full case database for RAG search
 │   ├── {case_name}_facts         # Extracted facts with embeddings
 │   ├── {case_name}_timeline      # Chronological events
-│   ├── {case_name}_exhibits      # Exhibit index
 │   └── {case_name}_depositions   # Deposition citations
 │
 └── Shared Knowledge (Firm-wide access)

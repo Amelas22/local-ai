@@ -1,26 +1,16 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
-interface User {
-  id: string;
-  email: string;
-  name: string;
-  role: string;
-}
-
-interface AuthState {
-  isAuthenticated: boolean;
-  user: User | null;
-  token: string | null;
-  isLoading: boolean;
-  error: string | null;
-}
+import type { User, AuthState } from '@/types/auth.types';
 
 const initialState: AuthState = {
   isAuthenticated: false,
   user: null,
   token: null,
+  refreshToken: null,
   isLoading: false,
   error: null,
+  initialized: false,
+  initializing: false,
 };
 
 const authSlice = createSlice({
@@ -31,11 +21,12 @@ const authSlice = createSlice({
       state.isLoading = true;
       state.error = null;
     },
-    loginSuccess: (state, action: PayloadAction<{ user: User; token: string }>) => {
+    loginSuccess: (state, action: PayloadAction<{ user: User; token: string; refreshToken?: string }>) => {
       state.isLoading = false;
       state.isAuthenticated = true;
       state.user = action.payload.user;
       state.token = action.payload.token;
+      state.refreshToken = action.payload.refreshToken || null;
       state.error = null;
     },
     loginFailure: (state, action: PayloadAction<string>) => {
@@ -49,10 +40,27 @@ const authSlice = createSlice({
       state.isAuthenticated = false;
       state.user = null;
       state.token = null;
+      state.refreshToken = null;
       state.error = null;
     },
     updateToken: (state, action: PayloadAction<string>) => {
       state.token = action.payload;
+    },
+    updateTokens: (state, action: PayloadAction<{ accessToken: string; refreshToken: string }>) => {
+      state.token = action.payload.accessToken;
+      state.refreshToken = action.payload.refreshToken;
+    },
+    authInitStart: (state) => {
+      state.initializing = true;
+    },
+    authInitComplete: (state) => {
+      state.initializing = false;
+      state.initialized = true;
+    },
+    authInitError: (state, action: PayloadAction<string>) => {
+      state.initializing = false;
+      state.initialized = true;
+      state.error = action.payload;
     },
   },
 });
@@ -63,6 +71,10 @@ export const {
   loginFailure,
   logout,
   updateToken,
+  updateTokens,
+  authInitStart,
+  authInitComplete,
+  authInitError,
 } = authSlice.actions;
 
 export default authSlice.reducer;

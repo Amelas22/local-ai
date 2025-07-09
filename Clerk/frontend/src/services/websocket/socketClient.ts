@@ -7,6 +7,7 @@ import {
 } from '../../store/slices/websocketSlice';
 import { handleDiscoveryEvents } from './handlers/discoveryHandlers';
 import { WebSocketEvents } from '../../types/websocket.types';
+import { tokenService } from '../token.service';
 
 class SocketClient {
   private socket: Socket | null = null;
@@ -57,7 +58,7 @@ class SocketClient {
       transports: ['websocket', 'polling'], // Allow fallback to polling
       reconnection: false, // We'll handle reconnection manually
       auth: {
-        token: store.getState().auth.token || 'dev-token'
+        token: tokenService.getAccessToken() || 'dev-token'
       },
       // Add timeout
       timeout: 5000,
@@ -141,7 +142,14 @@ class SocketClient {
     store.dispatch(connectionError(`Reconnecting... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`));
 
     this.reconnectTimer = setTimeout(() => {
-      this.connect();
+      // Ensure we have a fresh token when reconnecting
+      if (tokenService.isAccessTokenExpired()) {
+        console.log('Token expired, waiting for refresh before reconnecting...');
+        // The API client will handle token refresh, we'll retry after a delay
+        setTimeout(() => this.connect(), 2000);
+      } else {
+        this.connect();
+      }
     }, currentDelay);
   }
 

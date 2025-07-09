@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactElement, ReactNode } from 'react';
 import { useWebSocketContext } from './WebSocketContext';
+import { apiClient } from '@/services/utils/apiClient';
 
 // Case information interface
 export interface CaseInfo {
@@ -13,10 +14,12 @@ export interface CaseInfo {
 interface CaseContextValue {
   cases: CaseInfo[];
   activeCase: string | null;
+  activeCaseId: string | null;  // Add case ID for API headers
   loading: boolean;
   error: string | null;
   selectCase: (caseName: string) => void;
   refreshCases: () => Promise<void>;
+  createCase: (name: string, metadata?: any) => Promise<any>;
 }
 
 // Create context with undefined default
@@ -41,12 +44,8 @@ export function CaseProvider({ children }: CaseProviderProps): ReactElement {
     setError(null);
     
     try {
-      const response = await fetch('/api/cases');
-      if (!response.ok) {
-        throw new Error('Failed to fetch cases');
-      }
-      
-      const data = await response.json();
+      const response = await apiClient.get('/api/cases');
+      const data = response.data;
       
       // Ensure data.cases is an array before mapping
       const cases = data.cases || [];
@@ -139,10 +138,17 @@ export function CaseProvider({ children }: CaseProviderProps): ReactElement {
   const contextValue: CaseContextValue = {
     cases,
     activeCase,
+    activeCaseId: activeCase, // For now, case ID is same as case name
     loading,
     error,
     selectCase,
-    refreshCases
+    refreshCases,
+    createCase: async (name: string, metadata?: any) => {
+      // Placeholder implementation - should be replaced with actual API call
+      console.log('Creating case:', name, metadata);
+      await refreshCases();
+      return { collection_name: name };
+    }
   };
 
   return (

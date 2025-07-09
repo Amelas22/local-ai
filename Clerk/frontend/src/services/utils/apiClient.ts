@@ -2,6 +2,9 @@ import axios from 'axios';
 import type { AxiosInstance, AxiosRequestConfig, AxiosError, AxiosResponse } from 'axios';
 import { store } from '@/store/store';
 import { addToast } from '@/store/slices/uiSlice';
+import { tokenService } from '@/services/token.service';
+import { authServiceManager } from '@/services/auth.service';
+import { logout } from '@/store/slices/authSlice';
 
 interface RetryConfig {
   retries?: number;
@@ -11,6 +14,11 @@ interface RetryConfig {
 
 class ApiClient {
   private client: AxiosInstance;
+  private isRefreshing = false;
+  private failedQueue: Array<{
+    resolve: (token: string) => void;
+    reject: (error: any) => void;
+  }> = [];
   private readonly defaultRetryConfig: RetryConfig = {
     retries: 3,
     retryDelay: 1000,
@@ -21,7 +29,8 @@ class ApiClient {
   };
 
   constructor() {
-    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    // Get base URL from environment
+    const baseURL = import.meta.env.VITE_API_URL || '';
     
     this.client = axios.create({
       baseURL,
@@ -31,13 +40,33 @@ class ApiClient {
       },
     });
 
-    // Request interceptor to add auth token
+    // Request interceptor to add auth token and case ID
     this.client.interceptors.request.use(
-      (config) => {
-        const token = store.getState().auth.token;
+      async (config) => {
+        // Ensure auth service is initialized before making requests
+        if (!authServiceManager.isReady()) {
+          console.log('Waiting for auth service initialization...');
+          await authServiceManager.getAuthService();
+        }
+
+        // Add auth token from tokenService
+        const token = tokenService.getAccessToken();
         if (token) {
           config.headers['Authorization'] = `Bearer ${token}`;
+          // Log token injection in development
+          if (import.meta.env.DEV) {
+            console.log(`[API Client] Added auth token to ${config.url}`);
+          }
+        } else if (import.meta.env.DEV) {
+          console.warn(`[API Client] No auth token available for ${config.url}`);
         }
+        
+        // Add case ID from localStorage (since context is not accessible here)
+        const activeCase = localStorage.getItem('activeCase');
+        if (activeCase) {
+          config.headers['X-Case-ID'] = activeCase;
+        }
+        
         return config;
       },
       (error) => {
@@ -45,13 +74,72 @@ class ApiClient {
       }
     );
 
-    // Response interceptor for error handling
+    // Response interceptor for error handling and token refresh
     this.client.interceptors.response.use(
       (response) => response,
       async (error) => {
         const originalRequest = error.config;
         
-        // Check if we should retry
+        // Handle 401 Unauthorized with token refresh
+        if (error.response?.status === 401 && !originalRequest._retry) {
+          if (this.isRefreshing) {
+            // Token refresh is already in progress, queue this request
+            return new Promise((resolve, reject) => {
+              this.failedQueue.push({ resolve, reject });
+            }).then((token) => {
+              originalRequest.headers.Authorization = `Bearer ${token}`;
+              return this.client(originalRequest);
+            }).catch((err) => {
+              return Promise.reject(err);
+            });
+          }
+          
+          originalRequest._retry = true;
+          this.isRefreshing = true;
+          
+          try {
+            // Get auth service instance
+            const authService = await authServiceManager.getAuthService();
+            
+            // In development mode with auth disabled, skip refresh
+            if (import.meta.env.VITE_AUTH_ENABLED !== 'true') {
+              console.log('[API Client] Auth disabled in dev mode, skipping token refresh');
+              const currentToken = tokenService.getAccessToken();
+              if (currentToken) {
+                this.processQueue(null, currentToken);
+                originalRequest.headers.Authorization = `Bearer ${currentToken}`;
+                return this.client(originalRequest);
+              }
+            }
+            
+            // Attempt token refresh
+            const tokens = await authService.refreshAccessToken();
+            this.processQueue(null, tokens.access_token);
+            
+            originalRequest.headers.Authorization = `Bearer ${tokens.access_token}`;
+            return this.client(originalRequest);
+          } catch (refreshError) {
+            this.processQueue(refreshError, null);
+            
+            // In development mode, don't logout on 401
+            if (import.meta.env.VITE_AUTH_ENABLED === 'true') {
+              // Refresh failed, logout user
+              store.dispatch(logout());
+              tokenService.clearTokens();
+              
+              // Redirect to login
+              window.location.href = '/login';
+            } else {
+              console.error('[API Client] Token refresh failed in dev mode:', refreshError);
+            }
+            
+            return Promise.reject(refreshError);
+          } finally {
+            this.isRefreshing = false;
+          }
+        }
+        
+        // Check if we should retry for other errors
         if (this.shouldRetry(error, originalRequest)) {
           originalRequest._retryCount = (originalRequest._retryCount || 0) + 1;
           
@@ -91,6 +179,18 @@ class ApiClient {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  private processQueue(error: any, token: string | null = null): void {
+    this.failedQueue.forEach((prom) => {
+      if (error) {
+        prom.reject(error);
+      } else {
+        prom.resolve(token!);
+      }
+    });
+    
+    this.failedQueue = [];
+  }
+
   private handleError(error: AxiosError): void {
     if (!error.response) {
       // Network error
@@ -98,13 +198,6 @@ class ApiClient {
         message: 'Network error. Please check your connection and try again.',
         severity: 'error',
       }));
-    } else if (error.response.status === 401) {
-      // Unauthorized - redirect to login
-      store.dispatch(addToast({
-        message: 'Session expired. Please log in again.',
-        severity: 'warning',
-      }));
-      // TODO: Dispatch logout action
     } else if (error.response.status === 403) {
       // Forbidden
       store.dispatch(addToast({

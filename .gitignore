@@ -7,7 +7,7 @@ shared-backup/
 searxng/settings.yml
 searxng/uwsgi*
 supabase/
-
+*/collections/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

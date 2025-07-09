@@ -13,10 +13,14 @@ import {
   IconButton,
 } from '@mui/material';
 import { Visibility, VisibilityOff } from '@mui/icons-material';
-import { authService, SignUpData } from '@/services/auth.service';
+import { authService } from '@/services/auth.service';
 
-interface SignUpFormData extends SignUpData {
+interface SignUpFormData {
+  name: string;
+  email: string;
+  password: string;
   confirmPassword: string;
+  law_firm_id: string;
 }
 
 const SignUpPage = () => {
@@ -176,6 +180,18 @@ const SignUpPage = () => {
               autoComplete="new-password"
               error={!!errors.confirmPassword}
               helperText={errors.confirmPassword?.message}
+            />
+
+            <TextField
+              {...register('law_firm_id', {
+                required: 'Law firm is required',
+              })}
+              margin="normal"
+              fullWidth
+              label="Law Firm ID"
+              autoComplete="organization"
+              error={!!errors.law_firm_id}
+              helperText={errors.law_firm_id?.message}
             />
 
             <Button

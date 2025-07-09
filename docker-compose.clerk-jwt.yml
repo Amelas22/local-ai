@@ -1,0 +1,29 @@
+services:
+  clerk:
+    environment:
+      # PostgreSQL Database Configuration
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/clerk
+      
+      # JWT Authentication Configuration
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - JWT_ALGORITHM=${JWT_ALGORITHM}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES}
+      - REFRESH_TOKEN_EXPIRE_DAYS=${REFRESH_TOKEN_EXPIRE_DAYS}
+      
+      # Admin User Configuration
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      
+      # Shared Collections Configuration
+      - SHARED_COLLECTIONS=${SHARED_COLLECTIONS}
+      
+      # Auth Settings for Development
+      - AUTH_ENABLED=false
+      - DEV_MOCK_TOKEN=dev-token-123456
+      
+      # Disable Supabase
+      - SUPABASE_URL=
+      - SUPABASE_ANON_KEY=
+      - SUPABASE_SERVICE_ROLE_KEY=
+    depends_on:
+      - postgres

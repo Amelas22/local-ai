@@ -129,12 +129,38 @@ Before running the services, you need to set up your environment variables for S
 
 ---
 
-The project includes a `start_services.py` script that handles starting both the Supabase and local AI services. The script accepts a `--profile` flag to specify which GPU configuration to use.
+The project includes a `start_services.py` script that handles starting both the Supabase and local AI services. The script accepts several flags to customize the deployment:
+
+### Script Options
+
+- `--profile [gpu-nvidia|gpu-amd|cpu|none]` - Specify GPU configuration (default: cpu)
+- `--rebuild [container|all]` - Rebuild specific containers without cache (e.g., `--rebuild clerk` or `--rebuild all`)
+- `--environment [private|public]` - Set deployment environment (default: none)
+- `--skip-supabase` - Skip starting Supabase services
+- `--no-postgres-expose` - Don't expose PostgreSQL on host (disables Clerk JWT auth)
+
+### Database Initialization
+
+The script automatically handles PostgreSQL database initialization:
+1. Checks if the database exists after services start
+2. If tables exist but are incomplete, runs migrations to add missing columns
+3. If no database exists, initializes with dev data (dev case, dev user, dev law firm)
 
 ### For Nvidia GPU users
 
 ```bash
 python start_services.py --profile gpu-nvidia
+```
+
+### Rebuilding Containers
+
+To rebuild specific containers without cache:
+```bash
+# Rebuild only the Clerk container
+python start_services.py --rebuild clerk
+
+# Rebuild all containers
+python start_services.py --rebuild all
 ```
 
 > [!NOTE]

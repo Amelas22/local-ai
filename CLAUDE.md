@@ -70,8 +70,27 @@ Clerk/
             __init__.py
             unified_document_models.py
             motion_models.py
+            case_models.py              # Case management models
             tests/
                 test_models.py
+                
+        services/                       # Business logic services
+            __init__.py
+            case_manager.py             # Case CRUD operations
+            tests/
+                test_case_manager.py
+                
+        middleware/                     # FastAPI middleware
+            __init__.py
+            case_context.py             # Case validation middleware
+            tests/
+                test_case_context.py
+                
+        config/                         # Configuration modules
+            __init__.py
+            shared_resources.py         # Shared resource configuration
+            tests/
+                test_shared_resources.py
                 
         utils/                          # Shared utilities
             __init__.py
@@ -140,6 +159,16 @@ CONTEXT_LLM_MODEL=gpt-3.5-turbo
 # Optional Overrides
 CHUNK_SIZE=1400
 CHUNK_OVERLAP=200
+
+# Supabase Configuration (for case management)
+SUPABASE_URL=your_supabase_url
+SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key  # Optional, for server-side operations
+
+# Shared Resources Configuration
+SHARED_COLLECTIONS=florida_statutes,fmcsr_regulations,federal_rules,case_law_precedents
+ENABLE_CASE_ISOLATION=true
+MAX_CASE_NAME_LENGTH=50
 ```
 
 ### Installation
@@ -210,6 +239,49 @@ When creating branches, follow these naming conventions:
 
 ## IMPORTANT TYPES & PATTERNS
 
+### Case Management Pattern
+Create and manage cases with proper validation and isolation:
+```python
+from src.services.case_manager import case_manager
+from src.models.case_models import Case, CaseStatus
+
+# Create a new case
+case = await case_manager.create_case(
+    name="Smith v Jones 2024",
+    law_firm_id="firm-123",
+    created_by="user-123"
+)
+
+# Validate case access
+has_access = await case_manager.validate_case_access(
+    case_id="case-123",
+    user_id="user-123",
+    required_permission="write"
+)
+```
+
+### Case Context Middleware Pattern
+All API requests automatically include case context:
+```python
+from src.middleware.case_context import get_case_context, require_case_context
+
+@app.post("/api/search")
+async def search(
+    request: SearchRequest,
+    case_context = Depends(get_case_context)  # Optional context
+):
+    # case_context contains case_id, case_name, permissions
+    pass
+
+@app.post("/api/documents")
+async def create_document(
+    request: DocumentRequest,
+    case_context = Depends(require_case_context("write"))  # Required with permission
+):
+    # Automatically validates write permission
+    pass
+```
+
 ### Case Isolation Pattern
 Every operation MUST be isolated by case to prevent data leakage:
 ```python
@@ -249,6 +321,23 @@ from src.websocket.socket_server import sio
 async def emit_processing_update(event_type: str, data: dict):
     """Emit WebSocket event for real-time updates."""
     await sio.emit(f'discovery:{event_type}', data)
+```
+
+### Shared Resources Pattern
+Manage shared resources across all cases:
+```python
+from src.config.shared_resources import is_shared_resource, shared_resources
+
+# Check if a collection is shared
+if is_shared_resource("florida_statutes"):
+    # This is a shared resource, available to all cases
+    pass
+
+# Filter out shared resources from case list
+cases = vector_store.list_cases(include_shared=False)
+
+# Add a new shared resource at runtime
+shared_resources.add_shared_collection("new_shared_resource")
 ```
 
 ### Motion Drafting Pattern
@@ -302,12 +391,17 @@ async def process_folder(request: ProcessingRequest):
 - pdfplumber/PyPDF2 (PDF processing)
 - pytest (testing)
 - ruff (linting)
+- Supabase (case management and authentication)
+- pydantic v2 (data validation)
 
 ### API Endpoints
 - `/health` - System health checks
+- `/api/cases` - GET: List user cases, POST: Create new case
+- `/api/cases/{id}` - PUT: Update case status
+- `/api/cases/{id}/permissions` - POST: Grant case permissions
 - `/process-folder` - Process Box folder for documents
 - `/discovery/process` - Process discovery with WebSocket updates
-- `/search` - Hybrid search across case documents
+- `/search` - Hybrid search across case documents (requires X-Case-ID header)
 - `/generate-motion-outline` - Create motion outlines
 - `/generate-motion-draft` - Full motion drafting
 - `/websocket/status` - WebSocket connection status

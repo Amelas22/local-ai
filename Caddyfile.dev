@@ -1,0 +1,75 @@
+{
+    # Development settings
+    debug
+    admin off
+}
+
+:8010 {
+    # Enable detailed logging for development
+    log {
+        output stdout
+        level DEBUG
+    }
+
+    # API routes - proxy to Clerk backend
+    handle /api/* {
+        reverse_proxy clerk:8000 {
+            # Preserve headers for debugging
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # WebSocket routes with proper handling
+    handle /ws/* {
+        reverse_proxy clerk:8000 {
+            # WebSocket configuration
+            header_up Upgrade {header.Upgrade}
+            header_up Connection "upgrade"
+            header_up X-Real-IP {remote_host}
+            
+            # Longer timeout for WebSocket connections
+            transport http {
+                dial_timeout 30s
+                read_timeout 86400s
+                write_timeout 86400s
+            }
+        }
+    }
+
+    # Special handling for Socket.IO
+    handle /socket.io/* {
+        reverse_proxy clerk:8000 {
+            header_up Upgrade {header.Upgrade}
+            header_up Connection "upgrade"
+            header_up X-Real-IP {remote_host}
+            
+            transport http {
+                dial_timeout 30s
+                read_timeout 86400s
+                write_timeout 86400s
+            }
+        }
+    }
+
+    # Health check endpoint
+    handle /health {
+        reverse_proxy clerk:8000
+    }
+
+    # Frontend - proxy to Vite dev server with WebSocket support for HMR
+    handle {
+        reverse_proxy clerk-frontend:3000 {
+            # Support Vite HMR WebSocket
+            header_up Upgrade {header.Upgrade}
+            header_up Connection {header.Connection}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            
+            # Handle Vite's special routes
+            header_down Access-Control-Allow-Origin *
+        }
+    }
+}

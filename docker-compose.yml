@@ -122,6 +122,13 @@ services:
       - MOTION_REVIEW_MODEL=${MOTION_REVIEW_MODEL}
       - MOTION_CACHE_SIZE_MB=${MOTION_CACHE_SIZE_MB}
       
+      # Authentication Settings
+      - AUTH_ENABLED=false
+      - DEV_MOCK_TOKEN=dev-token-123456
+      
+      # Database Configuration
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/postgres
+      
       # Other settings
       - ENABLE_COST_TRACKING=${ENABLE_COST_TRACKING:-true}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -130,6 +137,7 @@ services:
       - clerk_reports:/app/reports
     depends_on:
       - qdrant
+      - postgres
     networks:
       - default
     healthcheck:

@@ -52,7 +52,6 @@
     
     # API proxy - forward API calls to backend
     handle /api/* {
-        uri strip_prefix /api
         reverse_proxy clerk:8000
     }
     

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Frontend Auth</title>
+</head>
+<body>
+    <h1>Debug Frontend Auth</h1>
+    <button onclick="testAPI()">Test API</button>
+    <pre id="result"></pre>
+    
+    <script>
+        // Check if dev token is available
+        const devToken = 'dev-token-123456';
+        
+        async function testAPI() {
+            const resultEl = document.getElementById('result');
+            resultEl.textContent = 'Testing...\n';
+            
+            // Test without auth header
+            try {
+                const response1 = await fetch('/api/cases');
+                resultEl.textContent += `\nWithout auth: ${response1.status} ${response1.statusText}\n`;
+                if (!response1.ok) {
+                    const text = await response1.text();
+                    resultEl.textContent += `Response: ${text}\n`;
+                }
+            } catch (e) {
+                resultEl.textContent += `Without auth error: ${e.message}\n`;
+            }
+            
+            // Test with auth header
+            try {
+                const response2 = await fetch('/api/cases', {
+                    headers: {
+                        'Authorization': `Bearer ${devToken}`
+                    }
+                });
+                resultEl.textContent += `\nWith auth: ${response2.status} ${response2.statusText}\n`;
+                if (response2.ok) {
+                    const data = await response2.json();
+                    resultEl.textContent += `Cases found: ${data.cases.length}\n`;
+                } else {
+                    const text = await response2.text();
+                    resultEl.textContent += `Response: ${text}\n`;
+                }
+            } catch (e) {
+                resultEl.textContent += `With auth error: ${e.message}\n`;
+            }
+            
+            // Log current location
+            resultEl.textContent += `\nLocation: ${window.location.href}\n`;
+        }
+        
+        // Auto run on load
+        window.onload = testAPI;
+    </script>
+</body>
+</html>

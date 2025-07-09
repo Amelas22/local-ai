@@ -4,12 +4,12 @@
 
 ## EXAMPLES:
 
-[Provide and explain examples that you have in the `examples/` folder]
+[Provide and explain examples/code snips that an AI agent would use]
 
 ## DOCUMENTATION:
 
-[List out any documentation (web pages, sources for an MCP server like Crawl4AI RAG, etc.) that will need to be referenced during development]
+[List out any documentation (web pages, mcp servers, source files,etc.) that will need to be referenced during development]
 
 ## OTHER CONSIDERATIONS:
 
-[Any other considerations or specific requirements - great place to include gotchas that you see AI coding assistants miss with your projects a lot]
+[Any other considerations or specific requirements - great place to include gotchas that could trip an AI agent up]

@@ -112,9 +112,35 @@ class QdrantVectorStore:
         sanitized = re.sub(r'[^a-zA-Z0-9_]', '_', folder_name)
         return f"{sanitized}" if settings.legal.enable_hybrid_search else sanitized
     
-    def ensure_collection_exists(self, folder_name: str):
-        """Ensure collection exists for a specific folder"""
-        collection_name = self.get_collection_name(folder_name)
+    def ensure_collection_exists(self, folder_name: str, use_case_manager: bool = True):
+        """Ensure collection exists for a specific folder
+        
+        Args:
+            folder_name: Name of the folder/case
+            use_case_manager: Whether to use case manager for collection naming
+            
+        Returns:
+            Collection name
+        """
+        # Import here to avoid circular dependency
+        from src.services.case_manager import case_manager
+        from src.config.shared_resources import is_shared_resource
+        
+        # For shared resources, use the folder name directly
+        if is_shared_resource(folder_name):
+            collection_name = self.get_collection_name(folder_name)
+        elif use_case_manager and case_manager._client:
+            # Try to get collection name from case manager
+            try:
+                # This assumes we have law_firm_id in context or use a default
+                law_firm_id = "default-firm"  # TODO: Get from context
+                collection_name = case_manager.case_name_to_collection(folder_name, law_firm_id)
+            except Exception:
+                # Fall back to legacy method
+                collection_name = self.get_collection_name(folder_name)
+        else:
+            # Use legacy collection naming
+            collection_name = self.get_collection_name(folder_name)
         
         try:
             # Check if collection exists
@@ -238,6 +264,153 @@ class QdrantVectorStore:
             except Exception as e:
                 # Index might already exist
                 logger.debug(f"Index {field_name} might already exist: {str(e)}")
+    
+    async def create_case_collections(self, collection_name: str) -> Dict[str, bool]:
+        """
+        Create all collections for a new case.
+        
+        Args:
+            collection_name: Base collection name for the case
+            
+        Returns:
+            Dict mapping collection name to creation success status
+        """
+        collections = [
+            (collection_name, "Main case documents"),
+            (f"{collection_name}_facts", "Extracted facts"),
+            (f"{collection_name}_timeline", "Chronological events"),
+            (f"{collection_name}_depositions", "Deposition citations")
+        ]
+        
+        results = {}
+        
+        for coll_name, description in collections:
+            try:
+                # Check length constraint (max 63 chars)
+                if len(coll_name) > 63:
+                    # Truncate intelligently
+                    suffix_len = len(coll_name.split('_')[-1])
+                    base_max_len = 62 - suffix_len - 1
+                    base = coll_name[:base_max_len]
+                    suffix = coll_name.split('_')[-1]
+                    coll_name = f"{base}_{suffix}"
+                
+                # Check if exists
+                exists = await self.async_client.collection_exists(coll_name)
+                if not exists:
+                    # Create based on settings
+                    if settings.legal.enable_hybrid_search:
+                        await self._create_hybrid_collection_async(coll_name)
+                    else:
+                        await self._create_standard_collection_async(coll_name)
+                    
+                    # Verify creation
+                    exists = await self.async_client.collection_exists(coll_name)
+                    results[coll_name] = exists
+                else:
+                    results[coll_name] = True  # Already exists
+                    
+            except Exception as e:
+                logger.error(f"Failed to create collection {coll_name}: {e}")
+                results[coll_name] = False
+        
+        return results
+    
+    async def _create_standard_collection_async(self, collection_name: str):
+        """Async version of standard collection creation"""
+        quantization_config = None
+        if hasattr(settings.vector, 'quantization') and settings.vector.quantization:
+            quantization_config = ScalarQuantization(
+                scalar=ScalarQuantizationConfig(
+                    type=ScalarType.INT8,
+                    quantile=0.99,
+                    always_ram=True
+                )
+            )
+        
+        await self.async_client.create_collection(
+            collection_name=collection_name,
+            vectors_config=VectorParams(
+                size=settings.vector.embedding_dimensions,
+                distance=Distance.COSINE
+            ),
+            hnsw_config=HnswConfigDiff(
+                m=settings.vector.hnsw_m,
+                ef_construct=settings.vector.hnsw_ef_construct,
+                on_disk=False,
+                max_indexing_threads=8
+            ),
+            quantization_config=quantization_config,
+            on_disk_payload=False
+        )
+        await self._create_payload_indexes_async(collection_name)
+    
+    async def _create_hybrid_collection_async(self, collection_name: str):
+        """Async version of hybrid collection creation"""
+        # Note: Using same embedding dimensions for legal_concepts as semantic for now
+        # In the future, this could be configured separately
+        await self.async_client.create_collection(
+            collection_name=collection_name,
+            vectors_config={
+                "semantic": VectorParams(
+                    size=settings.vector.embedding_dimensions,
+                    distance=Distance.COSINE,
+                    hnsw_config=HnswConfigDiff(
+                        m=settings.vector.hnsw_m,
+                        ef_construct=settings.vector.hnsw_ef_construct
+                    ),
+                    quantization_config=ScalarQuantization(
+                        scalar=ScalarQuantizationConfig(
+                            type=ScalarType.INT8,
+                            quantile=0.99,
+                            always_ram=True
+                        )
+                    ) if settings.vector.quantization else None
+                ),
+                "legal_concepts": VectorParams(
+                    size=settings.vector.embedding_dimensions,
+                    distance=Distance.COSINE
+                )
+            },
+            sparse_vectors_config={
+                "keywords": SparseVectorParams(
+                    index=SparseIndexParams(
+                        on_disk=False
+                    )
+                ),
+                "citations": SparseVectorParams(
+                    index=SparseIndexParams(
+                        on_disk=False
+                    )
+                )
+            },
+            on_disk_payload=False
+        )
+        await self._create_payload_indexes_async(collection_name)
+    
+    async def _create_payload_indexes_async(self, collection_name: str):
+        """Async version of payload index creation"""
+        indexes = [
+            ("case_name", "keyword"),
+            ("document_id", "keyword"),
+            ("document_type", "keyword"),
+            ("chunk_index", "integer"),
+            ("page_number", "integer"),
+            ("sentence_count", "integer"),
+            ("has_citations", "bool"),
+            ("citation_density", "float"),
+            ("created_at", "datetime")
+        ]
+        
+        for field_name, field_type in indexes:
+            try:
+                await self.async_client.create_payload_index(
+                    collection_name=collection_name,
+                    field_name=field_name,
+                    field_schema=field_type
+                )
+            except Exception as e:
+                logger.warning(f"Failed to create index {field_name}: {e}")
     
     def index_document(self, folder_name: str, document):
         """Index a document in folder-specific collection"""
@@ -1211,35 +1384,49 @@ class QdrantVectorStore:
             logger.error(f"Error getting case name mapping: {str(e)}")
             return {}
 
-    def list_cases(self) -> List[Dict[str, Any]]:
+    def list_cases(self, include_shared: bool = False) -> List[Dict[str, Any]]:
         """List all cases (collections) in the system
+        
+        Args:
+            include_shared: Whether to include shared resource collections
         
         Returns:
             List of case information dictionaries
         """
+        # Import here to avoid circular dependency
+        from src.config.shared_resources import is_shared_resource
+        
         try:
             collections = self.client.get_collections().collections
             cases = []
             
             for collection in collections:
+                # Skip shared resources unless explicitly requested
+                if not include_shared and is_shared_resource(collection.name):
+                    continue
+                    
                 try:
                     # Get collection info
                     info = self.client.get_collection(collection.name)
                     
-                    cases.append({
+                    case_info = {
                         "collection_name": collection.name,
                         "original_name": collection.name,  # Would be from metadata
                         "vector_count": info.vectors_count,
                         "points_count": info.points_count,
                         "indexed_vectors_count": getattr(info, 'indexed_vectors_count', 0),
-                        "status": info.status
-                    })
+                        "status": info.status,
+                        "is_shared": is_shared_resource(collection.name)
+                    }
+                    
+                    cases.append(case_info)
                     
                 except Exception as e:
                     logger.warning(f"Could not get details for {collection.name}: {e}")
                     cases.append({
                         "collection_name": collection.name,
-                        "error": str(e)
+                        "error": str(e),
+                        "is_shared": is_shared_resource(collection.name)
                     })
             
             return cases
