@@ -2,7 +2,8 @@
 set -e
 
 echo "Waiting for database to be ready..."
-while ! nc -z ${DATABASE_HOST:-postgres} ${DATABASE_PORT:-5432}; do
+while ! nc -z ${DATABASE_HOST:-localai-postgres-1} ${DATABASE_PORT:-5432}; do
+  echo "Waiting for database at ${DATABASE_HOST:-localai-postgres-1}:${DATABASE_PORT:-5432}..."
   sleep 1
 done
 echo "Database is ready!"
@@ -11,12 +12,6 @@ echo "Database is ready!"
 echo "Initializing database..."
 python init_db.py
 
-# Fix dev data if in development mode
-if [ "$AUTH_ENABLED" = "false" ]; then
-  echo "Ensuring development data exists..."
-  python scripts/fix_dev_database.py
-fi
-
 # Start the application
 echo "Starting Clerk application..."
-exec python main.py
+exec uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1

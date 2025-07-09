@@ -131,7 +131,7 @@ BEGIN
         VALUES (
             '123e4567-e89b-12d3-a456-426614174001', 
             'dev@clerk.ai', 
-            '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewKyNiGHTyF4JXH.',  -- bcrypt hash of 'password'
+            '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewKyNiGHTGpFyNBC',  -- bcrypt hash of 'password'
             'Dev User', 
             '123e4567-e89b-12d3-a456-426614174000', 
             true
