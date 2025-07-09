@@ -14,6 +14,7 @@ from src.database.connection import get_db
 from src.services.case_service import CaseService
 from src.services.auth_service import AuthService
 from src.database.models import User, Case as DBCase, CaseStatus
+from src.vector_storage.qdrant_store import QdrantVectorStore
 from src.models.case_models import (
     Case,
     CaseCreateRequest,
@@ -29,6 +30,74 @@ logger = logging.getLogger(__name__)
 
 # Create router
 router = APIRouter(prefix="/api/cases", tags=["cases"])
+
+
+async def create_case_collections_with_events(
+    vector_store,  # QdrantVectorStore instance
+    collection_name: str,
+    case_id: str
+) -> bool:
+    """
+    Create Qdrant collections for a case with WebSocket progress events.
+    
+    Args:
+        vector_store: QdrantVectorStore instance
+        collection_name: Base collection name
+        case_id: Case ID for event emission
+        
+    Returns:
+        True if all collections created successfully
+    """
+    from src.websocket.socket_server import emit_case_event
+    
+    # Emit start event
+    await emit_case_event("collections_started", case_id, {
+        "totalCollections": 4,
+        "message": "Creating vector storage collections"
+    })
+    
+    # Create collections
+    results = await vector_store.create_case_collections(collection_name)
+    
+    # Emit progress for each collection
+    success_count = 0
+    for idx, (coll_name, success) in enumerate(results.items()):
+        collection_type = "main"
+        if "_facts" in coll_name:
+            collection_type = "facts"
+        elif "_timeline" in coll_name:
+            collection_type = "timeline"
+        elif "_depositions" in coll_name:
+            collection_type = "depositions"
+            
+        if success:
+            success_count += 1
+            await emit_case_event("collection_created", case_id, {
+                "collectionName": coll_name,
+                "collectionType": collection_type,
+                "progress": (idx + 1) / 4
+            })
+        else:
+            await emit_case_event("collection_failed", case_id, {
+                "collectionName": coll_name,
+                "collectionType": collection_type,
+                "error": "Failed to create collection"
+            })
+    
+    # Emit completion event
+    if success_count == 4:
+        await emit_case_event("collections_ready", case_id, {
+            "message": "All collections created successfully",
+            "collectionsCreated": success_count
+        })
+        return True
+    else:
+        await emit_case_event("collections_partial", case_id, {
+            "message": f"Created {success_count} of 4 collections",
+            "collectionsCreated": success_count,
+            "collectionsFailed": 4 - success_count
+        })
+        return False
 
 
 def get_case_context_dependency(required_permission: str = "read"):
@@ -167,6 +236,35 @@ async def create_case(
             description=None,  # Description not part of CaseCreateRequest
             metadata=request.metadata
         )
+        
+        # Create Qdrant collections asynchronously
+        try:
+            vector_store = QdrantVectorStore()
+            collections_created = await create_case_collections_with_events(
+                vector_store,
+                case.collection_name,
+                case.id
+            )
+            
+            if not collections_created:
+                logger.warning(
+                    f"Some collections failed to create for case {case.id}"
+                )
+                
+        except Exception as e:
+            # Log error but don't fail case creation
+            logger.error(
+                f"Failed to create Qdrant collections for case {case.id}: {e}"
+            )
+            # Emit error event
+            try:
+                from src.websocket.socket_server import emit_case_event
+                await emit_case_event("collection_error", case.id, {
+                    "error": str(e),
+                    "message": "Collections will be created when first document is uploaded"
+                })
+            except:
+                pass  # Don't fail on WebSocket error
         
         # Parse metadata for response
         metadata = {}

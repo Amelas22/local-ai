@@ -215,6 +215,26 @@ async def emit_motion_completed(motion_id: str, download_url: str):
     }
     await sio.emit('motion:completed', event_data)
 
+# Case management event emitters
+async def emit_case_event(event_type: str, case_id: str, data: dict):
+    """
+    Emit case-related events.
+    
+    Args:
+        event_type: Type of event (e.g., 'collection_created', 'collection_error')
+        case_id: ID of the case
+        data: Event data payload
+    """
+    event_data = {
+        'caseId': case_id,
+        'eventType': event_type,
+        'timestamp': datetime.utcnow().isoformat(),
+        **data
+    }
+    
+    await sio.emit(f'case:{event_type}', event_data)
+    logger.info(f"Emitted case event: case:{event_type} for case {case_id}")
+
 # Utility functions
 def get_active_connections():
     """Get information about active connections"""
@@ -244,5 +264,6 @@ __all__ = [
     'emit_motion_started',
     'emit_motion_section_completed',
     'emit_motion_completed',
+    'emit_case_event',
     'get_active_connections'
 ]
