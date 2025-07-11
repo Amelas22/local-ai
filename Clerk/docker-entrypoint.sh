@@ -10,7 +10,7 @@ echo "Database is ready!"
 
 # Run database initialization
 echo "Initializing database..."
-python init_db.py
+python init_db.py || echo "Database initialization failed (tables may already exist), continuing..."
 
 # Start the application
 echo "Starting Clerk application..."

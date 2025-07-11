@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 class DocumentType(str, Enum):
     """Types of legal source documents"""
+
     # Legal filings
     MOTION = "motion"
     COMPLAINT = "complaint"
@@ -18,27 +19,27 @@ class DocumentType(str, Enum):
     MEMORANDUM = "memorandum"
     BRIEF = "brief"
     ORDER = "order"
-    
+
     # Discovery documents
     DEPOSITION = "deposition"
     INTERROGATORY = "interrogatory"
     REQUEST_FOR_ADMISSION = "request_for_admission"
     REQUEST_FOR_PRODUCTION = "request_for_production"
-    
+
     # Evidence documents
     MEDICAL_RECORD = "medical_record"
     POLICE_REPORT = "police_report"
     EXPERT_REPORT = "expert_report"
     PHOTOGRAPH = "photograph"
     VIDEO = "video"
-    
+
     # Business/Financial documents
     INVOICE = "invoice"
     CONTRACT = "contract"
     FINANCIAL_RECORD = "financial_record"
     EMPLOYMENT_RECORD = "employment_record"
     INSURANCE_POLICY = "insurance_policy"
-    
+
     # Other evidence
     CORRESPONDENCE = "correspondence"
     INCIDENT_REPORT = "incident_report"
@@ -49,6 +50,7 @@ class DocumentType(str, Enum):
 
 class DocumentRelevance(str, Enum):
     """Relevance categories for source documents"""
+
     LIABILITY = "liability"
     DAMAGES = "damages"
     CAUSATION = "causation"
@@ -61,37 +63,38 @@ class DocumentRelevance(str, Enum):
 
 class SourceDocument(BaseModel):
     """Represents a source document that could become an exhibit"""
+
     id: str
     case_name: str
     document_type: DocumentType
     title: str
     description: str
-    
+
     # Source information
     source_path: str  # Original file path in Box
     upload_date: datetime
     document_date: Optional[datetime] = None  # Date of the document itself
-    
+
     # Key metadata
     author: Optional[str] = None  # Who created this document
     recipient: Optional[str] = None  # Who received it (for correspondence)
     witness: Optional[str] = None  # For depositions/statements
-    
+
     # Content analysis
     key_facts: List[str] = Field(default_factory=list)
     relevance_tags: List[DocumentRelevance] = Field(default_factory=list)
     mentioned_parties: List[str] = Field(default_factory=list)
     mentioned_dates: List[str] = Field(default_factory=list)
-    
+
     # Page-specific information
     total_pages: Optional[int] = None
     key_pages: List[int] = Field(default_factory=list)  # Most relevant pages
-    
+
     # Search and retrieval
     summary: Optional[str] = None  # AI-generated summary
     search_text: str  # Full searchable text
     embedding_id: Optional[str] = None  # Reference to vector embedding
-    
+
     # Quality and verification
     ocr_quality: Optional[float] = None  # 0-1 score for OCR quality
     verified: bool = False
@@ -100,6 +103,7 @@ class SourceDocument(BaseModel):
 
 class EvidenceSearchQuery(BaseModel):
     """Query for searching source documents for evidence"""
+
     case_name: str
     query_text: str
     document_types: Optional[List[DocumentType]] = None
@@ -111,6 +115,7 @@ class EvidenceSearchQuery(BaseModel):
 
 class EvidenceSearchResult(BaseModel):
     """Result from evidence search"""
+
     document: SourceDocument
     relevance_score: float
     matching_excerpts: List[Dict[str, Any]]  # Page number and text excerpts
@@ -119,6 +124,7 @@ class EvidenceSearchResult(BaseModel):
 
 class DocumentClassificationRequest(BaseModel):
     """Request to classify a document"""
+
     case_name: str
     document_path: str
     document_content: str
@@ -127,6 +133,7 @@ class DocumentClassificationRequest(BaseModel):
 
 class DocumentClassificationResult(BaseModel):
     """Result of document classification"""
+
     document_type: DocumentType
     confidence: float
     detected_parties: List[str]

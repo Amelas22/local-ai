@@ -123,7 +123,9 @@ services:
       - MOTION_CACHE_SIZE_MB=${MOTION_CACHE_SIZE_MB}
       
       # Authentication Settings
+      - MVP_MODE=true
       - AUTH_ENABLED=false
+      - ENVIRONMENT=development
       - DEV_MOCK_TOKEN=dev-token-123456
       
       # Database Configuration
@@ -136,8 +138,10 @@ services:
       - clerk_logs:/app/logs
       - clerk_reports:/app/reports
     depends_on:
-      - qdrant
-      - postgres
+      qdrant:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     networks:
       - default
     healthcheck:
@@ -209,7 +213,7 @@ services:
         condition: service_completed_successfully
 
   qdrant:
-    image: qdrant/qdrant
+    build: ./qdrant
     container_name: qdrant
     restart: unless-stopped
     ports:
@@ -220,6 +224,12 @@ services:
       - 6334/tcp
     volumes:
       - qdrant_storage:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:6333/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   neo4j:
     image: neo4j:latest

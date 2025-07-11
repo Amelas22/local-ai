@@ -43,25 +43,34 @@ class ApiClient {
     // Request interceptor to add auth token and case ID
     this.client.interceptors.request.use(
       async (config) => {
-        // Ensure auth service is initialized before making requests
-        if (!authServiceManager.isReady()) {
-          console.log('Waiting for auth service initialization...');
-          await authServiceManager.getAuthService();
-        }
-
-        // Add auth token from tokenService
-        const token = tokenService.getAccessToken();
-        if (token) {
-          config.headers['Authorization'] = `Bearer ${token}`;
-          // Log token injection in development
-          if (import.meta.env.DEV) {
-            console.log(`[API Client] Added auth token to ${config.url}`);
+        // MVP Mode: Skip auth header entirely
+        const isMvpMode = import.meta.env.VITE_MVP_MODE === 'true';
+        
+        if (isMvpMode) {
+          // In MVP mode, no auth needed
+          console.log('[API Client] MVP Mode active - skipping auth header');
+        } else {
+          // Normal auth flow
+          // Ensure auth service is initialized before making requests
+          if (!authServiceManager.isReady()) {
+            console.log('Waiting for auth service initialization...');
+            await authServiceManager.getAuthService();
           }
-        } else if (import.meta.env.DEV) {
-          console.warn(`[API Client] No auth token available for ${config.url}`);
+
+          // Add auth token from tokenService
+          const token = tokenService.getAccessToken();
+          if (token) {
+            config.headers['Authorization'] = `Bearer ${token}`;
+            // Log token injection in development
+            if (import.meta.env.DEV) {
+              console.log(`[API Client] Added auth token to ${config.url}`);
+            }
+          } else if (import.meta.env.DEV) {
+            console.warn(`[API Client] No auth token available for ${config.url}`);
+          }
         }
         
-        // Add case ID from localStorage (since context is not accessible here)
+        // Add case ID from localStorage (works in both MVP and normal mode)
         const activeCase = localStorage.getItem('activeCase');
         if (activeCase) {
           config.headers['X-Case-ID'] = activeCase;
@@ -82,6 +91,12 @@ class ApiClient {
         
         // Handle 401 Unauthorized with token refresh
         if (error.response?.status === 401 && !originalRequest._retry) {
+          // MVP Mode: Never handle 401, just pass through
+          if (import.meta.env.VITE_MVP_MODE === 'true') {
+            console.log('[API Client] MVP Mode - ignoring 401 error');
+            return Promise.reject(error);
+          }
+          
           if (this.isRefreshing) {
             // Token refresh is already in progress, queue this request
             return new Promise((resolve, reject) => {

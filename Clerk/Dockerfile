@@ -55,5 +55,5 @@ USER appuser
 
 EXPOSE 8000
 
-# Run init_db.py then start the app
-CMD sh -c "python init_db.py || true && uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1"
+# Run wait_for_services.py, init_db.py, then start the app
+CMD sh -c "python wait_for_services.py && python init_db.py || true && uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1"

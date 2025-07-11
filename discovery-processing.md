@@ -26,8 +26,8 @@ This feature implements a comprehensive discovery document processing system tha
 1. **Document Reception**: Handle uploads from multiple sources (direct upload, Box integration)
 2. **Boundary Detection**: Use LLM to identify document boundaries in concatenated PDFs
 3. **Document Classification**: Classify each split document by type
-4. **Fact Extraction**: Extract facts using NLP with entity recognition and categorization
-5. **Vector Embedding**: Generate embeddings for semantic search capabilities
+4. **Fact Extraction**: Extract facts from the individual documents utilzing AI
+5. **Vector Embedding**: Generate embeddings for semantic search capabilities. We store both sparse and dense vectors. Utilize both methods for upload into case database and case_facts database. 
 6. **Storage**: Store facts in Qdrant with case isolation and deduplication
 7. **Real-time Updates**: Emit WebSocket events at each processing stage
 

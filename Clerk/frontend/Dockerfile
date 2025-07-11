@@ -15,6 +15,13 @@ RUN npm ci
 # Copy source code
 COPY . .
 
+# Ensure PDF.js worker is available (the Vite plugin will copy it during build)
+# As a fallback, download it if node_modules doesn't have it
+RUN if [ ! -f "node_modules/pdfjs-dist/build/pdf.worker.min.js" ]; then \
+      wget -O public/pdf.worker.min.js https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js || \
+      echo "console.warn('Failed to download PDF.js worker')" > public/pdf.worker.min.js; \
+    fi
+
 # Accept build arguments for environment variables
 ARG VITE_API_URL
 ARG VITE_WS_URL

@@ -17,7 +17,7 @@ DocumentDeduplicator = QdrantDocumentDeduplicator
 __all__ = [
     "BoxClient",
     "BoxDocument",
-    "PDFExtractor", 
+    "PDFExtractor",
     "ExtractedDocument",
     "DocumentChunker",
     "DocumentChunk",
@@ -26,7 +26,7 @@ __all__ = [
     "DocumentRecord",
     "ContextGenerator",
     "ChunkWithContext",
-    "SourceDocumentIndexer"
+    "SourceDocumentIndexer",
 ]
 
 __version__ = "0.2.0"  # Version bump for Qdrant-only implementation

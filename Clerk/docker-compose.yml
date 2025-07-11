@@ -35,9 +35,11 @@ services:
       dockerfile: Dockerfile
     container_name: clerk-backend
     environment:
-      # Copy all environment variables from .env
-      - AUTH_ENABLED=false
-      - DEV_MOCK_TOKEN=dev-token-123456
+      # MVP Mode Configuration
+      - MVP_MODE=true
+      # Auth variables commented out for MVP mode - restore for production
+      # - AUTH_ENABLED=true
+      # - DEV_MOCK_TOKEN=dev-token-123456
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - DATABASE_URL=postgresql://postgres:postgres123@postgres:5432/clerk_legal_ai

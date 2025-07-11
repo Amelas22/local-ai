@@ -103,6 +103,12 @@ A two-panel interface where users upload discovery documents and RFP files, then
   
 - file: Clerk/main.py
   why: Existing discovery endpoint at line 712
+
+- file: Clerk/src/models/discovery_models.py            
+- file: Clerk/src/models/tests/test_discovery_models.py 
+- file: Clerk/src/services/fact_manager.py              
+- file: Clerk/src/services/tests/test_fact_manager.py 
+- why: Started to implement process. Review and update as needed
 ```
 
 ### Current Codebase Structure

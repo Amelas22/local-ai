@@ -225,6 +225,15 @@ When creating branches, follow these naming conventions:
 - *** NEVER ASSUME OR GUESS ***
 - When in doubt, ask for clarification or ask for help. You can do websearch to find relevant examples.
 
+- *** CRITICAL: DOCKER CONTAINER MANAGEMENT ***
+  - NEVER run Clerk containers with `docker run` directly
+  - ALWAYS use docker-compose from the parent directory: `cd /mnt/c/Users/jlemr/Test2/local-ai-package`
+  - ALWAYS use the correct docker-compose files: `docker-compose -p localai -f docker-compose.yml -f docker-compose.clerk.yml`
+  - The Clerk service MUST run in the same network as qdrant and postgres (localai tech stack)
+  - Database connection: `postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/postgres` (NOT supabase-db!)
+  - To restart Clerk: `docker-compose -p localai -f docker-compose.yml -f docker-compose.clerk.yml restart clerk`
+  - To rebuild Clerk: `docker-compose -p localai -f docker-compose.yml -f docker-compose.clerk.yml build clerk`
+
 - **Always confirm file paths & module names** exist before using them.
 
 - **Comment non-obvious code** and ensure everything is understandable to a mid-level developer.

@@ -76,7 +76,19 @@
       "Bash(bash:*)",
       "Bash(for file in docker-compose*.yml)",
       "Bash(do echo \"Fixing $file\")",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(npm run lint:*)",
+      "Bash(npm run:*)",
+      "Bash(ruff format:*)",
+      "Bash(MVP_MODE=true python -m pytest tests/test_dev_auth_flow.py -v)",
+      "Bash(MVP_MODE=true python -c \"import os; print(''MVP_MODE:'', os.getenv(''MVP_MODE'', ''false''))\")",
+      "Bash(./test_mvp_docker.sh:*)",
+      "Bash(COMPOSE_PROJECT_NAME=localai docker-compose -f docker-compose.yml -f docker-compose.clerk.yml build clerk)",
+      "Bash(COMPOSE_PROJECT_NAME=localai docker-compose -f docker-compose.yml -f docker-compose.clerk.yml build --no-cache clerk)",
+      "Bash(COMPOSE_PROJECT_NAME=localai docker-compose -f docker-compose.yml -f docker-compose.clerk.yml restart clerk)",
+      "Bash(COMPOSE_PROJECT_NAME=localai docker-compose -f docker-compose.yml -f docker-compose.clerk.yml up -d --build clerk)",
+      "Bash(COMPOSE_PROJECT_NAME=localai docker-compose -f docker-compose.yml -f docker-compose.clerk.yml down clerk)",
+      "Bash(COMPOSE_PROJECT_NAME=localai docker-compose -f docker-compose.yml -f docker-compose.clerk.yml down -v)"
     ],
     "deny": []
   }

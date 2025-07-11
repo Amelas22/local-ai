@@ -44,7 +44,7 @@ const SignUpPage = () => {
 
     try {
       const { confirmPassword, ...signUpData } = data;
-      const result = await authService.signUp(signUpData);
+      const result = await authService.signUp?.(signUpData);
       setSuccess(result.message);
       
       // Redirect to login after 3 seconds

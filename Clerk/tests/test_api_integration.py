@@ -7,10 +7,7 @@ through the entire request/response cycle.
 
 import pytest
 from httpx import AsyncClient
-from fastapi import status
 from main import app
-from src.models.case_models import Case
-from src.services.case_manager import case_manager
 
 
 @pytest.mark.asyncio
@@ -21,9 +18,9 @@ async def test_case_creation_api():
         response = await client.post(
             "/api/cases",
             json={"name": "Test Case v State"},
-            headers={"X-User-ID": "test-user", "X-Law-Firm-ID": "test-firm"}
+            headers={"X-User-ID": "test-user", "X-Law-Firm-ID": "test-firm"},
         )
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == "Test Case v State"
@@ -40,18 +37,15 @@ async def test_case_creation_with_metadata():
         metadata = {
             "client_name": "John Smith",
             "case_type": "personal_injury",
-            "court": "District Court"
+            "court": "District Court",
         }
-        
+
         response = await client.post(
             "/api/cases",
-            json={
-                "name": "Smith v Insurance Co",
-                "metadata": metadata
-            },
-            headers={"X-User-ID": "test-user", "X-Law-Firm-ID": "test-firm"}
+            json={"name": "Smith v Insurance Co", "metadata": metadata},
+            headers={"X-User-ID": "test-user", "X-Law-Firm-ID": "test-firm"},
         )
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["metadata"] == metadata
@@ -65,24 +59,24 @@ async def test_case_creation_validation_errors():
         response = await client.post(
             "/api/cases",
             json={"name": ""},
-            headers={"X-User-ID": "test-user", "X-Law-Firm-ID": "test-firm"}
+            headers={"X-User-ID": "test-user", "X-Law-Firm-ID": "test-firm"},
         )
         assert response.status_code == 422  # Validation error
-        
+
         # Test name too long (> 50 chars)
         long_name = "A" * 51
         response = await client.post(
             "/api/cases",
             json={"name": long_name},
-            headers={"X-User-ID": "test-user", "X-Law-Firm-ID": "test-firm"}
+            headers={"X-User-ID": "test-user", "X-Law-Firm-ID": "test-firm"},
         )
         assert response.status_code == 422  # Validation error
-        
+
         # Test whitespace-only name
         response = await client.post(
             "/api/cases",
             json={"name": "   "},
-            headers={"X-User-ID": "test-user", "X-Law-Firm-ID": "test-firm"}
+            headers={"X-User-ID": "test-user", "X-Law-Firm-ID": "test-firm"},
         )
         assert response.status_code == 422  # Validation error
 
@@ -95,15 +89,15 @@ async def test_case_creation_duplicate_name():
         response = await client.post(
             "/api/cases",
             json={"name": "Duplicate Test Case"},
-            headers={"X-User-ID": "test-user", "X-Law-Firm-ID": "test-firm"}
+            headers={"X-User-ID": "test-user", "X-Law-Firm-ID": "test-firm"},
         )
         assert response.status_code == 200
-        
+
         # Try to create duplicate
         response = await client.post(
             "/api/cases",
             json={"name": "Duplicate Test Case"},
-            headers={"X-User-ID": "test-user", "X-Law-Firm-ID": "test-firm"}
+            headers={"X-User-ID": "test-user", "X-Law-Firm-ID": "test-firm"},
         )
         assert response.status_code == 400  # Should fail due to duplicate
 
@@ -116,15 +110,15 @@ async def test_list_cases_api():
         await client.post(
             "/api/cases",
             json={"name": "List Test Case"},
-            headers={"X-User-ID": "test-user", "X-Law-Firm-ID": "test-firm"}
+            headers={"X-User-ID": "test-user", "X-Law-Firm-ID": "test-firm"},
         )
-        
+
         # List cases
         response = await client.get(
             "/api/cases",
-            headers={"X-User-ID": "test-user", "X-Law-Firm-ID": "test-firm"}
+            headers={"X-User-ID": "test-user", "X-Law-Firm-ID": "test-firm"},
         )
-        
+
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
@@ -139,10 +133,10 @@ async def test_update_case_status():
         create_response = await client.post(
             "/api/cases",
             json={"name": "Status Update Test"},
-            headers={"X-User-ID": "test-user", "X-Law-Firm-ID": "test-firm"}
+            headers={"X-User-ID": "test-user", "X-Law-Firm-ID": "test-firm"},
         )
         case_id = create_response.json()["id"]
-        
+
         # Update status
         response = await client.put(
             f"/api/cases/{case_id}",
@@ -150,10 +144,10 @@ async def test_update_case_status():
             headers={
                 "X-User-ID": "test-user",
                 "X-Law-Firm-ID": "test-firm",
-                "X-Case-ID": case_id
-            }
+                "X-Case-ID": case_id,
+            },
         )
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "archived"
@@ -164,11 +158,8 @@ async def test_api_without_authentication():
     """Test API endpoints without authentication headers"""
     async with AsyncClient(app=app, base_url="http://test") as client:
         # Test case creation without headers
-        response = await client.post(
-            "/api/cases",
-            json={"name": "No Auth Test"}
-        )
-        
+        response = await client.post("/api/cases", json={"name": "No Auth Test"})
+
         # Should still work with default test values in development
         assert response.status_code == 200
         data = response.json()

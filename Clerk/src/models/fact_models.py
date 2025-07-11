@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, validator
 
 class FactCategory(str, Enum):
     """Categories for classifying extracted facts"""
+
     PROCEDURAL = "procedural"  # Court filings, motions, orders
     SUBSTANTIVE = "substantive"  # Core case facts
     EVIDENTIARY = "evidentiary"  # Evidence, exhibits, testimony
@@ -25,6 +26,7 @@ class FactCategory(str, Enum):
 
 class EntityType(str, Enum):
     """Types of entities that can be extracted"""
+
     PERSON = "person"
     ORGANIZATION = "organization"
     LOCATION = "location"
@@ -39,6 +41,7 @@ class EntityType(str, Enum):
 @dataclass
 class DateReference:
     """Represents a date or date range in a fact"""
+
     date_text: str  # Original text
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
@@ -53,6 +56,7 @@ class CaseFact:
     Represents a single fact extracted from case documents.
     Includes case isolation through mandatory case_name field.
     """
+
     id: str
     case_name: str  # REQUIRED: Ensures case isolation
     content: str  # The fact text
@@ -61,29 +65,32 @@ class CaseFact:
     page_references: List[int]  # Page numbers where fact appears
     extraction_timestamp: datetime
     confidence_score: float  # 0.0 to 1.0
-    
+
     # Entity information
     entities: Dict[EntityType, List[str]] = field(default_factory=dict)
-    
+
     # Temporal information
     date_references: List[DateReference] = field(default_factory=list)
-    
+
     # Relationships
     related_facts: List[str] = field(default_factory=list)  # IDs of related facts
     supporting_exhibits: List[str] = field(default_factory=list)  # Exhibit IDs
-    
+
     # Quality metadata
     verification_status: str = "unverified"  # unverified, verified, disputed
     extraction_method: str = "automated"  # automated, manual, hybrid
-    
+
     # For legal analysis
     legal_significance: Optional[str] = None
-    argument_relevance: Dict[str, float] = field(default_factory=dict)  # argument_id -> relevance
+    argument_relevance: Dict[str, float] = field(
+        default_factory=dict
+    )  # argument_id -> relevance
 
 
 @dataclass
 class DepositionCitation:
     """Represents a parsed deposition citation"""
+
     id: str
     case_name: str  # REQUIRED: Case isolation
     deponent_name: str
@@ -102,6 +109,7 @@ class DepositionCitation:
 @dataclass
 class ExhibitIndex:
     """Represents an exhibit in a case"""
+
     id: str
     case_name: str  # REQUIRED: Case isolation
     exhibit_number: str  # e.g., "Exhibit A", "Plaintiff's Ex. 12"
@@ -120,18 +128,19 @@ class ExhibitIndex:
 @dataclass
 class FactTimeline:
     """Chronological organization of facts for a case"""
+
     case_name: str  # REQUIRED: Case isolation
     timeline_events: List[Tuple[datetime, CaseFact]]
     date_ranges: List[Tuple[datetime, datetime, str]]  # start, end, description
     key_dates: Dict[str, datetime]  # event_name -> date
-    
+
     def add_fact(self, fact: CaseFact):
         """Add a fact to the timeline if it has date references"""
         if fact.date_references:
             for date_ref in fact.date_references:
                 if date_ref.start_date:
                     self.timeline_events.append((date_ref.start_date, fact))
-                    
+
     def get_chronological_facts(self) -> List[CaseFact]:
         """Return facts in chronological order"""
         sorted_events = sorted(self.timeline_events, key=lambda x: x[0])
@@ -141,61 +150,72 @@ class FactTimeline:
 @dataclass
 class CaseFactCollection:
     """Collection of all facts for a specific case"""
+
     case_name: str
     facts: List[CaseFact] = field(default_factory=list)
     depositions: List[DepositionCitation] = field(default_factory=list)
     exhibits: List[ExhibitIndex] = field(default_factory=list)
     timeline: Optional[FactTimeline] = None
-    
+
     # Metadata
     total_documents_processed: int = 0
     extraction_start_time: Optional[datetime] = None
     extraction_end_time: Optional[datetime] = None
-    
+
     # Statistics
     fact_count_by_category: Dict[FactCategory, int] = field(default_factory=dict)
     entity_count_by_type: Dict[EntityType, int] = field(default_factory=dict)
-    
+
     def add_fact(self, fact: CaseFact):
         """Add a fact with validation"""
         if fact.case_name != self.case_name:
-            raise ValueError(f"Case name mismatch: {fact.case_name} != {self.case_name}")
+            raise ValueError(
+                f"Case name mismatch: {fact.case_name} != {self.case_name}"
+            )
         self.facts.append(fact)
-        self.fact_count_by_category[fact.category] = self.fact_count_by_category.get(fact.category, 0) + 1
+        self.fact_count_by_category[fact.category] = (
+            self.fact_count_by_category.get(fact.category, 0) + 1
+        )
 
 
 # Pydantic models for API interaction
 
+
 class FactExtractionRequest(BaseModel):
     """Request model for fact extraction"""
+
     case_name: str = Field(..., description="Case name for isolation")
     document_id: str = Field(..., description="Document to extract facts from")
     document_content: str = Field(..., description="Document text content")
     extraction_options: Dict[str, Any] = Field(default_factory=dict)
-    
-    @validator('case_name')
+
+    @validator("case_name")
     def validate_case_name(cls, v):
         """Ensure case name is valid and safe"""
         if not v or not v.strip():
             raise ValueError("Case name cannot be empty")
         # Prevent injection attacks
-        if any(char in v for char in ['*', '?', '[', ']', '{', '}']):
+        if any(char in v for char in ["*", "?", "[", "]", "{", "}"]):
             raise ValueError("Case name contains invalid characters")
         return v.strip()
 
 
 class FactSearchRequest(BaseModel):
     """Request model for searching facts"""
+
     case_name: str = Field(..., description="Case to search within")
     query: str = Field(..., description="Search query")
     categories: List[FactCategory] = Field(default_factory=list)
     date_range: Optional[Tuple[datetime, datetime]] = Field(None)
-    include_shared_knowledge: bool = Field(True, description="Include statutes and regulations")
+    include_shared_knowledge: bool = Field(
+        True, description="Include statutes and regulations"
+    )
     limit: int = Field(50, ge=1, le=200)
 
 
 class SharedKnowledgeEntry(BaseModel):
     """Model for shared legal knowledge (statutes, regulations)"""
+
     id: str
     knowledge_type: str  # "florida_statute", "fmcsr_regulation", "case_law"
     identifier: str  # e.g., "Fla. Stat. § 768.81", "49 CFR § 395.8"
@@ -209,36 +229,37 @@ class SharedKnowledgeEntry(BaseModel):
 
 class CaseIsolationConfig(BaseModel):
     """Configuration for case isolation enforcement"""
+
     case_name: str
     allowed_collections: List[str] = Field(default_factory=list)
     enable_shared_knowledge: bool = True
     audit_access: bool = True
-    
+
     def get_case_collections(self) -> List[str]:
         """Get all collections for this case"""
         return [
             f"{self.case_name}_facts",
             f"{self.case_name}_timeline",
             f"{self.case_name}_exhibits",
-            f"{self.case_name}_depositions"
+            f"{self.case_name}_depositions",
         ]
-    
+
     def validate_collection_access(self, collection_name: str) -> bool:
         """Check if access to collection is allowed"""
         # Case-specific collections
         if collection_name.startswith(f"{self.case_name}_"):
             return True
-        
+
         # Shared knowledge collections
         shared_collections = [
             "florida_statutes",
             "fmcsr_regulations",
             "case_law_precedents",
-            "legal_standards"
+            "legal_standards",
         ]
-        
+
         if self.enable_shared_knowledge and collection_name in shared_collections:
             return True
-            
+
         # Check explicit allowlist
         return collection_name in self.allowed_collections

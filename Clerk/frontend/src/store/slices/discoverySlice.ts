@@ -2,7 +2,8 @@ import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { 
   ProcessingStage, 
   ProcessingDocument, 
-  ProcessingSummary
+  ProcessingSummary,
+  ExtractedFactWithSource
 } from '../../types/discovery.types';
 
 export interface ProcessingStats {
@@ -20,6 +21,8 @@ interface DiscoveryState {
   processingStartTime: string | null;
   processingEndTime: string | null;
   documents: ProcessingDocument[];
+  processingDocuments: ProcessingDocument[];
+  extractedFacts: ExtractedFactWithSource[];
   stats: ProcessingStats;
   currentProcessingId: string | null;
   error: string | null;
@@ -34,6 +37,8 @@ const initialState: DiscoveryState = {
   processingStartTime: null,
   processingEndTime: null,
   documents: [],
+  processingDocuments: [],
+  extractedFacts: [],
   stats: {
     documentsFound: 0,
     documentsProcessed: 0,
@@ -49,7 +54,7 @@ const initialState: DiscoveryState = {
   currentChunkingDocument: null,
 };
 
-const discoverySlice = createSlice({
+export const discoverySlice = createSlice({
   name: 'discovery',
   initialState,
   reducers: {
@@ -197,6 +202,79 @@ const discoverySlice = createSlice({
     resetProcessing: () => {
       return initialState;
     },
+    
+    // Document management actions
+    addDocument: (state, action: PayloadAction<ProcessingDocument>) => {
+      state.processingDocuments.push(action.payload);
+    },
+    
+    updateDocument: (state, action: PayloadAction<Partial<ProcessingDocument> & { id: string }>) => {
+      const index = state.processingDocuments.findIndex(d => d.id === action.payload.id);
+      if (index !== -1) {
+        state.processingDocuments[index] = {
+          ...state.processingDocuments[index],
+          ...action.payload,
+        };
+      }
+    },
+    
+    setProcessingStatus: (state, action: PayloadAction<{
+      processingId: string;
+      status: 'processing' | 'completed' | 'error';
+      stage: ProcessingStage;
+    }>) => {
+      state.currentProcessingId = action.payload.processingId;
+      state.isProcessing = action.payload.status === 'processing';
+      state.currentStage = action.payload.stage;
+    },
+    
+    setProcessingSummary: (state, action: PayloadAction<ProcessingSummary>) => {
+      state.stats = {
+        documentsFound: action.payload.totalDocuments,
+        documentsProcessed: action.payload.processedDocuments,
+        chunksCreated: action.payload.totalChunks,
+        vectorsStored: action.payload.totalVectors,
+        errors: action.payload.totalErrors,
+        averageConfidence: action.payload.averageConfidence,
+      };
+    },
+    
+    setProcessingError: (state, action: PayloadAction<{
+      error: string;
+      documentId?: string;
+    }>) => {
+      state.error = action.payload.error;
+      if (action.payload.documentId) {
+        const doc = state.processingDocuments.find(d => d.id === action.payload.documentId);
+        if (doc) {
+          doc.status = 'error';
+          doc.error = action.payload.error;
+        }
+      }
+    },
+    
+    // Fact management actions
+    setExtractedFacts: (state, action: PayloadAction<ExtractedFactWithSource[]>) => {
+      state.extractedFacts = action.payload;
+    },
+    
+    addExtractedFact: (state, action: PayloadAction<ExtractedFactWithSource>) => {
+      state.extractedFacts.push(action.payload);
+    },
+    
+    updateExtractedFact: (state, action: PayloadAction<Partial<ExtractedFactWithSource> & { id: string }>) => {
+      const index = state.extractedFacts.findIndex(f => f.id === action.payload.id);
+      if (index !== -1) {
+        state.extractedFacts[index] = {
+          ...state.extractedFacts[index],
+          ...action.payload,
+        };
+      }
+    },
+    
+    removeExtractedFact: (state, action: PayloadAction<string>) => {
+      state.extractedFacts = state.extractedFacts.filter(f => f.id !== action.payload);
+    },
   },
 });
 
@@ -213,6 +291,15 @@ export const {
   setCurrentStage,
   setError,
   resetProcessing,
+  addDocument,
+  updateDocument,
+  setProcessingStatus,
+  setProcessingSummary,
+  setProcessingError,
+  setExtractedFacts,
+  addExtractedFact,
+  updateExtractedFact,
+  removeExtractedFact,
 } = discoverySlice.actions;
 
 export default discoverySlice.reducer;
