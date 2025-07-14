@@ -511,12 +511,12 @@ class EnhancedChunker:
             texts = [chunk.chunk_text for chunk in chunk_metadata_list]
 
             # Generate embeddings in batch
-            embeddings = await self.embedding_generator.generate_embeddings_batch(texts)
+            embeddings, token_count = await self.embedding_generator.generate_embeddings_batch_async(texts)
 
             # Assign embeddings to chunks
             for chunk, embedding in zip(chunk_metadata_list, embeddings):
                 chunk.dense_vector = embedding
-                chunk.embedding_model = self.embedding_generator.model_name
+                chunk.embedding_model = self.embedding_generator.model
 
             self.logger.info(
                 f"Generated embeddings for {len(chunk_metadata_list)} chunks"
@@ -527,11 +527,11 @@ class EnhancedChunker:
             # Fall back to individual generation
             for chunk in chunk_metadata_list:
                 try:
-                    embedding = await self.embedding_generator.generate_embedding(
+                    embedding, token_count = await self.embedding_generator.generate_embedding_async(
                         chunk.chunk_text
                     )
                     chunk.dense_vector = embedding
-                    chunk.embedding_model = self.embedding_generator.model_name
+                    chunk.embedding_model = self.embedding_generator.model
                 except Exception as individual_error:
                     self.logger.error(
                         f"Failed to generate embedding for chunk: {individual_error}"

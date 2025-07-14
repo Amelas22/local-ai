@@ -24,10 +24,20 @@ ENV VIRTUAL_ENV=/opt/venv
 RUN python3 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# Install Python dependencies
+# Install Python dependencies with retry logic and timeout configurations
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+
+# Configure pip for better network handling
+ENV PIP_DEFAULT_TIMEOUT=120 \
+    PIP_RETRIES=5 \
+    PIP_TIMEOUT=120
+
+# Install with retry logic
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir --timeout 120 --retries 5 -r requirements.txt || \
+    (sleep 5 && pip install --no-cache-dir --timeout 120 --retries 5 -r requirements.txt) || \
+    (sleep 10 && pip install --no-cache-dir --timeout 120 --retries 5 -r requirements.txt)
 
 # Download spaCy language model
 RUN python -m spacy download en_core_web_sm

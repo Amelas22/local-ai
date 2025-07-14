@@ -87,6 +87,7 @@ export interface ProcessingSummary {
   totalErrors: number;
   processingTime: number;
   averageConfidence: number;
+  totalFacts: number;
 }
 
 // WebSocket event types
@@ -164,6 +165,7 @@ export interface ExtractedFactWithSource {
   updated_at: string;
   entities?: string[];
   keywords?: string[];
+  dates?: string[];
 }
 
 export interface FactEditHistory {

@@ -36,7 +36,16 @@ from ..document_processing.enhanced_chunker import EnhancedChunker
 from ..vector_storage.embeddings import EmbeddingGenerator
 from ..models.unified_document_models import DocumentType, UnifiedDocument, DiscoveryProcessingRequest
 from ..ai_agents.fact_extractor import FactExtractor
-from ..websocket.socket_server import sio
+from ..websocket.socket_server import (
+    sio,
+    emit_discovery_started,
+    emit_document_found,
+    emit_chunking_progress,
+    emit_embedding_progress,
+    emit_document_stored,
+    emit_processing_completed,
+    emit_processing_error
+)
 
 # MVP Mode conditional imports
 import os
@@ -306,11 +315,11 @@ async def _process_discovery_async(
     try:
         logger.info(f"Emitting discovery:started event")
         # Emit start event
-        await sio.emit("discovery:started", {
-            "processing_id": processing_id,
-            "case_name": case_name,
-            "total_files": len(discovery_files or [])
-        })
+        await emit_discovery_started(
+            processing_id=processing_id,
+            case_id=case_name,
+            total_files=len(discovery_files or [])
+        )
         logger.info(f"Event emitted, processing {len(discovery_files or [])} files")
         
         # Process each uploaded PDF
@@ -356,15 +365,17 @@ async def _process_discovery_async(
                     try:
                         # Emit document found event
                         logger.info(f"Emitting discovery:document_found for segment {segment_idx}: {segment.title}")
-                        await sio.emit("discovery:document_found", {
-                            "processing_id": processing_id,
-                            "document_id": f"{processing_id}_seg_{segment_idx}",
-                            "title": segment.title or f"Document {segment.document_type}",
-                            "type": segment.document_type.value,
-                            "pages": f"{segment.start_page}-{segment.end_page}",
-                            "bates_range": segment.bates_range,
-                            "confidence": segment.confidence_score
-                        })
+                        doc_id = f"{processing_id}_seg_{segment_idx}"
+                        page_count = segment.end_page - segment.start_page + 1
+                        await emit_document_found(
+                            processing_id=processing_id,
+                            document_id=doc_id,
+                            title=segment.title or f"Document {segment.document_type}",
+                            doc_type=segment.document_type.value,
+                            page_count=page_count,
+                            bates_range=segment.bates_range,
+                            confidence=segment.confidence_score
+                        )
                         
                         # Extract text for this segment
                         segment_text = extract_text_from_pages(
@@ -415,14 +426,15 @@ async def _process_discovery_async(
                         )
                         
                         # Store document metadata
-                        doc_id = await document_manager.add_document(unified_doc)
+                        stored_doc_id = await document_manager.add_document(unified_doc)
                         
                         # Create chunks with context
-                        await sio.emit("discovery:chunking", {
-                            "processing_id": processing_id,
-                            "document_id": doc_id,
-                            "status": "started"
-                        })
+                        await emit_chunking_progress(
+                            processing_id=processing_id,
+                            document_id=stored_doc_id,
+                            progress=0.0,
+                            chunks_created=0
+                        )
                         
                         # Create document core for chunker
                         from src.models.normalized_document_models import DocumentCore
@@ -432,7 +444,7 @@ async def _process_discovery_async(
                         metadata_hash = hashlib.sha256(metadata_str.encode()).hexdigest()
                         
                         doc_core = DocumentCore(
-                            id=doc_id,
+                            id=stored_doc_id,
                             document_hash=doc_hash,
                             metadata_hash=metadata_hash,
                             file_name=unified_doc.file_name,
@@ -455,11 +467,12 @@ async def _process_discovery_async(
                             raise
                         
                         # Generate embeddings and store chunks
-                        await sio.emit("discovery:embedding", {
-                            "processing_id": processing_id,
-                            "document_id": doc_id,
-                            "total_chunks": len(chunks)
-                        })
+                        await emit_embedding_progress(
+                            processing_id=processing_id,
+                            document_id=stored_doc_id,
+                            chunk_id="all",
+                            progress=0.0
+                        )
                         
                         # Prepare all chunks for batch storage
                         chunk_data = []
@@ -468,10 +481,11 @@ async def _process_discovery_async(
                         for chunk_idx, chunk in enumerate(chunks):
                             # Generate embedding
                             try:
-                                # Check chunk attributes
-                                chunk_text = getattr(chunk, 'text', None) or getattr(chunk, 'content', None) or str(chunk)
+                                # Get chunk text from ChunkMetadata object
+                                chunk_text = chunk.chunk_text
+                                logger.debug(f"Chunk {chunk_idx}: text length = {len(chunk_text)} chars")
                                 embedding, token_count = await embedding_generator.generate_embedding_async(chunk_text)
-                                logger.debug(f"Generated embedding for chunk {chunk_idx}")
+                                logger.debug(f"Generated embedding for chunk {chunk_idx} with {token_count} tokens")
                             except Exception as e:
                                 logger.error(f"Failed to generate embedding for chunk {chunk_idx}: {str(e)}")
                                 raise
@@ -483,17 +497,17 @@ async def _process_discovery_async(
                             chunk_metadata = {
                                 "chunk_index": chunk_idx,
                                 "total_chunks": len(chunks),
-                                "document_id": doc_id,
+                                "document_id": stored_doc_id,
                                 "document_name": segment.title or f"Document {segment.document_type}",
                                 "document_type": segment.document_type.value,
                                 "document_path": f"discovery/{production_batch}/{segment.title or 'document'}.pdf",
                                 "bates_range": segment.bates_range,
                                 "producing_party": producing_party,
                                 "production_batch": production_batch,
-                                "section_title": getattr(chunk, 'section_title', None),
-                                "semantic_type": getattr(chunk, 'semantic_type', None),
-                                "start_page": getattr(chunk, 'start_page', None),
-                                "end_page": getattr(chunk, 'end_page', None),
+                                "section_title": chunk.section_title,
+                                "semantic_type": chunk.semantic_type,
+                                "start_page": chunk.start_page,
+                                "end_page": chunk.end_page,
                             }
                             
                             chunk_data.append({
@@ -507,11 +521,18 @@ async def _process_discovery_async(
                             try:
                                 stored_ids = vector_store.store_document_chunks(
                                     case_name=case_name,
-                                    document_id=doc_id,
+                                    document_id=stored_doc_id,
                                     chunks=chunk_data,
                                     use_hybrid=True
                                 )
-                                logger.info(f"Stored {len(stored_ids)} chunks for document {doc_id}")
+                                logger.info(f"Stored {len(stored_ids)} chunks for document {stored_doc_id}")
+                                
+                                # Emit stored event for frontend
+                                await emit_document_stored(
+                                    processing_id=processing_id,
+                                    document_id=stored_doc_id,
+                                    vectors_stored=len(stored_ids)
+                                )
                             except Exception as e:
                                 logger.error(f"Failed to store chunks: {e}")
                                 raise
@@ -521,8 +542,8 @@ async def _process_discovery_async(
                             facts_result = await fact_extractor.extract_facts_from_document(
                                 document_id=doc_id,
                                 document_content=segment_text,
-                                document_type=segment.document_type.value,
                                 metadata={
+                                    "document_type": segment.document_type.value,
                                     "bates_range": segment.bates_range,
                                     "producing_party": producing_party,
                                     "production_batch": production_batch
@@ -533,14 +554,14 @@ async def _process_discovery_async(
                             for fact in facts_result.facts:
                                 await sio.emit("discovery:fact_extracted", {
                                     "processing_id": processing_id,
-                                    "document_id": doc_id,
+                                    "document_id": stored_doc_id,
                                     "fact": {
                                         "fact_id": fact.id,
                                         "text": fact.content,
                                         "category": fact.category,
-                                        "confidence": fact.confidence,
+                                        "confidence": fact.confidence_score,
                                         "entities": fact.entities,
-                                        "dates": fact.dates,
+                                        "dates": [ref.date_text for ref in fact.date_references],
                                         "source_metadata": {
                                             "bates_range": segment.bates_range,
                                             "page_range": f"{segment.start_page}-{segment.end_page}"
@@ -553,6 +574,14 @@ async def _process_discovery_async(
                         processing_result["documents_processed"] += 1
                         logger.info(f"Successfully processed segment {segment_idx}. Total processed: {processing_result['documents_processed']}")
                         
+                        # Emit document completed event
+                        await sio.emit("discovery:document_completed", {
+                            "processing_id": processing_id,
+                            "document_id": stored_doc_id,
+                            "segment_idx": segment_idx,
+                            "facts_extracted": len(facts_result.facts) if enable_fact_extraction and facts_result else 0
+                        })
+                        
                     except Exception as segment_error:
                         logger.error(f"Error processing segment {segment_idx}: {str(segment_error)}")
                         processing_result["errors"].append({
@@ -560,11 +589,12 @@ async def _process_discovery_async(
                             "error": str(segment_error)
                         })
                         
-                        await sio.emit("discovery:error", {
-                            "processing_id": processing_id,
-                            "document_id": f"{processing_id}_seg_{segment_idx}",
-                            "error": str(segment_error)
-                        })
+                        await emit_processing_error(
+                            processing_id=processing_id,
+                            error=str(segment_error),
+                            stage="processing_segment",
+                            document_id=f"{processing_id}_seg_{segment_idx}"
+                        )
                         
             finally:
                 # Clean up temp file
@@ -583,7 +613,19 @@ async def _process_discovery_async(
         processing_status[processing_id].completed_at = datetime.utcnow()
         
         # Emit completion event
-        await sio.emit("discovery:completed", processing_result)
+        summary = {
+            "totalDocuments": processing_result.get("total_documents_found", 0),
+            "processedDocuments": processing_result.get("documents_processed", 0),
+            "totalChunks": processing_result.get("chunks_created", 0),
+            "totalVectors": processing_result.get("vectors_stored", 0),
+            "totalErrors": len(processing_result.get("errors", [])),
+            "totalFacts": processing_result.get("facts_extracted", 0),
+            "processingTime": (datetime.utcnow() - datetime.fromisoformat(processing_result["started_at"])).total_seconds()
+        }
+        await emit_processing_completed(
+            processing_id=processing_id,
+            summary=summary
+        )
         
         # Store processing result
         await store_processing_result(processing_id, processing_result)
@@ -596,10 +638,11 @@ async def _process_discovery_async(
         processing_status[processing_id].status = "error"
         processing_status[processing_id].error_message = str(e)
         
-        await sio.emit("discovery:error", {
-            "processing_id": processing_id,
-            "error": str(e)
-        })
+        await emit_processing_error(
+            processing_id=processing_id,
+            error=str(e),
+            stage="discovery_processing"
+        )
 
 
 @router.get("/status/{processing_id}", response_model=DiscoveryProcessingStatus)

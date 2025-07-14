@@ -217,6 +217,7 @@ export const useEnhancedDiscoverySocket = (options: UseEnhancedDiscoverySocketOp
       totalErrors: data.errors?.length || 0,
       averageConfidence: data.average_confidence || 0,
       totalFacts: data.facts_extracted || 0,
+      processingTime: data.processing_time || 0,
     };
     
     console.log('📊 [Discovery] Summary:', summary);

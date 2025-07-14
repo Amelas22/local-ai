@@ -43,57 +43,59 @@ export const useDiscoverySocket = (options: UseDiscoverySocketOptions = {}) => {
     }));
   }, [dispatch, processingId]);
 
-  const handleDocumentFound = useCallback((data: DiscoveryWebSocketEvents['discovery:document_found']) => {
+  const handleDocumentFound = useCallback((data: any) => {
     dispatch(addDocument({
-      id: data.documentId,
+      id: data.document_id,
       title: data.title,
       type: data.type,
-      batesRange: data.batesRange,
-      pageCount: data.pageCount,
+      batesRange: data.bates_range,
+      pageCount: parseInt(data.pages?.split('-')[1] || '0') - parseInt(data.pages?.split('-')[0] || '0') + 1,
       confidence: data.confidence,
       status: 'pending',
       progress: 0,
     }));
   }, [dispatch]);
 
-  const handleChunking = useCallback((data: DiscoveryWebSocketEvents['discovery:chunking']) => {
+  const handleChunking = useCallback((data: any) => {
     dispatch(updateDocument({
-      id: data.documentId,
+      id: data.document_id,
       status: 'processing',
-      progress: data.progress,
-      chunks: data.chunksCreated,
+      progress: data.progress || 0,
+      chunks: data.chunks_created,
     }));
   }, [dispatch]);
 
-  const handleEmbedding = useCallback((data: DiscoveryWebSocketEvents['discovery:embedding']) => {
+  const handleEmbedding = useCallback((data: any) => {
     dispatch(updateDocument({
-      id: data.documentId,
-      progress: data.progress,
+      id: data.document_id,
+      progress: data.progress || 50,
     }));
   }, [dispatch]);
 
-  const handleStored = useCallback((data: DiscoveryWebSocketEvents['discovery:stored']) => {
+  const handleStored = useCallback((data: any) => {
     dispatch(updateDocument({
-      id: data.documentId,
+      id: data.document_id,
       status: 'completed',
       progress: 100,
-      vectors: data.vectorsStored,
+      vectors: data.vectors_stored,
     }));
   }, [dispatch]);
 
-  const handleFactExtracted = useCallback((data: DiscoveryWebSocketEvents['discovery:fact_extracted']) => {
+  const handleFactExtracted = useCallback((data: any) => {
     const fact: ExtractedFactWithSource = {
-      id: data.factId,
-      content: data.content,
-      category: data.category,
-      confidence: data.confidence,
+      id: data.fact?.fact_id || data.fact_id,
+      content: data.fact?.text || data.content,
+      category: data.fact?.category || data.category,
+      confidence: data.fact?.confidence || data.confidence,
       source: {
-        doc_id: data.documentId,
+        doc_id: data.document_id,
         doc_title: '',
         page: 0,
         bbox: [],
         text_snippet: '',
       },
+      entities: data.fact?.entities || [],
+      keywords: data.fact?.dates || [],
       is_edited: false,
       edit_history: [],
       review_status: 'pending',
@@ -104,6 +106,14 @@ export const useDiscoverySocket = (options: UseDiscoverySocketOptions = {}) => {
     dispatch(addExtractedFact(fact));
     onFactExtracted?.(fact);
   }, [dispatch, onFactExtracted]);
+
+  const handleDocumentCompleted = useCallback((data: any) => {
+    dispatch(updateDocument({
+      id: data.document_id,
+      status: 'completed',
+      progress: 100,
+    }));
+  }, [dispatch]);
 
   const handleCompleted = useCallback((data: DiscoveryWebSocketEvents['discovery:completed']) => {
     if (processingId && data.processingId !== processingId) return;
@@ -168,6 +178,7 @@ export const useDiscoverySocket = (options: UseDiscoverySocketOptions = {}) => {
     socket.on('discovery:embedding', handleEmbedding);
     socket.on('discovery:stored', handleStored);
     socket.on('discovery:fact_extracted', handleFactExtracted);
+    socket.on('discovery:document_completed', handleDocumentCompleted);
     socket.on('discovery:completed', handleCompleted);
     socket.on('discovery:error', handleError);
     socket.on('fact:updated', handleFactUpdated);
@@ -188,6 +199,7 @@ export const useDiscoverySocket = (options: UseDiscoverySocketOptions = {}) => {
     handleEmbedding,
     handleStored,
     handleFactExtracted,
+    handleDocumentCompleted,
     handleCompleted,
     handleError,
     handleFactUpdated,
@@ -203,6 +215,7 @@ export const useDiscoverySocket = (options: UseDiscoverySocketOptions = {}) => {
     socket.off('discovery:embedding');
     socket.off('discovery:stored');
     socket.off('discovery:fact_extracted');
+    socket.off('discovery:document_completed');
     socket.off('discovery:completed');
     socket.off('discovery:error');
     socket.off('fact:updated');

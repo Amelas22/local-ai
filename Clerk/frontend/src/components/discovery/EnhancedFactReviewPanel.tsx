@@ -36,7 +36,7 @@ import {
 import { FactCard } from './FactCard';
 import { PDFViewer } from './PDFViewer';
 import { DocumentProcessingTab } from './DocumentProcessingTab';
-import { useDiscoverySocket } from '../../hooks/useDiscoverySocket';
+import { useEnhancedDiscoverySocket } from '../../hooks/useEnhancedDiscoverySocket';
 import { useAppSelector, useAppDispatch } from '../../hooks/redux';
 import { useCaseManagement } from '../../hooks/useCaseManagement';
 import { discoveryService } from '../../services/discoveryService';
@@ -54,7 +54,7 @@ interface TabInfo {
   label: string;
   document?: ProcessingDocument;
   factCount: number;
-  status: 'processing' | 'completed' | 'error';
+  status: 'pending' | 'processing' | 'completed' | 'error';
   icon?: React.ReactNode;
 }
 
@@ -79,7 +79,7 @@ export const EnhancedFactReviewPanel: React.FC = () => {
     stats
   } = useAppSelector(state => state.discovery);
   
-  const { updateFact, deleteFact, isConnected } = useDiscoverySocket({
+  const { updateFact, deleteFact, isConnected } = useEnhancedDiscoverySocket({
     caseId: selectedCase?.case_name,
   });
 

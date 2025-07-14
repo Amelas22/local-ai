@@ -1157,7 +1157,8 @@ class QdrantVectorStore:
             return []
 
         # Ensure collection exists for this case
-        collection_name = self.ensure_collection_exists(case_name)
+        # Use legacy naming to avoid double hashing issue
+        collection_name = self.ensure_collection_exists(case_name, use_case_manager=False)
 
         logger.info(
             f"Storing {len(chunks)} chunks for document {document_id} in collection '{collection_name}'"

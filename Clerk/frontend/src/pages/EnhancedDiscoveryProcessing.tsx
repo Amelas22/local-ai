@@ -16,7 +16,7 @@ import { DiscoveryUpload } from '../components/discovery/DiscoveryUpload';
 import { EnhancedFactReviewPanel } from '../components/discovery/EnhancedFactReviewPanel';
 import ProcessingVisualization from '../components/discovery/ProcessingVisualization';
 import { useCaseManagement } from '../hooks/useCaseManagement';
-import { useDiscoverySocket } from '../hooks/useDiscoverySocket';
+import { useEnhancedDiscoverySocket } from '../hooks/useEnhancedDiscoverySocket';
 import { useAppSelector } from '../hooks/redux';
 
 const steps = [
@@ -33,13 +33,11 @@ const EnhancedDiscoveryProcessing: React.FC = () => {
   const { selectedCase } = useCaseManagement();
   const { 
     isProcessing, 
-    currentStage, 
     extractedFacts,
-    processingDocuments,
     stats 
   } = useAppSelector(state => state.discovery);
   
-  const { isConnected } = useDiscoverySocket({
+  const { isConnected } = useEnhancedDiscoverySocket({
     processingId: processingId || undefined,
     caseId: selectedCase?.case_name,
     onProcessingComplete: () => {
