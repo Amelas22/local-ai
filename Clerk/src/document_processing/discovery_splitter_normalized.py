@@ -62,6 +62,7 @@ class NormalizedDiscoveryDocumentProcessor(DiscoveryDocumentProcessor):
         super().__init__(*args, **kwargs)
         self.normalized_service = normalized_service
         self.enhanced_chunker = enhanced_chunker
+        self.logger = logger  # Inherit logger from module level
 
     async def process_segment_normalized(
         self,
@@ -268,6 +269,7 @@ class NormalizedDiscoveryProductionProcessor(DiscoveryProductionProcessor):
         self,
         normalized_service: NormalizedDocumentService,
         hierarchical_manager: HierarchicalDocumentManager,
+        case_name: str,
         *args,
         **kwargs,
     ):
@@ -277,18 +279,19 @@ class NormalizedDiscoveryProductionProcessor(DiscoveryProductionProcessor):
         Args:
             normalized_service: Service for normalized operations
             hierarchical_manager: Manager for document relationships
+            case_name: Name of the case being processed
             *args, **kwargs: Arguments passed to parent class
         """
-        super().__init__(*args, **kwargs)
+        super().__init__(case_name, *args, **kwargs)
         self.normalized_service = normalized_service
         self.hierarchical_manager = hierarchical_manager
+        self.logger = logger  # Inherit logger from module level
 
         # Replace document processor with normalized version
         self.document_processor = NormalizedDiscoveryDocumentProcessor(
             normalized_service=normalized_service,
             enhanced_chunker=EnhancedChunker(EmbeddingGenerator()),
-            pdf_extractor=self.document_processor.pdf_extractor,
-            cost_tracker=self.document_processor.cost_tracker,
+            case_name=case_name
         )
 
     async def process_production_normalized(
@@ -307,13 +310,12 @@ class NormalizedDiscoveryProductionProcessor(DiscoveryProductionProcessor):
         """
         try:
             # Run standard processing to get segments
-            result = await self.process_production(
+            result = self.process_discovery_production(
                 pdf_path=pdf_path,
-                case_name=case_id,  # Use case_id as placeholder
-                production_batch=discovery_request.production_batch,
-                producing_party=discovery_request.producing_party,
-                window_size=25,
-                window_overlap=5,
+                production_metadata={
+                    "production_batch": discovery_request.production_batch,
+                    "producing_party": discovery_request.producing_party,
+                }
             )
 
             # Process each segment with normalized system
@@ -334,12 +336,8 @@ class NormalizedDiscoveryProductionProcessor(DiscoveryProductionProcessor):
             # Create relationships between documents
             await self._create_production_relationships(normalized_documents, result)
 
-            # Update result with normalized information
-            result.metadata = result.metadata or {}
-            result.metadata["normalized_documents"] = [
-                {"segment_id": seg.segment_id, "document_id": doc.id}
-                for seg, doc in normalized_documents
-            ]
+            # Store normalized documents info in result (if needed in future)
+            # For now, we've already processed the documents
 
             self.logger.info(
                 f"Processed production with {len(normalized_documents)} normalized documents"

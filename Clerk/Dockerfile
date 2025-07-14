@@ -9,6 +9,14 @@ ENV PYTHONUNBUFFERED=1 \
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
+    # PyMuPDF dependencies
+    libmupdf-dev \
+    mupdf-tools \
+    # Additional dependencies that might be needed
+    libfreetype6-dev \
+    libharfbuzz-dev \
+    libjpeg-dev \
+    libopenjp2-7-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Create and activate virtual environment
@@ -44,9 +52,13 @@ RUN mkdir -p /app/logs /app/reports && \
     chmod -R 755 /app && \
     chmod 777 /app/logs /app/reports
 
-# Install curl for health checks
+# Install curl for health checks and PyMuPDF runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl netcat-openbsd && rm -rf /var/lib/apt/lists/*
+    curl netcat-openbsd \
+    # PyMuPDF runtime dependencies
+    libmupdf-dev \
+    mupdf-tools \
+    && rm -rf /var/lib/apt/lists/*
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1

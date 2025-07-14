@@ -20,7 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 ## Architecture
 
-**Clerk** is a legal AI system for motion drafting and document management. It processes PDF documents from Box cloud storage, provides hybrid search capabilities, and generates legal motion drafts using AI.
+**Clerk** is a legal AI system for motion drafting and document management. It processes PDF documents, provides hybrid search capabilities, and generates legal motion drafts using AI.
 
 Strict vertical slice architecture with tests that live next to the code they test:
 
@@ -169,6 +169,13 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key  # Optional, for server-side ope
 SHARED_COLLECTIONS=florida_statutes,fmcsr_regulations,federal_rules,case_law_precedents
 ENABLE_CASE_ISOLATION=true
 MAX_CASE_NAME_LENGTH=50
+
+# Discovery Processing Configuration (NEW)
+DISCOVERY_BOUNDARY_MODEL=gpt-4.1-mini       # AI model for document boundary detection
+DISCOVERY_WINDOW_SIZE=5                     # Pages per analysis window
+DISCOVERY_WINDOW_OVERLAP=1                  # Page overlap between windows
+DISCOVERY_CONFIDENCE_THRESHOLD=0.7          # Minimum confidence for boundaries
+DISCOVERY_CLASSIFICATION_MODEL=gpt-4.1-mini # Model for document classification
 ```
 
 ### Installation
@@ -320,6 +327,32 @@ result: ProcessingResult = await injector.process_case_folder(
     folder_id="123456789",
     case_name="Smith_v_Jones_2024"
 )
+```
+
+### Discovery Processing Pattern (NEW)
+Process multi-document discovery PDFs with AI-powered boundary detection:
+```python
+from src.document_processing.discovery_splitter import DiscoveryProductionProcessor
+
+# Initialize with case name
+processor = DiscoveryProductionProcessor(case_name="Smith_v_Jones_2024")
+
+# Process discovery production
+result = processor.process_discovery_production(
+    pdf_path="/path/to/discovery.pdf",
+    production_metadata={
+        "production_batch": "PROD_001",
+        "producing_party": "Opposing Counsel",
+        "production_date": "2024-01-15",
+        "responsive_to_requests": ["RFP_001", "RFP_005"],
+        "confidentiality_designation": "Confidential"
+    }
+)
+
+# Result contains:
+# - segments_found: List of document segments with boundaries
+# - average_confidence: Overall confidence in boundary detection
+# - processing_windows: Number of AI analysis windows used
 ```
 
 ### WebSocket Event Pattern

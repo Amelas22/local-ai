@@ -163,6 +163,18 @@ class UnifiedDocumentManager:
             logger.error(f"Error checking document existence: {str(e)}")
             return False, None
 
+    async def is_duplicate(self, document_hash: str) -> bool:
+        """Check if a document with this hash already exists
+        
+        Args:
+            document_hash: SHA-256 hash of the document content
+            
+        Returns:
+            True if document exists, False otherwise
+        """
+        exists, _ = self.check_document_exists(document_hash)
+        return exists
+
     async def process_document(
         self, file_path: str, file_content: bytes, file_metadata: Dict[str, Any]
     ) -> DocumentProcessingResult:
@@ -291,6 +303,24 @@ class UnifiedDocumentManager:
         )
 
         logger.info(f"Stored unified document: {doc.title} (ID: {doc.id})")
+
+    async def add_document(self, doc: UnifiedDocument) -> str:
+        """Add a document to the storage
+        
+        Args:
+            doc: UnifiedDocument instance to store
+            
+        Returns:
+            Document ID
+        """
+        # Generate embedding for the document
+        embedding_text = f"{doc.title}\n{doc.description}\n{doc.summary or ''}"
+        embedding, _ = self.embedding_generator.generate_embedding(embedding_text)
+        
+        # Store the document
+        self._store_document(doc, embedding)
+        
+        return doc.id
 
     def _update_document(self, doc: UnifiedDocument):
         """Update an existing document in storage"""

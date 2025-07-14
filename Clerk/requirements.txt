@@ -15,6 +15,7 @@ python-docx>=0.8.11
 PyPDF2>=3.0.0
 pdfplumber>=0.10.0
 pypdf>=3.17.0
+pymupdf>=1.24.0
 
 # Qdrant vector database
 qdrant-client[fastembed]>=1.14.3

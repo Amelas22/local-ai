@@ -7,6 +7,7 @@ import logging
 import re
 import io
 import json
+import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
@@ -15,7 +16,6 @@ import pdfplumber
 from openai import OpenAI
 
 from src.models.unified_document_models import (
-    DocumentBoundary,
     DiscoverySegment,
     DiscoveryProductionResult,
     DocumentType,
@@ -24,6 +24,7 @@ from src.models.unified_document_models import (
 from src.document_processing.pdf_extractor import PDFExtractor
 from src.document_processing.chunker import DocumentChunker
 from src.document_processing.context_generator import ContextGenerator
+from src.document_processing.document_boundary_detector import DocumentBoundary
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -34,15 +35,26 @@ class BoundaryDetector:
 
     def __init__(self, model: str = None):
         """Initialize boundary detector with specified model"""
-        self.model = model or settings.discovery.boundary_detection_model
+        # Use model from settings with fallback to gpt-4.1-mini
+        self.model = model or os.getenv('DISCOVERY_BOUNDARY_MODEL', settings.discovery.boundary_detection_model)
         self.client = OpenAI(api_key=settings.openai.api_key)
-        self.confidence_threshold = settings.discovery.boundary_confidence_threshold
+        self.confidence_threshold = float(os.getenv('DISCOVERY_CONFIDENCE_THRESHOLD', settings.discovery.boundary_confidence_threshold))
+        # Get window settings from environment
+        self.default_window_size = int(os.getenv('DISCOVERY_WINDOW_SIZE', '5'))
+        self.default_window_overlap = int(os.getenv('DISCOVERY_WINDOW_OVERLAP', '1'))
+        # No longer use advanced boundary detector - always use AI
+        logger.info(f"BoundaryDetector initialized with model: {self.model}")
+        logger.info(f"BoundaryDetector initialized with:")
+        logger.info(f"  Model: {self.model}")
+        logger.info(f"  Window size: {self.default_window_size}")
+        logger.info(f"  Window overlap: {self.default_window_overlap}")
+        logger.info(f"  Confidence threshold: {self.confidence_threshold}")
 
     def detect_all_boundaries(
         self, pdf_path: str, window_size: int = None, window_overlap: int = None
     ) -> List[DocumentBoundary]:
         """
-        Detect all document boundaries in a PDF using sliding window approach
+        Detect all document boundaries in a PDF using AI-powered approach
 
         Args:
             pdf_path: Path to PDF file
@@ -52,11 +64,14 @@ class BoundaryDetector:
         Returns:
             List of detected document boundaries
         """
-        # Use settings defaults if not provided
-        window_size = window_size or settings.discovery.window_size
-        window_overlap = window_overlap or settings.discovery.window_overlap
+        logger.info(f"Starting AI-powered boundary detection for: {pdf_path}")
+        
+        # Always use AI-based sliding window approach for better accuracy
+        # Use smaller windows by default for better boundary detection
+        window_size = window_size or self.default_window_size
+        window_overlap = window_overlap or self.default_window_overlap
 
-        logger.info(f"Starting boundary detection for: {pdf_path}")
+        logger.info(f"Using AI sliding window approach")
         logger.info(f"Window size: {window_size}, Overlap: {window_overlap}")
 
         # Get total page count
@@ -199,7 +214,9 @@ Text to analyze:
                             document_type_hint=self._map_document_type(
                                 boundary_info.get("document_type_hint", "OTHER")
                             ),
-                            boundary_indicators=boundary_info.get("indicators", []),
+                            title=None,
+                            indicators=boundary_info.get("indicators", []),
+                            bates_range=None
                         )
                     )
 
@@ -213,7 +230,9 @@ Text to analyze:
                         end_page=end_page - 1,
                         confidence=0.8,
                         document_type_hint=DocumentType.OTHER,
-                        boundary_indicators=["End of window"],
+                        title=None,
+                        indicators=["End of window"],
+                        bates_range=None
                     )
                 )
 
@@ -306,9 +325,11 @@ Text to analyze:
             document_type_hint=b1.document_type_hint
             if b1.confidence >= b2.confidence
             else b2.document_type_hint,
-            boundary_indicators=list(
-                set(b1.boundary_indicators + b2.boundary_indicators)
+            title=b1.title or b2.title,
+            indicators=list(
+                set(getattr(b1, 'indicators', []) + getattr(b2, 'indicators', []))
             ),
+            bates_range=b1.bates_range or b2.bates_range
         )
 
 
@@ -539,7 +560,9 @@ Return ONLY the category name, nothing else."""
                 end_page=section_end,
                 confidence=boundary.confidence,
                 document_type_hint=boundary.document_type_hint,
-                boundary_indicators=boundary.boundary_indicators,
+                title=None,
+                indicators=boundary.indicators,
+                bates_range=None
             )
 
             section_context = self.generate_document_context(
@@ -644,7 +667,7 @@ class DiscoveryProductionProcessor:
                         end_page=boundary.end_page,
                         document_type=DocumentType.OTHER,  # Will be classified
                         confidence_score=boundary.confidence,
-                        boundary_indicators=boundary.boundary_indicators,
+                        boundary_indicators=boundary.indicators,
                     )
 
                     # Extract document text
@@ -715,7 +738,9 @@ class DiscoveryProductionProcessor:
                     end_page=segment.end_page,
                     confidence=segment.confidence_score,
                     document_type_hint=None,
-                    boundary_indicators=segment.boundary_indicators,
+                    title=None,
+                    indicators=segment.boundary_indicators,
+                    bates_range=None
                 ),
             )
         )
@@ -748,7 +773,9 @@ class DiscoveryProductionProcessor:
                     end_page=segment.end_page,
                     confidence=segment.confidence_score,
                     document_type_hint=None,
-                    boundary_indicators=segment.boundary_indicators,
+                    title=None,
+                    indicators=segment.boundary_indicators,
+                    bates_range=None
                 ),
             )
         )

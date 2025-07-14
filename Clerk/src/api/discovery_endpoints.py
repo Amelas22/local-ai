@@ -9,16 +9,19 @@ from fastapi import (
     APIRouter,
     HTTPException,
     Depends,
-    UploadFile,
     File,
     Form,
     BackgroundTasks,
+    Request,
 )
+from starlette.datastructures import UploadFile
 from typing import List, Optional, Dict, Any
 import uuid
+import base64
+import hashlib
 
 from ..models.discovery_models import (
-    DiscoveryProcessingRequest,
+    DiscoveryProcessingRequest as EndpointDiscoveryRequest,
     DiscoveryProcessingResponse,
     DiscoveryProcessingStatus,
     ExtractedFactWithSource,
@@ -28,14 +31,18 @@ from ..models.discovery_models import (
     FactBulkOperation,
 )
 from ..services.fact_manager import FactManager
-from ..document_processing.discovery_splitter_normalized import (
-    NormalizedDiscoveryProductionProcessor,
-)
+from ..document_processing.unified_document_manager import UnifiedDocumentManager
+from ..document_processing.enhanced_chunker import EnhancedChunker
+from ..vector_storage.embeddings import EmbeddingGenerator
+from ..models.unified_document_models import DocumentType, UnifiedDocument, DiscoveryProcessingRequest
 from ..ai_agents.fact_extractor import FactExtractor
 from ..websocket.socket_server import sio
 
 # MVP Mode conditional imports
 import os
+import tempfile
+from datetime import datetime
+import pdfplumber
 
 if os.getenv("MVP_MODE", "false").lower() == "true":
     from ..utils.mock_auth import (
@@ -67,27 +74,108 @@ processing_status: Dict[str, DiscoveryProcessingStatus] = {}
 
 @router.post("/process", response_model=DiscoveryProcessingResponse)
 async def process_discovery(
+    request: Request,
     background_tasks: BackgroundTasks,
     case_context: CaseContext = Depends(require_case_context("write")),
-    discovery_files: List[UploadFile] = File(None),
-    box_folder_id: Optional[str] = Form(None),
-    rfp_file: Optional[UploadFile] = File(None),
-    production_batch: str = Form(default="Batch001"),
-    producing_party: str = Form(default="Opposing Counsel"),
-    production_date: Optional[str] = Form(None),
-    responsive_to_requests: List[str] = Form(default_factory=list),
-    confidentiality_designation: Optional[str] = Form(None),
-    enable_fact_extraction: bool = Form(default=True),
 ) -> DiscoveryProcessingResponse:
     """
     Process discovery documents with real-time WebSocket updates.
 
     Supports multiple input sources:
-    - Direct file uploads
+    - Direct file uploads (base64 encoded)
     - Box folder selection
     - Optional RFP document for context
     """
     processing_id = str(uuid.uuid4())
+    
+    # Check content type to handle different request formats
+    content_type = request.headers.get("content-type", "")
+    logger.info(f"Discovery request content-type: {content_type}")
+    
+    # Initialize default values
+    discovery_files = []
+    box_folder_id = None
+    rfp_file = None
+    production_batch = "Batch001"
+    producing_party = "Opposing Counsel"
+    production_date = None
+    responsive_to_requests = []
+    confidentiality_designation = None
+    enable_fact_extraction = True
+    
+    try:
+        if "application/json" in content_type:
+            # Handle JSON request with base64-encoded files
+            request_data = await request.json()
+            
+            # Extract fields from JSON request
+            discovery_files = request_data.get("discovery_files", [])
+            box_folder_id = request_data.get("box_folder_id")
+            rfp_file = request_data.get("rfp_file")
+            production_batch = request_data.get("production_batch", "Batch001")
+            producing_party = request_data.get("producing_party", "Opposing Counsel")
+            production_date = request_data.get("production_date")
+            responsive_to_requests = request_data.get("responsive_to_requests", [])
+            confidentiality_designation = request_data.get("confidentiality_designation")
+            enable_fact_extraction = request_data.get("enable_fact_extraction", True)
+        else:
+            # Handle multipart/form-data or raw binary upload
+            # Try to parse as form data first
+            try:
+                form = await request.form()
+                logger.info(f"Form keys: {list(form.keys())}")
+                
+                # Get files from form
+                files = []
+                
+                # Get the discovery_files specifically
+                discovery_file = form.get("discovery_files")
+                logger.info(f"Got discovery_file directly: {type(discovery_file)}, is UploadFile: {isinstance(discovery_file, UploadFile)}")
+                if discovery_file and isinstance(discovery_file, UploadFile):
+                        logger.info(f"Found UploadFile: {discovery_file.filename}, size: {discovery_file.size}")
+                        # Read file content
+                        content = await discovery_file.read()
+                        logger.info(f"Read {len(content)} bytes from file")
+                        files.append({
+                            "filename": discovery_file.filename,
+                            "content": base64.b64encode(content).decode('utf-8'),
+                            "content_type": discovery_file.content_type
+                        })
+                        await discovery_file.close()
+                
+                logger.info(f"Total files found: {len(files)}")
+                if files:
+                    discovery_files = files
+                    logger.info(f"Set discovery_files to {len(discovery_files)} files")
+                
+                # Get other form fields
+                production_batch = form.get("production_batch", "Batch001")
+                producing_party = form.get("producing_party", "Opposing Counsel")
+                production_date = form.get("production_date")
+                responsive_to_requests = form.getlist("responsive_to_requests") or []
+                confidentiality_designation = form.get("confidentiality_designation")
+                enable_fact_extraction = form.get("enable_fact_extraction", "true").lower() == "true"
+                
+            except Exception as form_error:
+                # If form parsing fails, treat as raw binary upload
+                logger.warning(f"Form parsing failed, attempting raw binary: {form_error}")
+                
+                # Read raw body as binary
+                body = await request.body()
+                if body:
+                    # Assume it's a PDF file
+                    discovery_files = [{
+                        "filename": "discovery_upload.pdf",
+                        "content": base64.b64encode(body).decode('utf-8'),
+                        "content_type": "application/pdf"
+                    }]
+                    
+    except Exception as e:
+        logger.error(f"Error parsing request: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid request format. Please send either JSON with base64-encoded files or multipart/form-data. Error: {str(e)}"
+        )
 
     # Initialize processing status
     status = DiscoveryProcessingStatus(
@@ -101,37 +189,45 @@ async def process_discovery(
     )
     processing_status[processing_id] = status
 
-    # Prepare request
-    request = DiscoveryProcessingRequest(
-        discovery_files=[],
-        box_folder_id=box_folder_id,
-        rfp_file=None,
-    )
+    logger.info(f"Before background task - discovery_files: {len(discovery_files)}")
+    
+    # Create a simple request object for the background task
+    # We'll handle the file data manually to avoid encoding issues
+    discovery_request = type('DiscoveryRequest', (), {
+        'discovery_files': [f.get("filename", f"file_{i}.pdf") for i, f in enumerate(discovery_files)],
+        'box_folder_id': box_folder_id,
+        'rfp_file': None
+    })()
+    logger.info(f"Created discovery_request with files: {discovery_request.discovery_files}")
 
-    # Handle file uploads
-    if discovery_files:
-        for file in discovery_files:
-            if file.content_type != "application/pdf":
-                raise HTTPException(400, f"File {file.filename} must be PDF")
-            request.discovery_files.append(file.filename)
-
-    # Start background processing
-    # Read file contents before passing to background task
+    # Handle file uploads - files come as base64 encoded in JSON
     file_contents = []
     if discovery_files:
-        for file in discovery_files:
-            content = await file.read()
-            file_contents.append({
-                "filename": file.filename,
-                "content": content,
-                "content_type": file.content_type
-            })
+        logger.info(f"Processing {len(discovery_files)} discovery files")
+        for idx, file_data in enumerate(discovery_files):
+            logger.info(f"File {idx}: type={type(file_data)}, keys={file_data.keys() if isinstance(file_data, dict) else 'not a dict'}")
+            if isinstance(file_data, dict):
+                filename = file_data.get("filename", f"discovery_{idx}.pdf")
+                content_b64 = file_data.get("content", "")
+                
+                # Decode base64 content
+                try:
+                    content = base64.b64decode(content_b64) if content_b64 else b""
+                except Exception as e:
+                    logger.error(f"Failed to decode base64 content for {filename}: {e}")
+                    content = b""
+                    
+                file_contents.append({
+                    "filename": filename,
+                    "content": content,
+                    "content_type": "application/pdf"
+                })
     
     background_tasks.add_task(
         _process_discovery_async,
         processing_id,
         case_context.case_name,
-        request,
+        discovery_request,
         file_contents,  # Pass file contents instead of UploadFile objects
         rfp_file,
         production_batch,
@@ -162,8 +258,8 @@ async def process_discovery(
 async def _process_discovery_async(
     processing_id: str,
     case_name: str,
-    request: DiscoveryProcessingRequest,
-    discovery_files: List[Dict[str, Any]],  # Changed from UploadFile to dict with content
+    request: EndpointDiscoveryRequest,
+    discovery_files: List[Dict[str, Any]],
     rfp_file: Optional[UploadFile],
     production_batch: str,
     producing_party: str,
@@ -172,148 +268,338 @@ async def _process_discovery_async(
     confidentiality_designation: Optional[str],
     enable_fact_extraction: bool,
 ):
-    """Background task for processing discovery documents"""
+    """Background task for processing discovery documents with document splitting"""
+    logger.info(f"Starting async discovery processing for {processing_id}")
+    logger.info(f"Case: {case_name}, Files: {len(discovery_files or [])}")
+    
+    # Initialize processors
+    vector_store = QdrantVectorStore()
+    embedding_generator = EmbeddingGenerator()
+    
+    # Use the basic discovery processor directly - no normalized wrapper
+    from src.document_processing.discovery_splitter import DiscoveryProductionProcessor
+    discovery_processor = DiscoveryProductionProcessor(case_name=case_name)
+    
+    # Document manager for deduplication
+    document_manager = UnifiedDocumentManager(case_name)
+    
+    # Fact extractor if enabled
+    fact_extractor = FactExtractor(case_name=case_name) if enable_fact_extraction else None
+    
+    # Enhanced chunker for creating chunks
+    chunker = EnhancedChunker(
+        embedding_generator=embedding_generator,
+        chunk_size=1400,
+        chunk_overlap=200
+    )
+    
+    # Track processing status
+    processing_result = {
+        "processing_id": processing_id,
+        "status": "in_progress",
+        "total_documents_found": 0,
+        "documents_processed": 0,
+        "facts_extracted": 0,
+        "errors": []
+    }
+    
     try:
-        qdrant_store = QdrantVectorStore()
-        fact_extractor = FactExtractor(case_name=case_name)
-        pdf_extractor = PDFExtractor()
-
-        # Process Box folder if specified
-        if request.box_folder_id:
-            box_client = BoxClient()
-            box_files = await box_client.get_folder_files(request.box_folder_id)
-
-            for box_file in box_files:
-                if box_file["name"].endswith(".pdf"):
-                    await sio.emit(
-                        "discovery:document_found",
-                        {
-                            "processing_id": processing_id,
-                            "document_id": box_file["id"],
-                            "title": box_file["name"],
-                            "type": "unknown",
-                            "page_count": 0,
-                        },
-                    )
-
-        # Process uploaded files
+        logger.info(f"Emitting discovery:started event")
+        # Emit start event
+        await sio.emit("discovery:started", {
+            "processing_id": processing_id,
+            "case_name": case_name,
+            "total_files": len(discovery_files or [])
+        })
+        logger.info(f"Event emitted, processing {len(discovery_files or [])} files")
+        
+        # Process each uploaded PDF
         for idx, file_data in enumerate(discovery_files or []):
-            document_id = f"{processing_id}_{idx}"
-            filename = file_data.get("filename", f"document_{idx}.pdf")
+            filename = file_data.get("filename", f"discovery_{idx}.pdf")
             content = file_data.get("content", b"")
-
-            await sio.emit(
-                "discovery:document_found",
-                {
-                    "processing_id": processing_id,
-                    "document_id": document_id,
-                    "title": filename,
-                    "type": "unknown",
-                    "page_count": 0,
-                },
-            )
-
-            # Extract text from PDF if it's a PDF file
-            text_content = None
-            extraction_error = None
             
-            if filename.lower().endswith('.pdf') and isinstance(content, bytes):
-                logger.info(f"Extracting text from PDF: {filename}")
-                try:
-                    extracted_doc = pdf_extractor.extract_text(content, filename)
-                    text_content = extracted_doc.text
-                    logger.info(f"Successfully extracted {len(text_content)} characters from {extracted_doc.page_count} pages")
-                except Exception as e:
-                    extraction_error = str(e)
-                    logger.error(f"Failed to extract text from PDF: {e}")
-            else:
-                # For non-PDF files, try to decode as text
-                if isinstance(content, bytes):
-                    try:
-                        text_content = content.decode("utf-8")
-                    except UnicodeDecodeError:
-                        extraction_error = "Unable to decode file as text"
-                else:
-                    text_content = content
+            # Save PDF temporarily
+            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_file:
+                tmp_file.write(content)
+                temp_pdf_path = tmp_file.name
             
-            # Emit chunking event
-            await sio.emit(
-                "discovery:chunking",
-                {
-                    "processing_id": processing_id,
-                    "document_id": document_id,
-                    "progress": 50,
-                    "chunks_created": 1,
-                    "extraction_status": "success" if text_content else "failed",
-                    "extraction_error": extraction_error,
-                },
-            )
-
-            # Extract facts if enabled and we have text content
-            if enable_fact_extraction and text_content:
-                logger.info(f"Extracting facts from document: {filename}")
-                facts = await fact_extractor.extract_facts_from_document(
-                    document_id=document_id,
-                    document_content=text_content,
+            try:
+                
+                # Process with discovery splitter
+                logger.info(f"Processing discovery production: {filename}")
+                logger.info(f"Processing PDF with discovery splitter: {filename}")
+                production_metadata = {
+                    "production_batch": production_batch or f"batch_{idx}",
+                    "producing_party": producing_party or "Unknown",
+                    "production_date": production_date or datetime.now().isoformat(),
+                    "responsive_to_requests": responsive_to_requests or [],
+                    "confidentiality_designation": confidentiality_designation,
+                }
+                logger.info(f"Production metadata: {production_metadata}")
+                
+                production_result = discovery_processor.process_discovery_production(
+                    pdf_path=temp_pdf_path,
+                    production_metadata=production_metadata
                 )
                 
-                for fact in facts.facts:
-                    await sio.emit(
-                        "discovery:fact_extracted",
-                        {
+                # Log discovery results
+                logger.info(f"Discovery result: {len(production_result.segments_found)} segments found")
+                logger.info(f"Average confidence: {production_result.average_confidence}")
+                for idx, seg in enumerate(production_result.segments_found):
+                    logger.info(f"  Segment {idx}: {seg.document_type.value} '{seg.title}' pages {seg.start_page}-{seg.end_page}")
+                
+                # Update total documents found
+                processing_result["total_documents_found"] += len(production_result.segments_found)
+                
+                # Process each segment as a separate document
+                for segment_idx, segment in enumerate(production_result.segments_found):
+                    try:
+                        # Emit document found event
+                        logger.info(f"Emitting discovery:document_found for segment {segment_idx}: {segment.title}")
+                        await sio.emit("discovery:document_found", {
                             "processing_id": processing_id,
-                            "fact_id": fact.id,
-                            "document_id": document_id,
-                            "content": fact.content,
-                            "category": fact.category,
-                            "confidence": fact.confidence,
-                        },
-                    )
-
-                processing_status[processing_id].total_facts += len(facts.facts)
-            else:
-                if not text_content:
-                    logger.warning(f"No text content extracted from {filename}, skipping fact extraction")
-
-            processing_status[processing_id].processed_documents += 1
-
-        # Update total documents
-        processing_status[processing_id].total_documents = len(discovery_files) if discovery_files else 0
+                            "document_id": f"{processing_id}_seg_{segment_idx}",
+                            "title": segment.title or f"Document {segment.document_type}",
+                            "type": segment.document_type.value,
+                            "pages": f"{segment.start_page}-{segment.end_page}",
+                            "bates_range": segment.bates_range,
+                            "confidence": segment.confidence_score
+                        })
+                        
+                        # Extract text for this segment
+                        segment_text = extract_text_from_pages(
+                            temp_pdf_path, 
+                            segment.start_page, 
+                            segment.end_page
+                        )
+                        
+                        # Check for duplicates
+                        logger.info(f"Checking for duplicates - manager type: {type(document_manager)}")
+                        logger.info(f"Has is_duplicate method: {hasattr(document_manager, 'is_duplicate')}")
+                        doc_hash = document_manager.calculate_document_hash(segment_text.encode('utf-8'))
+                        logger.info(f"Document hash calculated: {doc_hash}")
+                        
+                        try:
+                            is_dup = await document_manager.is_duplicate(doc_hash)
+                            if is_dup:
+                                logger.info(f"Skipping duplicate document: {segment.title}")
+                                continue
+                        except Exception as e:
+                            logger.error(f"Error checking duplicate: {type(e).__name__}: {str(e)}")
+                            raise
+                        
+                        # Create unified document with correct fields
+                        unified_doc = UnifiedDocument(
+                            # Required fields
+                            case_name=case_name,
+                            document_hash=doc_hash,
+                            file_name=f"{segment.title or 'document'}.pdf",
+                            file_path=f"discovery/{production_batch}/{segment.title or 'document'}.pdf",
+                            file_size=len(segment_text.encode('utf-8')),  # Approximate size
+                            document_type=segment.document_type,
+                            title=segment.title or f"{segment.document_type} Document",
+                            description=f"Discovery document: {segment.document_type.value} from {producing_party}",
+                            last_modified=datetime.utcnow(),
+                            total_pages=segment.end_page - segment.start_page + 1,
+                            summary=f"Pages {segment.start_page}-{segment.end_page} of discovery production",
+                            search_text=segment_text,
+                            # Optional fields with discovery metadata
+                            metadata={
+                                "producing_party": producing_party,
+                                "production_batch": production_batch,
+                                "bates_range": segment.bates_range,
+                                "page_range": f"{segment.start_page}-{segment.end_page}",
+                                "confidence_score": segment.confidence_score,
+                                "processing_id": processing_id,
+                            }
+                        )
+                        
+                        # Store document metadata
+                        doc_id = await document_manager.add_document(unified_doc)
+                        
+                        # Create chunks with context
+                        await sio.emit("discovery:chunking", {
+                            "processing_id": processing_id,
+                            "document_id": doc_id,
+                            "status": "started"
+                        })
+                        
+                        # Create document core for chunker
+                        from src.models.normalized_document_models import DocumentCore
+                        
+                        # Calculate metadata hash if needed
+                        metadata_str = str(sorted(unified_doc.metadata.items()))
+                        metadata_hash = hashlib.sha256(metadata_str.encode()).hexdigest()
+                        
+                        doc_core = DocumentCore(
+                            id=doc_id,
+                            document_hash=doc_hash,
+                            metadata_hash=metadata_hash,
+                            file_name=unified_doc.file_name,
+                            original_file_path=unified_doc.file_path,
+                            file_size=unified_doc.file_size,
+                            mime_type="application/pdf",
+                            total_pages=unified_doc.total_pages,
+                            file_created_at=unified_doc.last_modified,
+                            file_modified_at=unified_doc.last_modified
+                        )
+                        
+                        try:
+                            chunks = await chunker.create_chunks(
+                                document_core=doc_core,
+                                document_text=segment_text
+                            )
+                            logger.info(f"Created {len(chunks)} chunks for segment {segment_idx}")
+                        except Exception as e:
+                            logger.error(f"Failed to create chunks for segment {segment_idx}: {str(e)}")
+                            raise
+                        
+                        # Generate embeddings and store chunks
+                        await sio.emit("discovery:embedding", {
+                            "processing_id": processing_id,
+                            "document_id": doc_id,
+                            "total_chunks": len(chunks)
+                        })
+                        
+                        # Prepare all chunks for batch storage
+                        chunk_data = []
+                        logger.info(f"Preparing {len(chunks)} chunks for storage")
+                        
+                        for chunk_idx, chunk in enumerate(chunks):
+                            # Generate embedding
+                            try:
+                                # Check chunk attributes
+                                chunk_text = getattr(chunk, 'text', None) or getattr(chunk, 'content', None) or str(chunk)
+                                embedding, token_count = await embedding_generator.generate_embedding_async(chunk_text)
+                                logger.debug(f"Generated embedding for chunk {chunk_idx}")
+                            except Exception as e:
+                                logger.error(f"Failed to generate embedding for chunk {chunk_idx}: {str(e)}")
+                                raise
+                            
+                            # Use the actual chunk text field
+                            chunk_content = chunk_text
+                            
+                            # Build metadata from chunk attributes
+                            chunk_metadata = {
+                                "chunk_index": chunk_idx,
+                                "total_chunks": len(chunks),
+                                "document_id": doc_id,
+                                "document_name": segment.title or f"Document {segment.document_type}",
+                                "document_type": segment.document_type.value,
+                                "document_path": f"discovery/{production_batch}/{segment.title or 'document'}.pdf",
+                                "bates_range": segment.bates_range,
+                                "producing_party": producing_party,
+                                "production_batch": production_batch,
+                                "section_title": getattr(chunk, 'section_title', None),
+                                "semantic_type": getattr(chunk, 'semantic_type', None),
+                                "start_page": getattr(chunk, 'start_page', None),
+                                "end_page": getattr(chunk, 'end_page', None),
+                            }
+                            
+                            chunk_data.append({
+                                "content": chunk_content,
+                                "embedding": embedding,
+                                "metadata": chunk_metadata
+                            })
+                        
+                        # Store all chunks at once
+                        if chunk_data:
+                            try:
+                                stored_ids = vector_store.store_document_chunks(
+                                    case_name=case_name,
+                                    document_id=doc_id,
+                                    chunks=chunk_data,
+                                    use_hybrid=True
+                                )
+                                logger.info(f"Stored {len(stored_ids)} chunks for document {doc_id}")
+                            except Exception as e:
+                                logger.error(f"Failed to store chunks: {e}")
+                                raise
+                        
+                        # Extract facts if enabled
+                        if enable_fact_extraction and fact_extractor:
+                            facts_result = await fact_extractor.extract_facts_from_document(
+                                document_id=doc_id,
+                                document_content=segment_text,
+                                document_type=segment.document_type.value,
+                                metadata={
+                                    "bates_range": segment.bates_range,
+                                    "producing_party": producing_party,
+                                    "production_batch": production_batch
+                                }
+                            )
+                            
+                            # Stream facts as they're extracted
+                            for fact in facts_result.facts:
+                                await sio.emit("discovery:fact_extracted", {
+                                    "processing_id": processing_id,
+                                    "document_id": doc_id,
+                                    "fact": {
+                                        "fact_id": fact.id,
+                                        "text": fact.content,
+                                        "category": fact.category,
+                                        "confidence": fact.confidence,
+                                        "entities": fact.entities,
+                                        "dates": fact.dates,
+                                        "source_metadata": {
+                                            "bates_range": segment.bates_range,
+                                            "page_range": f"{segment.start_page}-{segment.end_page}"
+                                        }
+                                    }
+                                })
+                                processing_result["facts_extracted"] += 1
+                        
+                        # Update processed count
+                        processing_result["documents_processed"] += 1
+                        logger.info(f"Successfully processed segment {segment_idx}. Total processed: {processing_result['documents_processed']}")
+                        
+                    except Exception as segment_error:
+                        logger.error(f"Error processing segment {segment_idx}: {str(segment_error)}")
+                        processing_result["errors"].append({
+                            "segment": segment_idx,
+                            "error": str(segment_error)
+                        })
+                        
+                        await sio.emit("discovery:error", {
+                            "processing_id": processing_id,
+                            "document_id": f"{processing_id}_seg_{segment_idx}",
+                            "error": str(segment_error)
+                        })
+                        
+            finally:
+                # Clean up temp file
+                if os.path.exists(temp_pdf_path):
+                    os.unlink(temp_pdf_path)
         
-        # Mark as completed
+        # Update final status
+        processing_result["status"] = "completed"
+        processing_result["completed_at"] = datetime.utcnow().isoformat()
+        
+        # Update processing status
         processing_status[processing_id].status = "completed"
-
-        await sio.emit(
-            "discovery:completed",
-            {
-                "processing_id": processing_id,
-                "summary": {
-                    "total_documents": processing_status[processing_id].total_documents,
-                    "processed_documents": processing_status[
-                        processing_id
-                    ].processed_documents,
-                    "total_chunks": 0,
-                    "total_vectors": 0,
-                    "total_errors": 0,
-                    "average_confidence": 0.85,
-                    "processing_time": 0,
-                },
-            },
-        )
-
+        processing_status[processing_id].total_documents = processing_result["total_documents_found"]
+        processing_status[processing_id].processed_documents = processing_result["documents_processed"]
+        processing_status[processing_id].total_facts = processing_result["facts_extracted"]
+        processing_status[processing_id].completed_at = datetime.utcnow()
+        
+        # Emit completion event
+        await sio.emit("discovery:completed", processing_result)
+        
+        # Store processing result
+        await store_processing_result(processing_id, processing_result)
+        
     except Exception as e:
-        logger.error(f"Discovery processing error: {e}")
+        logger.error(f"Error in discovery processing: {str(e)}", exc_info=True)
+        processing_result["status"] = "failed"
+        processing_result["error"] = str(e)
+        
         processing_status[processing_id].status = "error"
         processing_status[processing_id].error_message = str(e)
-
-        await sio.emit(
-            "discovery:error",
-            {
-                "processing_id": processing_id,
-                "error": str(e),
-                "stage": "processing",
-            },
-        )
+        
+        await sio.emit("discovery:error", {
+            "processing_id": processing_id,
+            "error": str(e)
+        })
 
 
 @router.get("/status/{processing_id}", response_model=DiscoveryProcessingStatus)
@@ -501,3 +787,51 @@ async def list_box_files(
     box_client = BoxClient()
     files = await box_client.get_folder_files(folder_id)
     return [f for f in files if f["name"].endswith(".pdf")]
+
+
+# Helper functions for discovery processing
+def extract_text_from_pages(pdf_path: str, start_page: int, end_page: int) -> str:
+    """
+    Extract text from specific page range in PDF.
+    
+    Args:
+        pdf_path: Path to the PDF file
+        start_page: Starting page number (1-indexed)
+        end_page: Ending page number (inclusive)
+    
+    Returns:
+        Extracted text from the specified page range
+    """
+    text = ""
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page_num in range(start_page - 1, min(end_page, len(pdf.pages))):
+                page = pdf.pages[page_num]
+                page_text = page.extract_text() or ""
+                text += page_text + "\n"
+    except Exception as e:
+        logger.error(f"Error extracting text from pages {start_page}-{end_page}: {e}")
+        raise
+    return text
+
+
+async def store_processing_result(processing_id: str, result: Dict[str, Any]):
+    """
+    Store processing result for retrieval.
+    
+    Args:
+        processing_id: Unique ID for the processing job
+        result: Processing result data
+    """
+    # For now, store in the in-memory processing_status dictionary
+    # In production, this could be stored in Redis, database, or cache
+    if processing_id in processing_status:
+        processing_status[processing_id].documents = result.get("documents", {})
+        processing_status[processing_id].total_documents = result.get("total_documents_found", 0)
+        processing_status[processing_id].processed_documents = result.get("documents_processed", 0)
+        processing_status[processing_id].total_facts = result.get("facts_extracted", 0)
+        processing_status[processing_id].status = result.get("status", "completed")
+        if result.get("completed_at"):
+            processing_status[processing_id].completed_at = datetime.fromisoformat(result["completed_at"])
+        if result.get("error"):
+            processing_status[processing_id].error_message = result["error"]

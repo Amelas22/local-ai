@@ -186,8 +186,7 @@ class ExcelCostReporter:
             model_usage[embed_model]["cost"] += doc["cost"]["embedding_cost"]
 
             # Context model (could vary)
-            # Assuming gpt-3.5-turbo for now
-            context_model = "gpt-3.5-turbo"
+            context_model = "gpt-4.1-mini"
             if context_model not in model_usage:
                 model_usage[context_model] = {"calls": 0, "tokens": 0, "cost": 0.0}
             model_usage[context_model]["calls"] += doc["api_calls"][

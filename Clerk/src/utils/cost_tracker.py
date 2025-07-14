@@ -195,7 +195,7 @@ class CostTracker:
         document_id: str,
         prompt_tokens: int,
         completion_tokens: int,
-        model: str = "gpt-3.5-turbo",
+        model: str = "gpt-4.1-mini",
     ):
         """Track context generation API usage
 

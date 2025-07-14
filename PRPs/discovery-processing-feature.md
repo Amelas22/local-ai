@@ -1,659 +1,469 @@
-# Discovery Document Processing with Real-time Review Interface - PRP
+# Discovery Processing Feature Implementation PRP
 
-name: "Discovery Processing Feature v1.0"
-description: |
+## Overview
+This PRP guides the implementation of the missing integration between the discovery processing endpoint and the document splitting functionality. The core issue is that `/api/discovery/process` currently treats each uploaded PDF as a single document instead of splitting concatenated discovery response PDFs into individual documents.
 
-## Purpose
-Implement a comprehensive discovery document processing system that automatically splits concatenated discovery response PDFs, extracts case facts using AI, and provides a real-time paralegal review interface with inline editing capabilities.
+## Context and Background
 
-## Core Principles
-1. **Context is King**: All backend services and patterns are documented
-2. **Validation Loops**: Executable tests for each component
-3. **Information Dense**: References to existing codebase patterns
-4. **Progressive Success**: Start with upload, then processing, then UI
-5. **Global rules**: Follow all rules in CLAUDE.md
+### Current State
+- **Working**: Discovery endpoints accept uploads, extract text, extract facts, emit WebSocket events
+- **Not Working**: Document splitting, segment processing, proper document storage in Qdrant
+- **Critical Gap**: The `NormalizedDiscoveryProductionProcessor` exists but is never called
 
----
-
-## Goal
-Build a feature that transforms the manual discovery review process into an AI-assisted workflow where:
-- Paralegals work within their selected case context (case databases already created via "Create Case" feature)
-- They can upload concatenated discovery PDFs (or select from Box) for the current case
-- The system automatically splits documents and extracts case facts to the case-specific database
-- Users review facts in real-time with source highlighting
-- All facts are immediately stored in the case's Qdrant collections with full edit/delete capabilities
-
-## Why
-- **Business value**: Reduces discovery review time from days to hours
-- **User impact**: Paralegals can focus on fact verification rather than extraction
-- **Integration**: Leverages existing document processing and fact extraction systems
-- **Problems solved**: Manual fact extraction is error-prone and time-consuming
-
-## What
-A two-panel interface where users upload discovery documents and RFP files, then review extracted facts in real-time with PDF highlighting and inline editing.
-
-### Case Context Architecture
-**CRITICAL**: The system relies on the user having already selected a case in the frontend:
-1. Cases are created via the frontend's "Create Case" feature, which initializes Qdrant collections
-2. Users must select a case before accessing discovery processing
-3. The frontend maintains the selected case in application state/context
-4. All API calls include case context via headers (X-Case-ID)
-5. Backend middleware extracts and validates case context from requests
-6. WebSocket sessions maintain case subscription for real-time updates
-
-### Success Criteria
-- [ ] System correctly identifies user's selected case from frontend context
-- [ ] Multi-source upload (files, folders, Box integration) functional
-- [ ] Documents split accurately at boundaries (>90% accuracy)
-- [ ] Facts extracted and stored in correct case-specific Qdrant collections
-- [ ] Real-time WebSocket updates during processing include case context
-- [ ] PDF viewer highlights fact sources accurately
-- [ ] Edit/delete operations persist immediately to correct case collections
-- [ ] No duplicate facts stored (deduplication working within case)
-- [ ] Processing handles 500+ page PDFs without crashes
-
-## All Needed Context
-
-### Documentation & References
-
-```yaml
-# MUST READ - Include these in your context window
-
-# Frontend Libraries
-- url: https://react.dev/reference/react
-  why: Core React hooks and component patterns
-  
-- url: https://react-pdf-viewer.dev/
-  why: PDF viewer implementation with highlight plugin
-  
-- url: https://react-pdf-viewer.dev/plugins/highlight/
-  why: Text selection and highlighting for fact sources
-  
-- url: https://react-dropzone.js.org/
-  why: Drag-and-drop file upload with validation
-
-- url: https://socket.io/docs/v4/client-api/
-  why: WebSocket client for real-time updates
-
-# Backend Documentation  
-- url: https://python-socketio.readthedocs.io/en/stable/api.html
-  why: Python SocketIO server patterns and events
-  
-- url: https://developer.box.com/reference/
-  why: Box API for folder selection and file access
-  
-- url: https://spacy.io/api/doc
-  why: NLP entity extraction used in fact_extractor.py
-
-# Internal Documentation
-- file: CLAUDE.md
-  why: Project structure, testing requirements, coding standards
-  
-- file: Clerk/src/ai_agents/fact_extractor.py
-  why: Existing fact extraction patterns and deduplication
-  
-- file: Clerk/src/document_processing/discovery_splitter_normalized.py
-  why: Document boundary detection implementation
-  
-- file: Clerk/src/websocket/socket_server.py
-  why: WebSocket event patterns already implemented
-  
-- file: Clerk/src/middleware/case_context.py
-  why: Case isolation middleware patterns
-  
-- file: Clerk/main.py
-  why: Existing discovery endpoint at line 712
-
-- file: Clerk/src/models/discovery_models.py            
-- file: Clerk/src/models/tests/test_discovery_models.py 
-- file: Clerk/src/services/fact_manager.py              
-- file: Clerk/src/services/tests/test_fact_manager.py 
-- why: Started to implement process. Review and update as needed
-```
-
-### Current Codebase Structure
-```bash
-Clerk/
-├── main.py                          # FastAPI app with /discovery/process endpoint
-├── src/
-│   ├── ai_agents/
-│   │   ├── fact_extractor.py        # Fact extraction with deduplication
-│   │   └── tests/
-│   ├── document_processing/
-│   │   ├── discovery_splitter.py    # Document boundary detection
-│   │   ├── discovery_splitter_normalized.py
-│   │   └── tests/
-│   ├── websocket/
-│   │   ├── socket_server.py         # WebSocket events
-│   │   └── tests/
-│   ├── models/
-│   │   ├── unified_document_models.py
-│   │   └── case_models.py
-│   ├── middleware/
-│   │   └── case_context.py          # Case validation
-│   └── api/
-│       └── discovery_normalized_endpoints.py
-└── frontend/
-    ├── src/
-    │   ├── components/
-    │   └── pages/
-    └── package.json
-```
-
-### Desired Codebase Structure with New Files
-```bash
-Clerk/
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── discovery/
-│   │   │   │   ├── DiscoveryUpload.tsx      # Dual upload zones
-│   │   │   │   ├── FactCard.tsx             # Individual fact display
-│   │   │   │   ├── FactReviewPanel.tsx      # Main review interface
-│   │   │   │   ├── DocumentTabs.tsx         # Tab management
-│   │   │   │   └── PDFViewer.tsx            # PDF with highlighting
-│   │   │   └── shared/
-│   │   │       └── BoxFolderPicker.tsx      # Box integration
-│   │   ├── pages/
-│   │   │   └── DiscoveryProcessing.tsx      # Main page component
-│   │   ├── hooks/
-│   │   │   └── useDiscoverySocket.ts        # WebSocket management
-│   │   └── services/
-│   │       └── discoveryService.ts          # API calls
-├── src/
-│   ├── api/
-│   │   └── discovery_endpoints.py           # Enhanced endpoints
-│   └── services/
-│       └── fact_manager.py                  # Fact CRUD operations
-```
-
-### Known Gotchas & Library Quirks
-```python
-# CRITICAL: react-pdf-viewer requires worker setup
-# Example: Must configure PDF.js worker in public folder
-
-# CRITICAL: Qdrant stores facts in case-specific collections
-# Pattern: f"{case_name}_facts" - NEVER query without case_name. case_name is available from postgres database based on selected case.
-
-# CRITICAL: Box API rate limits: 4 req/sec per user
-# Solution: Implement request queuing in frontend
-
-# CRITICAL: WebSocket events must include case_id for security
-# Pattern: socket.emit('discovery:started', {'case_id': case_id})
-
-# GOTCHA: react-dropzone folder upload only works in Chrome/Edge
-# Fallback: Always provide Box folder option
-
-# GOTCHA: Large PDFs (>100MB) can crash browser
-# Solution: Stream processing with progress events
-```
+### Key Files to Reference
+1. **Discovery Endpoint**: `/mnt/c/Users/jlemr/Test2/local-ai-package/Clerk/src/api/discovery_endpoints.py` (lines 162-317)
+2. **Discovery Splitter**: `/mnt/c/Users/jlemr/Test2/local-ai-package/Clerk/src/document_processing/discovery_splitter_normalized.py`
+3. **Document Injector Pattern**: `/mnt/c/Users/jlemr/Test2/local-ai-package/Clerk/src/document_injector_unified.py`
+4. **WebSocket Patterns**: `/mnt/c/Users/jlemr/Test2/local-ai-package/Clerk/src/document_processing/websocket_document_processor.py`
 
 ## Implementation Blueprint
 
-### Data Models and Structure
+### Phase 1: Update Imports and Dependencies
+In `/Clerk/src/api/discovery_endpoints.py`, add these imports:
+```python
+from src.document_processing.discovery_splitter_normalized import (
+    NormalizedDiscoveryProductionProcessor,
+    NormalizedDiscoveryDocumentProcessor,
+    DiscoverySegment,
+)
+from src.document_processing.unified_document_manager import UnifiedDocumentManager
+from src.document_processing.enhanced_chunker import EnhancedChunker
+from src.vector_storage.embeddings import EmbeddingGenerator
+from src.models.unified_document_models import DocumentType, UnifiedDocument
+import tempfile
+import os
+```
+
+### Phase 2: Refactor _process_discovery_async Function
+
+Replace the current implementation (lines 162-317) with the following pseudocode approach:
 
 ```python
-# Extend existing models in src/models/unified_document_models.py
-
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict
-from datetime import datetime
-
-class FactSource(BaseModel):
-    """Source location for an extracted fact"""
-    doc_id: str
-    doc_title: str
-    page: int
-    bbox: List[float]  # [x1, y1, x2, y2] coordinates
-    text_snippet: str  # Surrounding context
-
-class ExtractedFactWithSource(ExtractedFact):
-    """Enhanced fact model with source tracking"""
-    source: FactSource
-    is_edited: bool = False
-    edit_history: List[Dict] = Field(default_factory=list)
+async def _process_discovery_async(
+    case_name: str,
+    processing_id: str,
+    discovery_files: List[Dict[str, Any]],
+    producing_party: Optional[str] = None,
+    production_batch: Optional[str] = None,
+    enable_fact_extraction: bool = True,
+):
+    # Initialize processors
+    discovery_processor = NormalizedDiscoveryProductionProcessor(case_name)
+    document_manager = UnifiedDocumentManager(case_name, vector_store)
+    fact_extractor = FactExtractor() if enable_fact_extraction else None
+    chunker = EnhancedChunker(chunk_size=1400, chunk_overlap=200)
+    embedding_generator = EmbeddingGenerator()
     
-class DiscoveryProcessingRequest(BaseModel):
-    """Request model for discovery processing"""
-    case_id: str
-    case_name: str
-    discovery_files: List[str] = Field(default_factory=list)
-    box_folder_id: Optional[str] = None
-    rfp_file: Optional[str] = None
-    
-class DiscoveryProcessingStatus(BaseModel):
-    """Real-time status updates"""
-    processing_id: str
-    case_id: str
-    total_documents: int
-    processed_documents: int
-    total_facts: int
-    current_document: Optional[str] = None
-    status: str  # "processing", "completed", "error"
-```
-
-### List of Tasks to Complete (In Order)
-
-```yaml
-Task 1: Create Frontend Upload Component
-MODIFY frontend/src/pages/DiscoveryProcessing.tsx:
-  - CREATE new page component
-  - IMPORT react-dropzone for file handling
-  - IMPLEMENT dual upload zones (discovery docs + RFP)
-  - ADD Box folder selection button
-  
-CREATE frontend/src/components/discovery/DiscoveryUpload.tsx:
-  - MIRROR pattern from: existing upload components
-  - IMPLEMENT file validation (PDF only)
-  - HANDLE multiple file selection
-  - INTEGRATE Box picker SDK
-
-Task 2: Implement WebSocket Connection Management
-CREATE frontend/src/hooks/useDiscoverySocket.ts:
-  - PATTERN: Follow existing WebSocket patterns
-  - IMPLEMENT auto-reconnection with backoff
-  - HANDLE all discovery:* events
-  - MAINTAIN connection state
-
-Task 3: Build Fact Review Interface
-CREATE frontend/src/components/discovery/FactReviewPanel.tsx:
-  - IMPLEMENT tab-based document navigation
-  - CREATE fact card grid layout
-  - HANDLE real-time fact additions
-  - TRACK review completion state
-
-CREATE frontend/src/components/discovery/FactCard.tsx:
-  - DISPLAY fact content with metadata
-  - IMPLEMENT inline edit mode
-  - ADD delete confirmation
-  - SHOW confidence scores
-
-Task 4: Integrate PDF Viewer with Highlighting
-CREATE frontend/src/components/discovery/PDFViewer.tsx:
-  - SETUP @react-pdf-viewer with worker
-  - IMPLEMENT highlight plugin
-  - ADD navigation to specific page/bbox
-  - HANDLE large PDF optimization
-
-Task 5: Enhance Backend Processing Endpoints
-MODIFY src/api/discovery_endpoints.py:
-  - ENHANCE /discovery/process endpoint
-  - ADD fact update/delete endpoints
-  - IMPLEMENT progress tracking
-  - ENSURE case isolation
-
-CREATE src/services/fact_manager.py:
-  - IMPLEMENT fact CRUD operations
-  - ADD deduplication checks
-  - HANDLE edit history
-  - INTEGRATE with Qdrant
-
-Task 6: Add Real-time Processing Events
-MODIFY src/websocket/socket_server.py:
-  - ADD discovery:fact_extracted event
-  - IMPLEMENT fact:update handler
-  - ADD fact:delete handler
-  - ENSURE case-based filtering
-
-Task 7: Implement Box Integration
-MODIFY frontend/src/services/discoveryService.ts:
-  - ADD Box folder listing endpoint
-  - IMPLEMENT file streaming from Box
-  - HANDLE authentication flow
-  - ADD progress tracking
-
-Task 8: Create Comprehensive Tests
-CREATE frontend/src/components/discovery/__tests__/:
-  - TEST file upload validation
-  - TEST WebSocket reconnection
-  - TEST fact editing flow
-  - TEST PDF highlighting
-
-CREATE src/services/tests/test_fact_manager.py:
-  - TEST CRUD operations
-  - TEST deduplication logic
-  - TEST case isolation
-  - TEST concurrent updates
-```
-
-### Case Context Flow Example
-
-```javascript
-// EXAMPLE: Complete flow showing case context handling
-
-// 1. User selects a case in the frontend
-const CaseSelector = () => {
-    const { setCurrentCase } = useCaseContext();
-    
-    const handleCaseSelect = async (caseId) => {
-        // Fetch case details
-        const caseData = await api.getCase(caseId);
-        
-        // Set in context (persisted across app)
-        setCurrentCase({
-            id: caseData.id,
-            name: caseData.name,
-            lawFirm: caseData.law_firm_id
-        });
-        
-        // Navigate to discovery processing
-        navigate('/discovery');
-    };
-};
-
-// 2. Discovery page requires case context
-const DiscoveryProcessing = () => {
-    const { currentCase } = useCaseContext();
-    
-    // CRITICAL: Redirect if no case selected
-    if (!currentCase) {
-        return <Navigate to="/cases" />;
+    # Track processing status
+    processing_status = {
+        "processing_id": processing_id,
+        "status": "in_progress",
+        "total_documents_found": 0,
+        "documents_processed": 0,
+        "facts_extracted": 0,
+        "errors": []
     }
     
-    // All API calls automatically include case context
-    const apiClient = useApiClient(); // Includes X-Case-ID header
-};
-
-// 3. Backend middleware extracts case context
-// src/middleware/case_context.py
-@app.middleware("http")
-async def case_context_middleware(request: Request, call_next):
-    case_id = request.headers.get("X-Case-ID")
-    if case_id and request.url.path.startswith("/api/"):
-        # Validate case access
-        case = await case_manager.get_case(case_id)
-        request.state.case_context = CaseContext(
-            case_id=case.id,
-            case_name=case.name,
-            user_id=request.state.user_id
-        )
-    return await call_next(request)
-
-// 4. WebSocket maintains case subscription
-socket.on('connect', () => {
-    // Subscribe to case-specific room
-    socket.emit('subscribe_case', { case_id: currentCase.id });
-});
-```
-
-### Per Task Pseudocode
-
-```python
-# Task 1: Upload Component
-# DiscoveryUpload.tsx pseudocode
-const DiscoveryUpload = () => {
-    const {getRootProps, getInputProps} = useDropzone({
-        accept: {'application/pdf': ['.pdf']},
-        multiple: true,
-        onDrop: async (files) => {
-            // PATTERN: Show immediate feedback
-            setUploading(true);
-            
-            // CRITICAL: Validate file sizes
-            const validFiles = files.filter(f => f.size < 100_000_000);
-            
-            // PATTERN: Use FormData for multipart upload
-            const formData = new FormData();
-            validFiles.forEach(f => formData.append('files', f));
-            
-            await discoveryService.uploadFiles(formData);
-        }
-    });
-    
-    // GOTCHA: Box picker requires initialization
-    const handleBoxSelect = () => {
-        if (!window.Box) {
-            loadBoxSDK().then(() => showBoxPicker());
-        }
-    };
-};
-
-# Task 5: Backend Processing Enhancement
-# src/services/fact_manager.py
-class FactManager:
-    def __init__(self):
-        self.vector_store = QdrantVectorStore()
-        
-    async def update_fact(
-        self, 
-        case_name: str, 
-        fact_id: str, 
-        new_content: str,
-        user_id: str
-    ) -> ExtractedFactWithSource:
-        # PATTERN: Always validate case access first
-        if not await self.validate_case_access(case_name, user_id):
-            raise PermissionError("No access to case")
-            
-        # CRITICAL: Get existing fact for history
-        existing = await self.vector_store.get_by_id(
-            collection_name=f"{case_name}_facts",
-            point_id=fact_id
-        )
-        
-        # PATTERN: Maintain edit history
-        edit_entry = {
-            "timestamp": datetime.utcnow().isoformat(),
-            "user_id": user_id,
-            "old_content": existing.payload["content"],
-            "new_content": new_content
-        }
-        
-        # GOTCHA: Re-embed with new content
-        new_embedding = await self.generate_embedding(new_content)
-        
-        # CRITICAL: Update atomically
-        await self.vector_store.update_point(
-            collection_name=f"{case_name}_facts",
-            point_id=fact_id,
-            payload={
-                **existing.payload,
-                "content": new_content,
-                "is_edited": True,
-                "edit_history": existing.payload.get("edit_history", []) + [edit_entry]
-            },
-            vector=new_embedding
-        )
-
-# Task 6: WebSocket Event Handlers
-# Enhance src/websocket/socket_server.py
-@sio.on('fact:update')
-async def handle_fact_update(sid, data):
-    # PATTERN: Extract case context from session
-    case_id = await get_session_case(sid)
-    if not case_id or case_id != data.get('case_id'):
-        return {'error': 'Invalid case context'}
-    
-    # CRITICAL: Validate before processing
     try:
-        fact_manager = FactManager()
-        updated_fact = await fact_manager.update_fact(
-            case_name=data['case_name'],
-            fact_id=data['fact_id'],
-            new_content=data['content'],
-            user_id=get_user_id(sid)
-        )
+        # Emit start event
+        await sio.emit("discovery:started", {
+            "processing_id": processing_id,
+            "case_name": case_name,
+            "total_files": len(discovery_files or [])
+        })
         
-        # PATTERN: Broadcast to case subscribers
-        await sio.emit(
-            'fact:updated',
-            {
-                'fact_id': data['fact_id'],
-                'content': data['content'],
-                'updated_by': get_user_id(sid)
-            },
-            room=f"case_{case_id}"
-        )
+        # Process each uploaded PDF
+        for idx, file_data in enumerate(discovery_files or []):
+            filename = file_data.get("filename", f"discovery_{idx}.pdf")
+            content = file_data.get("content", b"")
+            
+            # Save PDF temporarily
+            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_file:
+                tmp_file.write(content)
+                temp_pdf_path = tmp_file.name
+            
+            try:
+                # Create discovery request
+                discovery_request = DiscoveryProcessingRequest(
+                    production_batch=production_batch or f"batch_{idx}",
+                    producing_party=producing_party or "Unknown",
+                    bates_prefix=f"PROD{idx:04d}",
+                    enable_boundary_detection=True,
+                    enable_classification=True,
+                    enable_fact_extraction=enable_fact_extraction,
+                )
+                
+                # Process with discovery splitter
+                logger.info(f"Processing discovery production: {filename}")
+                production_result = await discovery_processor.process_production_normalized(
+                    pdf_path=temp_pdf_path,
+                    case_id=case_name,
+                    discovery_request=discovery_request
+                )
+                
+                # Update total documents found
+                processing_status["total_documents_found"] += len(production_result.segments_found)
+                
+                # Process each segment as a separate document
+                for segment_idx, segment in enumerate(production_result.segments_found):
+                    try:
+                        # Emit document found event
+                        await sio.emit("discovery:document_found", {
+                            "processing_id": processing_id,
+                            "document_id": f"{processing_id}_seg_{segment_idx}",
+                            "title": segment.title or f"Document {segment.document_type}",
+                            "type": segment.document_type.value,
+                            "pages": f"{segment.start_page}-{segment.end_page}",
+                            "bates_range": segment.bates_range,
+                            "confidence": segment.confidence_score
+                        })
+                        
+                        # Extract text for this segment
+                        pdf_extractor = PDFExtractor()
+                        segment_text = pdf_extractor.extract_text_from_pages(
+                            temp_pdf_path, 
+                            segment.start_page, 
+                            segment.end_page
+                        )
+                        
+                        # Check for duplicates
+                        doc_hash = document_manager.generate_document_hash(segment_text)
+                        if await document_manager.is_duplicate(doc_hash):
+                            logger.info(f"Skipping duplicate document: {segment.title}")
+                            continue
+                        
+                        # Create unified document
+                        unified_doc = UnifiedDocument(
+                            case_name=case_name,
+                            source_path=f"discovery/{production_batch}/{segment.title}",
+                            filename=f"{segment.title}.pdf",
+                            file_type="pdf",
+                            title=segment.title or f"{segment.document_type} Document",
+                            text=segment_text,
+                            metadata={
+                                "document_type": segment.document_type.value,
+                                "producing_party": producing_party,
+                                "production_batch": production_batch,
+                                "bates_range": segment.bates_range,
+                                "page_range": f"{segment.start_page}-{segment.end_page}",
+                                "confidence_score": segment.confidence_score,
+                                "processing_id": processing_id,
+                            },
+                            document_hash=doc_hash,
+                            processing_status="completed",
+                            created_at=datetime.utcnow()
+                        )
+                        
+                        # Store document metadata
+                        doc_id = await document_manager.add_document(unified_doc)
+                        
+                        # Create chunks with context
+                        await sio.emit("discovery:chunking", {
+                            "processing_id": processing_id,
+                            "document_id": doc_id,
+                            "status": "started"
+                        })
+                        
+                        chunks = chunker.create_chunks_with_context(
+                            text=segment_text,
+                            document_id=doc_id,
+                            metadata=unified_doc.metadata
+                        )
+                        
+                        # Generate embeddings and store chunks
+                        await sio.emit("discovery:embedding", {
+                            "processing_id": processing_id,
+                            "document_id": doc_id,
+                            "total_chunks": len(chunks)
+                        })
+                        
+                        for chunk_idx, chunk in enumerate(chunks):
+                            # Generate embedding
+                            embedding = await embedding_generator.generate_embedding(chunk.text)
+                            
+                            # Store in Qdrant
+                            await vector_store.upsert_chunk(
+                                case_name=case_name,
+                                chunk_id=chunk.chunk_id,
+                                text=chunk.text,
+                                embedding=embedding,
+                                metadata={
+                                    **chunk.metadata,
+                                    "chunk_index": chunk_idx,
+                                    "total_chunks": len(chunks)
+                                }
+                            )
+                        
+                        # Extract facts if enabled
+                        if enable_fact_extraction and fact_extractor:
+                            facts = await fact_extractor.extract_facts_from_document(
+                                document_id=doc_id,
+                                document_content=segment_text,
+                                document_type=segment.document_type.value,
+                                metadata={
+                                    "bates_range": segment.bates_range,
+                                    "producing_party": producing_party,
+                                    "production_batch": production_batch
+                                }
+                            )
+                            
+                            # Stream facts as they're extracted
+                            for fact in facts:
+                                await sio.emit("discovery:fact_extracted", {
+                                    "processing_id": processing_id,
+                                    "document_id": doc_id,
+                                    "fact": fact.dict()
+                                })
+                                processing_status["facts_extracted"] += 1
+                        
+                        # Update processed count
+                        processing_status["documents_processed"] += 1
+                        
+                    except Exception as segment_error:
+                        logger.error(f"Error processing segment {segment_idx}: {str(segment_error)}")
+                        processing_status["errors"].append({
+                            "segment": segment_idx,
+                            "error": str(segment_error)
+                        })
+                        
+                        await sio.emit("discovery:error", {
+                            "processing_id": processing_id,
+                            "document_id": f"{processing_id}_seg_{segment_idx}",
+                            "error": str(segment_error)
+                        })
+                        
+            finally:
+                # Clean up temp file
+                if os.path.exists(temp_pdf_path):
+                    os.unlink(temp_pdf_path)
+        
+        # Update final status
+        processing_status["status"] = "completed"
+        processing_status["completed_at"] = datetime.utcnow().isoformat()
+        
+        # Emit completion event
+        await sio.emit("discovery:completed", processing_status)
+        
+        # Store processing result
+        await store_processing_result(processing_id, processing_status)
+        
     except Exception as e:
-        logger.error(f"Fact update failed: {e}")
-        return {'error': str(e)}
+        logger.error(f"Error in discovery processing: {str(e)}")
+        processing_status["status"] = "failed"
+        processing_status["error"] = str(e)
+        
+        await sio.emit("discovery:error", {
+            "processing_id": processing_id,
+            "error": str(e)
+        })
 ```
 
-### Integration Points
-```yaml
-DATABASE:
-  - No SQL changes needed (using Qdrant for facts)
-  - Ensure case_facts collection exists per case -- this is built via the "Create Case" feature in the clerk app.
-  
-CONFIG:
-  - add to: .env
-    BOX_APP_CLIENT_ID=your_client_id
-    PDF_WORKER_URL=/pdf.worker.min.js
-    MAX_UPLOAD_SIZE=104857600  # 100MB
-  
-ROUTES:
-  - modify: src/api/discovery_endpoints.py
-  - add: PUT /api/facts/{fact_id}
-  - add: DELETE /api/facts/{fact_id}
-  
-FRONTEND_ROUTES:
-  - add to: frontend/src/App.tsx
-  - pattern: <Route path="/discovery" element={<DiscoveryProcessing />} />
-```
+### Phase 3: Add Helper Functions
 
-## Validation Loop
+Add these helper functions to support the main processing:
 
-### Level 1: Syntax & Style
-```bash
-# Backend Python
-cd Clerk
-ruff check src/ --fix
-ruff format src/
-mypy src/services/fact_manager.py
-
-# Frontend TypeScript  
-cd frontend
-npm run lint:fix
-npm run type-check
-
-# Expected: No errors. Fix any issues before proceeding.
-```
-
-### Level 2: Unit Tests
 ```python
-# CREATE src/services/tests/test_fact_manager.py
-import pytest
-from src.services.fact_manager import FactManager
+def extract_text_from_pages(pdf_path: str, start_page: int, end_page: int) -> str:
+    """Extract text from specific page range in PDF."""
+    text = ""
+    with pdfplumber.open(pdf_path) as pdf:
+        for page_num in range(start_page - 1, min(end_page, len(pdf.pages))):
+            page = pdf.pages[page_num]
+            page_text = page.extract_text() or ""
+            text += page_text + "\n"
+    return text
 
-@pytest.mark.asyncio
-async def test_update_fact_success():
-    """Test successful fact update with history"""
-    manager = FactManager()
-    result = await manager.update_fact(
-        case_name="test_case",
-        fact_id="fact_123", 
-        new_content="Updated fact content",
-        user_id="user_456"
-    )
-    assert result.is_edited is True
-    assert len(result.edit_history) > 0
-
-@pytest.mark.asyncio
-async def test_update_fact_permission_denied():
-    """Test fact update without case access"""
-    manager = FactManager()
-    with pytest.raises(PermissionError):
-        await manager.update_fact(
-            case_name="unauthorized_case",
-            fact_id="fact_123",
-            new_content="Should fail",
-            user_id="bad_user"
-        )
-
-@pytest.mark.asyncio  
-async def test_deduplication_prevents_duplicate():
-    """Test that similar facts are not duplicated"""
-    manager = FactManager()
-    fact1 = await manager.create_fact(
-        case_name="test_case",
-        content="The accident occurred on January 15, 2024"
-    )
-    
-    # Attempt to create nearly identical fact
-    fact2 = await manager.create_fact(
-        case_name="test_case", 
-        content="The accident occurred on January 15, 2024."
-    )
-    
-    assert fact2 is None  # Should be rejected as duplicate
+async def store_processing_result(processing_id: str, result: Dict[str, Any]):
+    """Store processing result for retrieval."""
+    # Implementation depends on your storage mechanism
+    # Could use Redis, database, or in-memory cache
+    pass
 ```
+
+### Phase 4: Update WebSocket Event Structure
+
+Ensure WebSocket events follow this structure:
+
+```python
+# discovery:started
+{
+    "processing_id": str,
+    "case_name": str,
+    "total_files": int
+}
+
+# discovery:document_found  
+{
+    "processing_id": str,
+    "document_id": str,
+    "title": str,
+    "type": str,  # DocumentType enum value
+    "pages": str,  # "1-10"
+    "bates_range": str,  # "PROD0001-PROD0010"
+    "confidence": float
+}
+
+# discovery:fact_extracted
+{
+    "processing_id": str,
+    "document_id": str,
+    "fact": {
+        "fact_id": str,
+        "text": str,
+        "category": str,
+        "confidence": float,
+        "entities": List[str],
+        "dates": List[str],
+        "source_metadata": dict
+    }
+}
+
+# discovery:completed
+{
+    "processing_id": str,
+    "status": "completed",
+    "total_documents_found": int,
+    "documents_processed": int,
+    "facts_extracted": int,
+    "errors": List[dict]
+}
+```
+
+## Implementation Tasks (In Order)
+
+1. **Update imports in discovery_endpoints.py**
+   - Add all required imports listed in Phase 1
+   - Ensure all dependencies are available
+
+2. **Create temporary file handling utility**
+   - Safe temporary file creation and cleanup
+   - Error handling for file operations
+
+3. **Implement extract_text_from_pages helper**
+   - Extract text from specific page ranges
+   - Handle PDF reading errors gracefully
+
+4. **Refactor _process_discovery_async function**
+   - Replace current implementation with new flow
+   - Maintain backward compatibility with existing parameters
+
+5. **Integrate document storage**
+   - Use UnifiedDocumentManager for deduplication
+   - Store documents and chunks in Qdrant
+
+6. **Enhance WebSocket events**
+   - Add new event types for document discovery
+   - Include progress tracking at segment level
+
+7. **Add error handling and recovery**
+   - Continue processing other documents on segment failure
+   - Collect and report all errors at the end
+
+8. **Create unit tests**
+   - Test document splitting with multi-document PDFs
+   - Test fact extraction per segment
+   - Test WebSocket event emission
+   - Test error handling scenarios
+   - Always test from inside the docker tech stack, even if its just launching qdrant, clerk, and postgres
+
+9. **Update environment variables**
+   - Add configuration for discovery processing
+   - Document new settings in README
+
+## Validation Gates
+
+Execute these commands to validate the implementation:
 
 ```bash
-# Run backend tests
-cd Clerk
-python -m pytest src/services/tests/test_fact_manager.py -v
+# 1. Syntax and style check
+cd /mnt/c/Users/jlemr/Test2/local-ai-package/Clerk
+ruff check src/api/discovery_endpoints.py --fix
+ruff format src/api/discovery_endpoints.py
 
-# Run frontend tests
-cd frontend
-npm test -- --coverage
+# 2. Type checking
+mypy src/api/discovery_endpoints.py
+
+# 3. Run unit tests for discovery
+pytest src/api/tests/test_discovery_endpoints.py -v
+
+# 4. Integration test with Docker
+# First rebuild the container
+cd /mnt/c/Users/jlemr/Test2/local-ai-package
+docker compose -p localai --profile cpu -f docker-compose.yml -f docker-compose.clerk.yml build clerk
+
+# Then run the container and test
+docker compose -p localai --profile cpu -f docker-compose.yml -f docker-compose.clerk.yml up clerk
+
+# 5. Test with a sample multi-document PDF
+# Create a test script to upload a concatenated PDF and verify:
+# - Multiple documents are found
+# - Facts are extracted per document
+# - WebSocket events are emitted correctly
+# - Documents are stored in Qdrant
 ```
 
-### Level 3: Integration Test
-```bash
-# Start services
-cd Clerk
-python start_services_with_postgres.py --profile cpu
+## External Documentation References
 
-# Test discovery processing endpoint
-curl -X POST http://localhost:8000/discovery/process \
-  -H "Content-Type: application/json" \
-  -H "X-Case-ID: test-case-123" \
-  -d '{
-    "case_id": "test-case-123",
-    "case_name": "Test_v_Case_2024",
-    "discovery_files": ["test.pdf"]
-  }'
+1. **Python SocketIO Async Documentation**: https://python-socketio.readthedocs.io/en/latest/server.html
+   - Reference for async event emission patterns
+   - Best practices for real-time updates
 
-# Expected: {"processing_id": "...", "status": "started"}
+2. **Memory-Efficient PDF Processing**: https://dev.to/josethz00/partitioning-large-pdf-files-with-python-and-unstructuredio-3bkg
+   - Techniques for handling large PDFs
+   - Chunking strategies to avoid memory issues
 
-# Test fact update via WebSocket
-npm install -g wscat
-wscat -c ws://localhost:8000/ws/socket.io/
-> {"event": "fact:update", "data": {"case_id": "test-case-123", "fact_id": "fact_1", "content": "Updated"}}
+3. **FastAPI WebSocket Integration**: https://fastapi.tiangolo.com/advanced/websockets/
+   - WebSocket handling in FastAPI
+   - Error handling patterns
 
-# Expected: Acknowledgment and broadcast to subscribers
-```
+4. **PDF Chunking for RAG**: https://medium.com/@mahedi154/automated-pdf-content-extraction-and-chunking-with-python-d8f8012defda
+   - Best practices for maintaining context
+   - Overlap strategies for better retrieval
 
-## Final Validation Checklist
-- [ ] All tests pass: `python -m pytest && npm test`
-- [ ] No linting errors: `ruff check && npm run lint`
-- [ ] No type errors: `mypy src/ && npm run type-check`
-- [ ] File upload works with drag-and-drop
-- [ ] Box folder selection opens picker
-- [ ] Facts appear in real-time during processing
-- [ ] PDF viewer highlights fact sources correctly
-- [ ] Edit/delete operations persist immediately
-- [ ] No duplicate facts created
-- [ ] WebSocket reconnects after disconnection
-- [ ] Large PDFs (100+ pages) process without crashing
-- [ ] Case isolation verified (no cross-case data leaks)
+## Common Pitfalls to Avoid
 
----
+1. **Memory Management**: Process PDFs in chunks, don't load entire file into memory
+2. **Case Isolation**: Always filter by case_name in all operations
+3. **Duplicate Handling**: Check document hash before processing
+4. **Error Recovery**: Don't fail entire batch if one document fails
+5. **WebSocket Buffering**: Stream events as they occur, don't batch
+6. **Temporary Files**: Always clean up temp files in finally blocks
+7. **Bates Numbering**: Preserve original Bates numbers from discovery
 
-## Anti-Patterns to Avoid
-- ❌ Don't query Qdrant without case_name filter
-- ❌ Don't load entire PDFs into memory at once
-- ❌ Don't emit WebSocket events without case context
-- ❌ Don't skip deduplication checks
-- ❌ Don't allow synchronous operations in async handlers
-- ❌ Don't hardcode Box credentials
-- ❌ Don't ignore WebSocket connection failures
+## Testing Data Requirements
 
-## Confidence Score: 8/10
+For proper testing, you'll need:
+1. A concatenated PDF with 3-5 different documents
+2. Documents with clear boundaries (headers, page numbers)
+3. Documents with unclear boundaries to test confidence scoring
+4. A large PDF (100+ pages) to test memory efficiency
+5. PDFs with various document types (depositions, emails, reports)
 
-### Reasoning:
-- **Strengths**: 
-  - Comprehensive context with all needed documentation
-  - Clear implementation path following existing patterns
-  - Detailed validation gates at each level
-  - Addresses all major technical challenges
-  
-- **Potential Challenges**:
-  - PDF highlighting accuracy depends on bbox coordinates
-  - Box API integration may require additional auth setup
-  - Real-time performance with many concurrent users
-  
-- **Mitigation**: 
-  - Start with basic features and iterate
-  - Test with real discovery documents early
-  - Monitor WebSocket performance under load
+## Performance Considerations
+
+1. **Parallel Processing**: Consider processing segments in parallel using asyncio.gather()
+2. **Streaming**: Emit facts as soon as extracted, not after all processing
+3. **Chunking**: Use sliding window for boundary detection to avoid loading entire PDF
+4. **Caching**: Cache embeddings for duplicate text segments
+5. **Progress Tracking**: Report progress at segment level, not just file level
+
+## Success Criteria
+
+The implementation is successful when:
+1. Multi-document PDFs are properly split into segments
+2. Each segment is processed as a separate document
+3. Facts are extracted per segment, not per PDF
+4. Documents and chunks are stored in Qdrant
+5. WebSocket events provide real-time progress updates
+6. Duplicate documents are detected and skipped
+7. Errors in one segment don't stop processing of others
+8. All tests pass and code follows project conventions
+
+## Confidence Score: 8.5/10
+
+This PRP provides comprehensive context and clear implementation steps. The score is not 10 because:
+- Some integration details with the existing WebSocket infrastructure may require minor adjustments
+- The exact structure of some models might need verification during implementation
+- Performance optimization for very large PDFs might require additional tuning
+
+However, with the provided context, patterns, and validation gates, a one-pass implementation should be achievable.

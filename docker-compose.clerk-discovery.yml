@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  clerk:
+    environment:
+      # Discovery Processing Configuration
+      - DISCOVERY_BOUNDARY_MODEL=gpt-4.1-mini
+      - DISCOVERY_WINDOW_SIZE=5
+      - DISCOVERY_WINDOW_OVERLAP=1
+      - DISCOVERY_CONFIDENCE_THRESHOLD=0.7
+      - DISCOVERY_CLASSIFICATION_MODEL=gpt-4.1-mini
