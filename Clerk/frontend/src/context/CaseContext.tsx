@@ -124,13 +124,18 @@ export function CaseProvider({ children }: CaseProviderProps): ReactElement {
 
   // Handle case subscription changes
   useEffect(() => {
-    if (!activeCase) return;
+    if (!activeCase) {
+      console.log('[CaseContext] No active case, skipping subscription');
+      return;
+    }
     
+    console.log(`[CaseContext] Setting up subscription for case: ${activeCase}`);
     // Subscribe to the new case
     subscribeToCase(activeCase);
     
     // Cleanup: unsubscribe when case changes or component unmounts
     return () => {
+      console.log(`[CaseContext] Cleaning up subscription for case: ${activeCase}`);
       unsubscribeFromCase();
     };
   }, [activeCase, subscribeToCase, unsubscribeFromCase]);

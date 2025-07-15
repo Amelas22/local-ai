@@ -33,6 +33,9 @@ export const useDiscoverySocket = (options: UseDiscoverySocketOptions = {}) => {
   const subscribedRef = useRef(false);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
 
+  // Store handlers in refs to prevent recreating them
+  const handlersRef = useRef<Record<string, Function>>({});
+
   const handleDiscoveryStarted = useCallback((data: DiscoveryWebSocketEvents['discovery:started']) => {
     if (processingId && data.processingId !== processingId) return;
     
@@ -172,6 +175,8 @@ export const useDiscoverySocket = (options: UseDiscoverySocketOptions = {}) => {
   const subscribeToDiscoveryEvents = useCallback(() => {
     if (!socket || !isConnected || subscribedRef.current) return;
 
+    console.log('[useDiscoverySocket] Subscribing to discovery events');
+
     socket.on('discovery:started', handleDiscoveryStarted);
     socket.on('discovery:document_found', handleDocumentFound);
     socket.on('discovery:chunking', handleChunking);
@@ -184,30 +189,16 @@ export const useDiscoverySocket = (options: UseDiscoverySocketOptions = {}) => {
     socket.on('fact:updated', handleFactUpdated);
     socket.on('fact:deleted', handleFactDeleted);
 
-    if (caseId) {
-      socket.emit('subscribe_case', { case_id: caseId });
-    }
+    // Note: Case subscription is now handled by CaseContext to prevent duplicates
+    // Removed: socket.emit('subscribe_case', { case_id: caseId });
 
     subscribedRef.current = true;
-  }, [
-    socket,
-    isConnected,
-    caseId,
-    handleDiscoveryStarted,
-    handleDocumentFound,
-    handleChunking,
-    handleEmbedding,
-    handleStored,
-    handleFactExtracted,
-    handleDocumentCompleted,
-    handleCompleted,
-    handleError,
-    handleFactUpdated,
-    handleFactDeleted,
-  ]);
+  }, [socket, isConnected]); // Removed handler dependencies to prevent recreating
 
   const unsubscribeFromDiscoveryEvents = useCallback(() => {
     if (!socket || !subscribedRef.current) return;
+
+    console.log('[useDiscoverySocket] Unsubscribing from discovery events');
 
     socket.off('discovery:started');
     socket.off('discovery:document_found');
@@ -221,12 +212,11 @@ export const useDiscoverySocket = (options: UseDiscoverySocketOptions = {}) => {
     socket.off('fact:updated');
     socket.off('fact:deleted');
 
-    if (caseId) {
-      socket.emit('unsubscribe_case', { case_id: caseId });
-    }
+    // Note: Case unsubscription is now handled by CaseContext
+    // Removed: socket.emit('unsubscribe_case', { case_id: caseId });
 
     subscribedRef.current = false;
-  }, [socket, caseId]);
+  }, [socket]); // Removed caseId dependency
 
   const updateFact = useCallback(async (factId: string, content: string, reason?: string) => {
     if (!socket || !isConnected || !caseId) {
@@ -268,8 +258,28 @@ export const useDiscoverySocket = (options: UseDiscoverySocketOptions = {}) => {
     });
   }, [socket, isConnected, caseId]);
 
+  // Update handler refs when they change
   useEffect(() => {
-    subscribeToDiscoveryEvents();
+    handlersRef.current = {
+      handleDiscoveryStarted,
+      handleDocumentFound,
+      handleChunking,
+      handleEmbedding,
+      handleStored,
+      handleFactExtracted,
+      handleDocumentCompleted,
+      handleCompleted,
+      handleError,
+      handleFactUpdated,
+      handleFactDeleted,
+    };
+  });
+
+  useEffect(() => {
+    // Only subscribe/unsubscribe when socket connection changes
+    if (isConnected && socket) {
+      subscribeToDiscoveryEvents();
+    }
 
     return () => {
       unsubscribeFromDiscoveryEvents();
@@ -277,16 +287,10 @@ export const useDiscoverySocket = (options: UseDiscoverySocketOptions = {}) => {
         clearTimeout(reconnectTimeoutRef.current);
       }
     };
-  }, [subscribeToDiscoveryEvents, unsubscribeFromDiscoveryEvents]);
+  }, [isConnected, socket, subscribeToDiscoveryEvents, unsubscribeFromDiscoveryEvents]); // Add back required dependencies
 
-  useEffect(() => {
-    if (!isConnected && subscribedRef.current) {
-      subscribedRef.current = false;
-      reconnectTimeoutRef.current = setTimeout(() => {
-        subscribeToDiscoveryEvents();
-      }, 1000);
-    }
-  }, [isConnected, subscribeToDiscoveryEvents]);
+  // Handle reconnection - no longer needed as WebSocketContext handles this
+  // The subscription will be re-established when isConnected becomes true
 
   return {
     isConnected,

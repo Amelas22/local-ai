@@ -145,27 +145,31 @@ export function WebSocketProvider({ children, wsUrl }: WebSocketProviderProps): 
   };
 
   const attemptReconnect = () => {
-    if (state.reconnectAttempts >= maxReconnectAttempts) {
-      console.error('Max reconnection attempts reached');
-      setState(prev => ({ ...prev, error: 'Max reconnection attempts reached' }));
-      return;
-    }
+    // Use setState callback to ensure we have fresh state
+    setState(prev => {
+      if (prev.reconnectAttempts >= maxReconnectAttempts) {
+        console.error('Max reconnection attempts reached');
+        return { ...prev, error: 'Max reconnection attempts reached' };
+      }
 
-    // Clear any existing reconnect timer
-    if (reconnectTimerRef.current) {
-      clearTimeout(reconnectTimerRef.current);
-    }
+      // Clear any existing reconnect timer
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+      }
 
-    // Calculate delay with exponential backoff and jitter
-    const baseDelay = baseReconnectDelay * Math.pow(2, state.reconnectAttempts);
-    const jitter = Math.random() * 1000;
-    const delay = Math.min(baseDelay + jitter, 30000);
-    
-    console.log(`Attempting to reconnect in ${delay}ms...`);
-    
-    reconnectTimerRef.current = setTimeout(() => {
-      connect(state.subscribedCase || undefined);
-    }, delay);
+      // Calculate delay with exponential backoff and jitter
+      const baseDelay = baseReconnectDelay * Math.pow(2, prev.reconnectAttempts);
+      const jitter = Math.random() * 1000;
+      const delay = Math.min(baseDelay + jitter, 30000);
+      
+      console.log(`Attempting to reconnect in ${delay}ms (attempt ${prev.reconnectAttempts + 1}/${maxReconnectAttempts})...`);
+      
+      reconnectTimerRef.current = setTimeout(() => {
+        connect(prev.subscribedCase || undefined);
+      }, delay);
+
+      return prev; // Return unchanged state since we're just scheduling
+    });
   };
 
   const emit = (event: string, data: any) => {
@@ -188,14 +192,17 @@ export function WebSocketProvider({ children, wsUrl }: WebSocketProviderProps): 
       return;
     }
     
+    console.log(`Subscribing to case: ${caseId} (previous: ${state.subscribedCase || 'none'})`);
+    
     // Unsubscribe from previous case if any
     if (state.subscribedCase) {
+      console.log(`Unsubscribing from previous case: ${state.subscribedCase}`);
       emit('unsubscribe_case', { case_id: state.subscribedCase });
     }
     
     emit('subscribe_case', { case_id: caseId });
     setState(prev => ({ ...prev, subscribedCase: caseId }));
-    console.log(`Subscribed to case: ${caseId}`);
+    console.log(`Successfully subscribed to case: ${caseId}`);
   };
 
   const unsubscribeFromCase = () => {
