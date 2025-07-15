@@ -2,7 +2,7 @@
 
 ## FEATURE:
 
-Comprehensive discovery document processing system that automatically splits concatenated discovery response PDFs, extracts case facts using AI-powered NLP, and provides a real-time review interface for paralegals to verify and edit extracted information. The system integrates with Box cloud storage and provides real-time updates via WebSocket during processing.
+Comprehensive discovery document processing system that automatically splits concatenated discovery response PDFs, extracts case facts, and provides a real-time review interface for paralegals to verify and edit extracted information. The system provides real-time updates via WebSocket during processing.
 
 ### Current Implementation Status
 

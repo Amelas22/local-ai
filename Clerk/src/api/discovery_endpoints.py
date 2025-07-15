@@ -278,8 +278,10 @@ async def _process_discovery_async(
     enable_fact_extraction: bool,
 ):
     """Background task for processing discovery documents with document splitting"""
-    logger.info(f"Starting async discovery processing for {processing_id}")
-    logger.info(f"Case: {case_name}, Files: {len(discovery_files or [])}")
+    logger.info(f"🚀 Starting async discovery processing for {processing_id}")
+    logger.info(f"📋 Case: {case_name}, Files: {len(discovery_files or [])}")
+    logger.info(f"📋 Production batch: {production_batch}, Producing party: {producing_party}")
+    logger.info(f"📋 Fact extraction enabled: {enable_fact_extraction}")
     
     # Initialize processors
     vector_store = QdrantVectorStore()
@@ -306,9 +308,12 @@ async def _process_discovery_async(
     processing_result = {
         "processing_id": processing_id,
         "status": "in_progress",
+        "started_at": datetime.utcnow().isoformat(),
         "total_documents_found": 0,
         "documents_processed": 0,
         "facts_extracted": 0,
+        "chunks_created": 0,
+        "vectors_stored": 0,
         "errors": []
     }
     
@@ -335,8 +340,7 @@ async def _process_discovery_async(
             try:
                 
                 # Process with discovery splitter
-                logger.info(f"Processing discovery production: {filename}")
-                logger.info(f"Processing PDF with discovery splitter: {filename}")
+                logger.info(f"📄 [Discovery {processing_id}] Processing PDF: {filename}")
                 production_metadata = {
                     "production_batch": production_batch or f"batch_{idx}",
                     "producing_party": producing_party or "Unknown",
@@ -344,18 +348,19 @@ async def _process_discovery_async(
                     "responsive_to_requests": responsive_to_requests or [],
                     "confidentiality_designation": confidentiality_designation,
                 }
-                logger.info(f"Production metadata: {production_metadata}")
+                logger.info(f"📝 [Discovery {processing_id}] Production metadata: {production_metadata}")
                 
+                logger.info(f"🔍 [Discovery {processing_id}] Calling discovery processor for {filename}")
                 production_result = discovery_processor.process_discovery_production(
                     pdf_path=temp_pdf_path,
                     production_metadata=production_metadata
                 )
                 
                 # Log discovery results
-                logger.info(f"Discovery result: {len(production_result.segments_found)} segments found")
-                logger.info(f"Average confidence: {production_result.average_confidence}")
+                logger.info(f"✅ [Discovery {processing_id}] Found {len(production_result.segments_found)} segments")
+                logger.info(f"📊 [Discovery {processing_id}] Average confidence: {production_result.average_confidence}")
                 for idx, seg in enumerate(production_result.segments_found):
-                    logger.info(f"  Segment {idx}: {seg.document_type.value} '{seg.title}' pages {seg.start_page}-{seg.end_page}")
+                    logger.info(f"  📑 Segment {idx}: {seg.document_type.value} '{seg.title}' pages {seg.start_page}-{seg.end_page}")
                 
                 # Update total documents found
                 processing_result["total_documents_found"] += len(production_result.segments_found)
@@ -364,9 +369,13 @@ async def _process_discovery_async(
                 for segment_idx, segment in enumerate(production_result.segments_found):
                     try:
                         # Emit document found event
-                        logger.info(f"Emitting discovery:document_found for segment {segment_idx}: {segment.title}")
                         doc_id = f"{processing_id}_seg_{segment_idx}"
                         page_count = segment.end_page - segment.start_page + 1
+                        logger.info(f"📤 [Discovery {processing_id}] Emitting discovery:document_found for segment {segment_idx}")
+                        logger.info(f"   - Document ID: {doc_id}")
+                        logger.info(f"   - Title: {segment.title}")
+                        logger.info(f"   - Type: {segment.document_type.value}")
+                        logger.info(f"   - Page count: {page_count}")
                         await emit_document_found(
                             processing_id=processing_id,
                             document_id=doc_id,
@@ -429,6 +438,7 @@ async def _process_discovery_async(
                         stored_doc_id = await document_manager.add_document(unified_doc)
                         
                         # Create chunks with context
+                        logger.info(f"🔪 [Discovery {processing_id}] Starting chunking for document {stored_doc_id}")
                         await emit_chunking_progress(
                             processing_id=processing_id,
                             document_id=stored_doc_id,
@@ -467,6 +477,7 @@ async def _process_discovery_async(
                             raise
                         
                         # Generate embeddings and store chunks
+                        logger.info(f"🧮 [Discovery {processing_id}] Starting embedding generation for {len(chunks)} chunks")
                         await emit_embedding_progress(
                             processing_id=processing_id,
                             document_id=stored_doc_id,
@@ -476,7 +487,7 @@ async def _process_discovery_async(
                         
                         # Prepare all chunks for batch storage
                         chunk_data = []
-                        logger.info(f"Preparing {len(chunks)} chunks for storage")
+                        logger.info(f"📦 [Discovery {processing_id}] Preparing {len(chunks)} chunks for batch storage")
                         
                         for chunk_idx, chunk in enumerate(chunks):
                             # Generate embedding
@@ -539,6 +550,7 @@ async def _process_discovery_async(
                         
                         # Extract facts if enabled
                         if enable_fact_extraction and fact_extractor:
+                            logger.info(f"🔍 [Discovery {processing_id}] Extracting facts from document {stored_doc_id}")
                             facts_result = await fact_extractor.extract_facts_from_document(
                                 document_id=doc_id,
                                 document_content=segment_text,
@@ -550,8 +562,14 @@ async def _process_discovery_async(
                                 }
                             )
                             
+                            logger.info(f"📊 [Discovery {processing_id}] Extracted {len(facts_result.facts)} facts")
+                            
                             # Stream facts as they're extracted
                             for fact in facts_result.facts:
+                                logger.info(f"📤 [Discovery {processing_id}] Emitting discovery:fact_extracted")
+                                logger.info(f"   - Fact ID: {fact.id}")
+                                logger.info(f"   - Category: {fact.category}")
+                                logger.info(f"   - Confidence: {fact.confidence_score}")
                                 await sio.emit("discovery:fact_extracted", {
                                     "processing_id": processing_id,
                                     "document_id": stored_doc_id,
@@ -575,11 +593,15 @@ async def _process_discovery_async(
                         logger.info(f"Successfully processed segment {segment_idx}. Total processed: {processing_result['documents_processed']}")
                         
                         # Emit document completed event
+                        facts_count = len(facts_result.facts) if enable_fact_extraction and facts_result else 0
+                        logger.info(f"✅ [Discovery {processing_id}] Document {stored_doc_id} completed")
+                        logger.info(f"   - Segment index: {segment_idx}")
+                        logger.info(f"   - Facts extracted: {facts_count}")
                         await sio.emit("discovery:document_completed", {
                             "processing_id": processing_id,
                             "document_id": stored_doc_id,
                             "segment_idx": segment_idx,
-                            "facts_extracted": len(facts_result.facts) if enable_fact_extraction and facts_result else 0
+                            "facts_extracted": facts_count
                         })
                         
                     except Exception as segment_error:
@@ -622,6 +644,11 @@ async def _process_discovery_async(
             "totalFacts": processing_result.get("facts_extracted", 0),
             "processingTime": (datetime.utcnow() - datetime.fromisoformat(processing_result["started_at"])).total_seconds()
         }
+        logger.info(f"🎉 [Discovery {processing_id}] Processing completed!")
+        logger.info(f"   - Total documents found: {summary['totalDocuments']}")
+        logger.info(f"   - Documents processed: {summary['processedDocuments']}")
+        logger.info(f"   - Total facts extracted: {summary['totalFacts']}")
+        logger.info(f"   - Processing time: {summary['processingTime']:.2f}s")
         await emit_processing_completed(
             processing_id=processing_id,
             summary=summary
@@ -830,6 +857,122 @@ async def list_box_files(
     box_client = BoxClient()
     files = await box_client.get_folder_files(folder_id)
     return [f for f in files if f["name"].endswith(".pdf")]
+
+
+@router.post("/test-events")
+async def test_discovery_events(
+    case_context: CaseContext = Depends(get_case_context),
+) -> Dict[str, Any]:
+    """Test WebSocket event emission with proper snake_case naming"""
+    import asyncio
+    
+    test_id = str(uuid.uuid4())
+    logger.info(f"🧪 Starting WebSocket event test: {test_id}")
+    
+    try:
+        # Emit test events with correct snake_case naming
+        await emit_discovery_started(
+            processing_id=test_id,
+            case_id=case_context.case_id if case_context else "test_case",
+            total_files=1
+        )
+        logger.info(f"✅ Emitted discovery:started for test {test_id}")
+        
+        await asyncio.sleep(1)
+        
+        # Emit document found event
+        doc_id = f"test_doc_{uuid.uuid4()}"
+        await emit_document_found(
+            processing_id=test_id,
+            document_id=doc_id,
+            title="Test Document",
+            doc_type="motion",
+            page_count=10,
+            bates_range={"start": "001", "end": "010"},
+            confidence=0.95
+        )
+        logger.info(f"✅ Emitted discovery:document_found for document {doc_id}")
+        
+        await asyncio.sleep(1)
+        
+        # Emit chunking progress
+        await emit_chunking_progress(
+            processing_id=test_id,
+            document_id=doc_id,
+            progress=0.5,
+            chunks_created=5
+        )
+        logger.info(f"✅ Emitted discovery:chunking for document {doc_id}")
+        
+        await asyncio.sleep(1)
+        
+        # Emit fact extracted
+        fact_data = {
+            "processing_id": test_id,
+            "document_id": doc_id,
+            "fact": {
+                "fact_id": f"fact_{uuid.uuid4()}",
+                "text": "This is a test fact extracted from the document",
+                "category": "substantive",
+                "confidence": 0.9,
+                "entities": ["Test Entity"],
+                "dates": ["2024-01-15"],
+                "source_metadata": {
+                    "document_title": "Test Document",
+                    "page": 5,
+                    "bbox": [100, 200, 300, 400],
+                    "text_snippet": "This is a test fact..."
+                }
+            }
+        }
+        await sio.emit("discovery:fact_extracted", fact_data)
+        logger.info(f"✅ Emitted discovery:fact_extracted")
+        
+        await asyncio.sleep(1)
+        
+        # Emit document completed
+        await sio.emit("discovery:document_completed", {
+            "processing_id": test_id,
+            "document_id": doc_id,
+            "facts_extracted": 1
+        })
+        logger.info(f"✅ Emitted discovery:document_completed")
+        
+        await asyncio.sleep(1)
+        
+        # Emit processing completed
+        await emit_processing_completed(
+            processing_id=test_id,
+            summary={
+                "totalDocuments": 1,
+                "processedDocuments": 1,
+                "totalChunks": 5,
+                "totalVectors": 5,
+                "totalErrors": 0,
+                "totalFacts": 1,
+                "processingTime": 5.0
+            }
+        )
+        logger.info(f"✅ Emitted discovery:completed")
+        
+        return {
+            "message": "Test events emitted successfully",
+            "processing_id": test_id,
+            "document_id": doc_id,
+            "events_emitted": [
+                "discovery:started",
+                "discovery:document_found",
+                "discovery:chunking",
+                "discovery:fact_extracted",
+                "discovery:document_completed",
+                "discovery:completed"
+            ],
+            "note": "Check browser console for WebSocket events"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error emitting test events: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Test failed: {str(e)}")
 
 
 # Helper functions for discovery processing

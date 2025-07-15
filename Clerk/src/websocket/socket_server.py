@@ -113,10 +113,11 @@ async def subscribe_case(sid, data):
 async def emit_discovery_started(processing_id: str, case_id: str, total_files: int):
     """Emit when discovery processing starts"""
     event_data = {
-        "processingId": processing_id,
-        "caseId": case_id,
-        "totalFiles": total_files,
+        "processing_id": processing_id,
+        "case_id": case_id,
+        "total_files": total_files,
     }
+    logger.debug(f"Emitting discovery:started with data: {event_data}")
     await sio.emit("discovery:started", event_data)
     logger.info(f"Emitted discovery:started for processing {processing_id}")
 
@@ -132,14 +133,15 @@ async def emit_document_found(
 ):
     """Emit when a new document is discovered"""
     event_data = {
-        "processingId": processing_id,
-        "documentId": document_id,
+        "processing_id": processing_id,
+        "document_id": document_id,
         "title": title,
         "type": doc_type,
-        "pageCount": page_count,
-        "batesRange": bates_range,
+        "page_count": page_count,
+        "bates_range": bates_range,
         "confidence": confidence,
     }
+    logger.debug(f"Emitting discovery:document_found with data: {event_data}")
     await sio.emit("discovery:document_found", event_data)
     logger.debug(f"Emitted discovery:document_found for document {document_id}")
 
@@ -149,11 +151,12 @@ async def emit_chunking_progress(
 ):
     """Emit document chunking progress"""
     event_data = {
-        "processingId": processing_id,
-        "documentId": document_id,
+        "processing_id": processing_id,
+        "document_id": document_id,
         "progress": progress,
-        "chunksCreated": chunks_created,
+        "chunks_created": chunks_created,
     }
+    logger.debug(f"Emitting discovery:chunking with data: {event_data}")
     await sio.emit("discovery:chunking", event_data)
 
 
@@ -162,11 +165,12 @@ async def emit_embedding_progress(
 ):
     """Emit embedding generation progress"""
     event_data = {
-        "processingId": processing_id,
-        "documentId": document_id,
-        "chunkId": chunk_id,
+        "processing_id": processing_id,
+        "document_id": document_id,
+        "chunk_id": chunk_id,
         "progress": progress,
     }
+    logger.debug(f"Emitting discovery:embedding with data: {event_data}")
     await sio.emit("discovery:embedding", event_data)
 
 
@@ -175,16 +179,18 @@ async def emit_document_stored(
 ):
     """Emit when document vectors are stored"""
     event_data = {
-        "processingId": processing_id,
-        "documentId": document_id,
-        "vectorsStored": vectors_stored,
+        "processing_id": processing_id,
+        "document_id": document_id,
+        "vectors_stored": vectors_stored,
     }
+    logger.debug(f"Emitting discovery:stored with data: {event_data}")
     await sio.emit("discovery:stored", event_data)
 
 
 async def emit_processing_completed(processing_id: str, summary: Dict[str, Any]):
     """Emit when processing is completed"""
-    event_data = {"processingId": processing_id, "summary": summary}
+    event_data = {"processing_id": processing_id, "summary": summary}
+    logger.debug(f"Emitting discovery:completed with data: {event_data}")
     await sio.emit("discovery:completed", event_data)
     logger.info(f"Emitted discovery:completed for processing {processing_id}")
 
@@ -194,11 +200,12 @@ async def emit_processing_error(
 ):
     """Emit when an error occurs during processing"""
     event_data = {
-        "processingId": processing_id,
+        "processing_id": processing_id,
         "error": error,
         "stage": stage,
-        "documentId": document_id,
+        "document_id": document_id,
     }
+    logger.debug(f"Emitting discovery:error with data: {event_data}")
     await sio.emit("discovery:error", event_data)
     logger.error(f"Emitted discovery:error for processing {processing_id}: {error}")
 
@@ -206,19 +213,22 @@ async def emit_processing_error(
 # Motion drafting event emitters (for future use)
 async def emit_motion_started(motion_id: str, case_id: str, motion_type: str):
     """Emit when motion drafting starts"""
-    event_data = {"motionId": motion_id, "caseId": case_id, "type": motion_type}
+    event_data = {"motion_id": motion_id, "case_id": case_id, "type": motion_type}
+    logger.debug(f"Emitting motion:started with data: {event_data}")
     await sio.emit("motion:started", event_data)
 
 
 async def emit_motion_section_completed(motion_id: str, section: str, content: str):
     """Emit when a motion section is completed"""
-    event_data = {"motionId": motion_id, "section": section, "content": content}
+    event_data = {"motion_id": motion_id, "section": section, "content": content}
+    logger.debug(f"Emitting motion:section_completed with data: {event_data}")
     await sio.emit("motion:section_completed", event_data)
 
 
 async def emit_motion_completed(motion_id: str, download_url: str):
     """Emit when motion drafting is completed"""
-    event_data = {"motionId": motion_id, "downloadUrl": download_url}
+    event_data = {"motion_id": motion_id, "download_url": download_url}
+    logger.debug(f"Emitting motion:completed with data: {event_data}")
     await sio.emit("motion:completed", event_data)
 
 
@@ -233,12 +243,13 @@ async def emit_case_event(event_type: str, case_id: str, data: dict):
         data: Event data payload
     """
     event_data = {
-        "caseId": case_id,
-        "eventType": event_type,
+        "case_id": case_id,
+        "event_type": event_type,
         "timestamp": datetime.utcnow().isoformat(),
         **data,
     }
-
+    
+    logger.debug(f"Emitting case:{event_type} with data: {event_data}")
     await sio.emit(f"case:{event_type}", event_data)
     logger.info(f"Emitted case event: case:{event_type} for case {case_id}")
 

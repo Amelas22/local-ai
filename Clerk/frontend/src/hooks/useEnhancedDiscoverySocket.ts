@@ -39,6 +39,12 @@ export const useEnhancedDiscoverySocket = (options: UseEnhancedDiscoverySocketOp
   const { socket, isConnected } = useWebSocket();
   const subscribedRef = useRef(false);
   const documentStatusRef = useRef<DocumentProcessingStatus>({});
+  const subscriptionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSubscribedCaseRef = useRef<string | null>(null);
+  const lastProcessingIdRef = useRef<string | null>(null);
+  
+  // Store event handlers in refs to prevent recreating them
+  const eventHandlersRef = useRef<any>({});
 
   // Enhanced event handlers
   const handleDiscoveryStarted = useCallback((data: any) => {
@@ -57,18 +63,26 @@ export const useEnhancedDiscoverySocket = (options: UseEnhancedDiscoverySocketOp
 
   const handleDocumentFound = useCallback((data: any) => {
     console.log('📄 [Discovery] Document Found event received:', data);
+    console.log('  - Looking for processing_id:', processingId);
+    console.log('  - Event processing_id:', data.processing_id);
     console.log('  - Document ID:', data.document_id);
     console.log('  - Title:', data.title);
     console.log('  - Type:', data.type);
-    console.log('  - Pages:', data.pages);
+    console.log('  - Page count:', data.page_count);
     console.log('  - Confidence:', data.confidence);
+    
+    // Check if this event is for our processing session
+    if (processingId && data.processing_id !== processingId) {
+      console.log('  - Ignoring event for different processing_id');
+      return;
+    }
     
     dispatch(addDocument({
       id: data.document_id,
       title: data.title,
       type: data.type,
       batesRange: data.bates_range,
-      pageCount: parseInt(data.pages?.split('-')[1] || '0'),
+      pageCount: data.page_count || 0,
       confidence: data.confidence,
       status: 'pending',
       progress: 0,
@@ -79,7 +93,7 @@ export const useEnhancedDiscoverySocket = (options: UseEnhancedDiscoverySocketOp
       stage: ProcessingStage.DISCOVERING_DOCUMENTS,
       progress: 0,
     };
-  }, [dispatch]);
+  }, [dispatch, processingId]);
 
   const handleDocumentProcessing = useCallback((data: any) => {
     const { document_id, stage, status } = data;
@@ -127,11 +141,16 @@ export const useEnhancedDiscoverySocket = (options: UseEnhancedDiscoverySocketOp
   }, [dispatch]);
 
   const handleChunking = useCallback((data: any) => {
+    // Check if this event is for our processing session
+    if (processingId && data.processing_id !== processingId) {
+      return;
+    }
+    
     dispatch(updateDocument({
       id: data.document_id,
       status: 'processing',
       progress: 50, // Chunking is roughly 50% through document processing
-      chunks: data.total_chunks,
+      chunks: data.chunks_created,
     }));
     
     handleDocumentProcessing({
@@ -140,7 +159,7 @@ export const useEnhancedDiscoverySocket = (options: UseEnhancedDiscoverySocketOp
       status: data.status,
       progress: 50,
     });
-  }, [dispatch, handleDocumentProcessing]);
+  }, [dispatch, handleDocumentProcessing, processingId]);
 
   const handleEmbedding = useCallback((data: any) => {
     const progress = 60 + (data.progress || 0) * 0.2; // 60-80% for embeddings
@@ -276,74 +295,106 @@ export const useEnhancedDiscoverySocket = (options: UseEnhancedDiscoverySocketOp
   }, [dispatch]);
 
   const subscribeToDiscoveryEvents = useCallback(() => {
-    if (!socket || !isConnected || subscribedRef.current) return;
-
-    console.log('🔌 [Discovery] Subscribing to WebSocket events...');
-    console.log('  - Socket connected:', isConnected);
-    console.log('  - Case ID:', caseId);
-    console.log('  - Processing ID:', processingId);
-
-    // Discovery processing events
-    socket.on('discovery:started', handleDiscoveryStarted);
-    socket.on('discovery:document_found', handleDocumentFound);
-    socket.on('discovery:document_processing', handleDocumentProcessing);
-    socket.on('discovery:chunking', handleChunking);
-    socket.on('discovery:embedding', handleEmbedding);
-    socket.on('discovery:fact_extracted', handleFactExtracted);
-    socket.on('discovery:document_completed', handleDocumentCompleted);
-    socket.on('discovery:completed', handleCompleted);
-    socket.on('discovery:error', handleError);
+    if (!socket || !isConnected) return;
     
-    // Fact management events
-    socket.on('fact:updated', handleFactUpdated);
-    socket.on('fact:deleted', handleFactDeleted);
-
-    if (caseId) {
-      console.log('📡 [Discovery] Subscribing to case:', caseId);
-      socket.emit('subscribe_case', { case_id: caseId });
+    // Check if we're already subscribed with the same case/processing ID
+    if (subscribedRef.current && 
+        lastSubscribedCaseRef.current === caseId && 
+        lastProcessingIdRef.current === processingId) {
+      console.log('🔌 [Discovery] Already subscribed with same parameters, skipping');
+      return;
     }
 
-    subscribedRef.current = true;
-    console.log('✅ [Discovery] WebSocket event subscription complete');
-  }, [
-    socket,
-    isConnected,
-    caseId,
-    handleDiscoveryStarted,
-    handleDocumentFound,
-    handleDocumentProcessing,
-    handleChunking,
-    handleEmbedding,
-    handleFactExtracted,
-    handleDocumentCompleted,
-    handleCompleted,
-    handleError,
-    handleFactUpdated,
-    handleFactDeleted,
-  ]);
+    // Clear any pending subscription attempts
+    if (subscriptionTimeoutRef.current) {
+      clearTimeout(subscriptionTimeoutRef.current);
+    }
+
+    // Debounce subscription to prevent rapid fire
+    subscriptionTimeoutRef.current = setTimeout(() => {
+      console.log('🔌 [Discovery] Subscribing to WebSocket events...');
+      console.log('  - Socket connected:', isConnected);
+      console.log('  - Case ID:', caseId);
+      console.log('  - Processing ID:', processingId);
+      console.log('  - Previously subscribed:', subscribedRef.current);
+
+      // Unsubscribe from previous case if different
+      if (subscribedRef.current && lastSubscribedCaseRef.current && lastSubscribedCaseRef.current !== caseId) {
+        console.log('📡 [Discovery] Unsubscribing from previous case:', lastSubscribedCaseRef.current);
+        socket.emit('unsubscribe_case', { case_id: lastSubscribedCaseRef.current });
+      }
+
+      // Store handler references to ensure we can properly unsubscribe
+      eventHandlersRef.current = {
+        handleDiscoveryStarted,
+        handleDocumentFound,
+        handleDocumentProcessing,
+        handleChunking,
+        handleEmbedding,
+        handleFactExtracted,
+        handleDocumentCompleted,
+        handleCompleted,
+        handleError,
+        handleFactUpdated,
+        handleFactDeleted
+      };
+      
+      // Discovery processing events
+      socket.on('discovery:started', eventHandlersRef.current.handleDiscoveryStarted);
+      socket.on('discovery:document_found', eventHandlersRef.current.handleDocumentFound);
+      socket.on('discovery:document_processing', eventHandlersRef.current.handleDocumentProcessing);
+      socket.on('discovery:chunking', eventHandlersRef.current.handleChunking);
+      socket.on('discovery:embedding', eventHandlersRef.current.handleEmbedding);
+      socket.on('discovery:fact_extracted', eventHandlersRef.current.handleFactExtracted);
+      socket.on('discovery:document_completed', eventHandlersRef.current.handleDocumentCompleted);
+      socket.on('discovery:completed', eventHandlersRef.current.handleCompleted);
+      socket.on('discovery:error', eventHandlersRef.current.handleError);
+      
+      // Fact management events
+      socket.on('fact:updated', eventHandlersRef.current.handleFactUpdated);
+      socket.on('fact:deleted', eventHandlersRef.current.handleFactDeleted);
+
+      if (caseId) {
+        console.log('📡 [Discovery] Subscribing to case:', caseId);
+        socket.emit('subscribe_case', { case_id: caseId });
+      }
+
+      subscribedRef.current = true;
+      lastSubscribedCaseRef.current = caseId || null;
+      lastProcessingIdRef.current = processingId || null;
+      console.log('✅ [Discovery] WebSocket event subscription complete');
+    }, 100); // Small delay to prevent rapid subscription
+  }, [socket, isConnected, caseId, processingId]); // Reduced dependencies to prevent circular updates
 
   const unsubscribeFromDiscoveryEvents = useCallback(() => {
     if (!socket || !subscribedRef.current) return;
+    
+    console.log('🔌 [Discovery] Unsubscribing from WebSocket events...');
 
-    socket.off('discovery:started');
-    socket.off('discovery:document_found');
-    socket.off('discovery:document_processing');
-    socket.off('discovery:chunking');
-    socket.off('discovery:embedding');
-    socket.off('discovery:fact_extracted');
-    socket.off('discovery:document_completed');
-    socket.off('discovery:completed');
-    socket.off('discovery:error');
-    socket.off('fact:updated');
-    socket.off('fact:deleted');
+    // Remove all event listeners using the stored handler references
+    if (eventHandlersRef.current) {
+      socket.off('discovery:started', eventHandlersRef.current.handleDiscoveryStarted);
+      socket.off('discovery:document_found', eventHandlersRef.current.handleDocumentFound);
+      socket.off('discovery:document_processing', eventHandlersRef.current.handleDocumentProcessing);
+      socket.off('discovery:chunking', eventHandlersRef.current.handleChunking);
+      socket.off('discovery:embedding', eventHandlersRef.current.handleEmbedding);
+      socket.off('discovery:fact_extracted', eventHandlersRef.current.handleFactExtracted);
+      socket.off('discovery:document_completed', eventHandlersRef.current.handleDocumentCompleted);
+      socket.off('discovery:completed', eventHandlersRef.current.handleCompleted);
+      socket.off('discovery:error', eventHandlersRef.current.handleError);
+      socket.off('fact:updated', eventHandlersRef.current.handleFactUpdated);
+      socket.off('fact:deleted', eventHandlersRef.current.handleFactDeleted);
+    }
 
-    if (caseId) {
-      socket.emit('unsubscribe_case', { case_id: caseId });
+    if (lastSubscribedCaseRef.current) {
+      console.log('📡 [Discovery] Unsubscribing from case:', lastSubscribedCaseRef.current);
+      socket.emit('unsubscribe_case', { case_id: lastSubscribedCaseRef.current });
     }
 
     subscribedRef.current = false;
     documentStatusRef.current = {};
-  }, [socket, caseId]);
+    eventHandlersRef.current = {};
+  }, [socket]);
 
   const updateFact = useCallback(async (factId: string, content: string, reason?: string) => {
     if (!socket || !isConnected || !caseId) {
@@ -385,13 +436,50 @@ export const useEnhancedDiscoverySocket = (options: UseEnhancedDiscoverySocketOp
     });
   }, [socket, isConnected, caseId]);
 
+  // Add debug logging for all events
   useEffect(() => {
+    if (!socket) return;
+    
+    // Log ALL incoming events for debugging
+    const logAllEvents = (eventName: string, ...args: any[]) => {
+      console.log(`🔵 [WebSocket] Event received: ${eventName}`, {
+        timestamp: new Date().toISOString(),
+        args: args,
+        currentProcessingId: processingId,
+        isSubscribed: subscribedRef.current
+      });
+    };
+    
+    socket.onAny(logAllEvents);
+    
+    return () => {
+      socket.offAny(logAllEvents);
+    };
+  }, [socket, processingId]);
+
+  // Main subscription effect with better dependency management
+  useEffect(() => {
+    console.log('🔄 [Discovery] Effect triggered:', {
+      socket: !!socket,
+      isConnected,
+      caseId,
+      processingId,
+      subscribedRef: subscribedRef.current,
+      lastCaseId: lastSubscribedCaseRef.current,
+      lastProcessingId: lastProcessingIdRef.current
+    });
+
     subscribeToDiscoveryEvents();
 
     return () => {
+      console.log('🔄 [Discovery] Effect cleanup');
+      // Clear timeout on cleanup
+      if (subscriptionTimeoutRef.current) {
+        clearTimeout(subscriptionTimeoutRef.current);
+      }
       unsubscribeFromDiscoveryEvents();
     };
-  }, [subscribeToDiscoveryEvents, unsubscribeFromDiscoveryEvents]);
+  }, [socket, isConnected, caseId, processingId]); // Simplified dependencies
 
   return {
     isConnected,
