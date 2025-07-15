@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Discovery WebSocket Test</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+<body>
+    <h1>Discovery WebSocket Test</h1>
+    
+    <div>
+        <h2>Connection Status</h2>
+        <p id="status">Disconnected</p>
+    </div>
+    
+    <div>
+        <h2>Actions</h2>
+        <button onclick="connectWS()">Connect</button>
+        <button onclick="subscribeCase()">Subscribe to Case</button>
+        <button onclick="triggerDiscovery()">Trigger Discovery</button>
+        <button onclick="disconnectWS()">Disconnect</button>
+    </div>
+    
+    <div>
+        <h2>Events Received</h2>
+        <ul id="events"></ul>
+    </div>
+    
+    <div>
+        <h2>Logs</h2>
+        <pre id="logs"></pre>
+    </div>
+
+    <script>
+        let socket = null;
+        const caseId = 'test_case_' + Date.now();
+        
+        function log(msg) {
+            const logs = document.getElementById('logs');
+            const timestamp = new Date().toISOString();
+            logs.textContent += `[${timestamp}] ${msg}\n`;
+            console.log(msg);
+        }
+        
+        function addEvent(event, data) {
+            const events = document.getElementById('events');
+            const li = document.createElement('li');
+            li.textContent = `${event}: ${JSON.stringify(data)}`;
+            events.appendChild(li);
+        }
+        
+        function connectWS() {
+            if (socket && socket.connected) {
+                log('Already connected');
+                return;
+            }
+            
+            log('Connecting to WebSocket...');
+            socket = io('http://localhost:8000', {
+                path: '/ws/socket.io/',
+                transports: ['websocket', 'polling']
+            });
+            
+            // Connection events
+            socket.on('connect', () => {
+                log('Connected with ID: ' + socket.id);
+                document.getElementById('status').textContent = 'Connected';
+            });
+            
+            socket.on('connected', (data) => {
+                log('Received connected event: ' + JSON.stringify(data));
+            });
+            
+            socket.on('disconnect', (reason) => {
+                log('Disconnected: ' + reason);
+                document.getElementById('status').textContent = 'Disconnected';
+            });
+            
+            socket.on('connect_error', (error) => {
+                log('Connection error: ' + error.message);
+            });
+            
+            // Case events
+            socket.on('subscribed', (data) => {
+                log('Subscribed to case: ' + JSON.stringify(data));
+                addEvent('subscribed', data);
+            });
+            
+            socket.on('unsubscribed', (data) => {
+                log('Unsubscribed from case: ' + JSON.stringify(data));
+                addEvent('unsubscribed', data);
+            });
+            
+            // Discovery events
+            const discoveryEvents = [
+                'discovery:started',
+                'discovery:document_found',
+                'discovery:chunking',
+                'discovery:embedding',
+                'discovery:stored',
+                'discovery:fact_extracted',
+                'discovery:document_completed',
+                'discovery:completed',
+                'discovery:error'
+            ];
+            
+            discoveryEvents.forEach(event => {
+                socket.on(event, (data) => {
+                    log(`Received ${event}: ${JSON.stringify(data)}`);
+                    addEvent(event, data);
+                });
+            });
+            
+            // Debug all events
+            socket.onAny((event, ...args) => {
+                log(`[ANY] Event: ${event}, Args: ${JSON.stringify(args)}`);
+            });
+        }
+        
+        function subscribeCase() {
+            if (!socket || !socket.connected) {
+                log('Not connected');
+                return;
+            }
+            
+            log(`Subscribing to case: ${caseId}`);
+            socket.emit('subscribe_case', { case_id: caseId });
+        }
+        
+        async function triggerDiscovery() {
+            log('Triggering discovery test events...');
+            
+            try {
+                const response = await fetch('http://localhost:8000/api/discovery/test-events', {
+                    method: 'POST',
+                    headers: {
+                        'X-Case-ID': caseId,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    log('Test events triggered: ' + JSON.stringify(data));
+                } else {
+                    log('Failed to trigger test events: ' + response.status);
+                }
+            } catch (error) {
+                log('Error triggering test events: ' + error.message);
+            }
+        }
+        
+        function disconnectWS() {
+            if (socket) {
+                socket.disconnect();
+                socket = null;
+            }
+        }
+        
+        // Auto-connect on load
+        window.onload = () => {
+            connectWS();
+        };
+    </script>
+</body>
+</html>

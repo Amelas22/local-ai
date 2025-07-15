@@ -247,14 +247,12 @@ async def process_discovery(
         enable_fact_extraction,
     )
 
-    # Emit WebSocket event
-    await sio.emit(
-        "discovery:started",
-        {
-            "processing_id": processing_id,
-            "case_id": case_context.case_id,
-            "total_files": len(discovery_files) if discovery_files else 0,
-        },
+    # Emit WebSocket event to case room
+    from src.websocket.socket_server import emit_discovery_started
+    await emit_discovery_started(
+        processing_id=processing_id,
+        case_id=case_context.case_id,
+        total_files=len(discovery_files) if discovery_files else 0
     )
 
     return DiscoveryProcessingResponse(
@@ -289,7 +287,6 @@ async def _process_discovery_async(
     
     # Use the basic discovery processor directly - no normalized wrapper
     from src.document_processing.discovery_splitter import DiscoveryProductionProcessor
-    discovery_processor = DiscoveryProductionProcessor(case_name=case_name)
     
     # Document manager for deduplication
     document_manager = UnifiedDocumentManager(case_name)
@@ -350,8 +347,45 @@ async def _process_discovery_async(
                 }
                 logger.info(f"📝 [Discovery {processing_id}] Production metadata: {production_metadata}")
                 
+                # Create progress callback to emit WebSocket events
+                async def emit_progress(event_type: str, data: dict):
+                    """Emit progress events during discovery processing"""
+                    if event_type == "boundary_detection_started":
+                        await sio.emit(
+                            "discovery:boundary_detection_started",
+                            {
+                                "processingId": processing_id,
+                                "message": data.get("message"),
+                                "totalPages": data.get("total_pages")
+                            },
+                            room=f"case_{case_name}"
+                        )
+                    elif event_type == "boundary_detection_progress":
+                        await sio.emit(
+                            "discovery:boundary_detection_progress",
+                            {
+                                "processingId": processing_id,
+                                "message": data.get("message"),
+                                "currentWindow": data.get("current_window"),
+                                "totalWindows": data.get("total_windows"),
+                                "progressPercent": data.get("progress_percent")
+                            },
+                            room=f"case_{case_name}"
+                        )
+                    elif event_type == "boundary_detection_completed":
+                        await sio.emit(
+                            "discovery:boundary_detection_completed",
+                            {
+                                "processingId": processing_id,
+                                "message": data.get("message"),
+                                "boundariesFound": data.get("boundaries_found")
+                            },
+                            room=f"case_{case_name}"
+                        )
+                
                 logger.info(f"🔍 [Discovery {processing_id}] Calling discovery processor for {filename}")
-                production_result = discovery_processor.process_discovery_production(
+                discovery_processor = DiscoveryProductionProcessor(case_name, progress_callback=emit_progress)
+                production_result = await discovery_processor.process_discovery_production(
                     pdf_path=temp_pdf_path,
                     production_metadata=production_metadata
                 )
@@ -378,6 +412,7 @@ async def _process_discovery_async(
                         logger.info(f"   - Page count: {page_count}")
                         await emit_document_found(
                             processing_id=processing_id,
+                            case_id=case_name,
                             document_id=doc_id,
                             title=segment.title or f"Document {segment.document_type}",
                             doc_type=segment.document_type.value,
@@ -386,8 +421,11 @@ async def _process_discovery_async(
                             confidence=segment.confidence_score
                         )
                         
-                        # Extract text for this segment
-                        segment_text = extract_text_from_pages(
+                        # Extract text for this segment in a thread to avoid blocking
+                        loop = asyncio.get_event_loop()
+                        segment_text = await loop.run_in_executor(
+                            None,
+                            extract_text_from_pages,
                             temp_pdf_path, 
                             segment.start_page, 
                             segment.end_page
@@ -406,6 +444,12 @@ async def _process_discovery_async(
                                 continue
                         except Exception as e:
                             logger.error(f"Error checking duplicate: {type(e).__name__}: {str(e)}")
+                            await emit_processing_error(
+                                processing_id=processing_id,
+                                case_id=case_name,
+                                error=f"Duplicate check failed: {str(e)}",
+                                stage="duplicate_check"
+                            )
                             raise
                         
                         # Create unified document with correct fields
@@ -441,6 +485,7 @@ async def _process_discovery_async(
                         logger.info(f"🔪 [Discovery {processing_id}] Starting chunking for document {stored_doc_id}")
                         await emit_chunking_progress(
                             processing_id=processing_id,
+                            case_id=case_name,
                             document_id=stored_doc_id,
                             progress=0.0,
                             chunks_created=0
@@ -474,12 +519,19 @@ async def _process_discovery_async(
                             logger.info(f"Created {len(chunks)} chunks for segment {segment_idx}")
                         except Exception as e:
                             logger.error(f"Failed to create chunks for segment {segment_idx}: {str(e)}")
+                            await emit_processing_error(
+                                processing_id=processing_id,
+                                case_id=case_name,
+                                error=f"Chunking failed for segment {segment_idx}: {str(e)}",
+                                stage="chunking"
+                            )
                             raise
                         
                         # Generate embeddings and store chunks
                         logger.info(f"🧮 [Discovery {processing_id}] Starting embedding generation for {len(chunks)} chunks")
                         await emit_embedding_progress(
                             processing_id=processing_id,
+                            case_id=case_name,
                             document_id=stored_doc_id,
                             chunk_id="all",
                             progress=0.0
@@ -499,6 +551,12 @@ async def _process_discovery_async(
                                 logger.debug(f"Generated embedding for chunk {chunk_idx} with {token_count} tokens")
                             except Exception as e:
                                 logger.error(f"Failed to generate embedding for chunk {chunk_idx}: {str(e)}")
+                                await emit_processing_error(
+                                    processing_id=processing_id,
+                                    case_id=case_name,
+                                    error=f"Embedding generation failed for chunk {chunk_idx}: {str(e)}",
+                                    stage="embedding_generation"
+                                )
                                 raise
                             
                             # Use the actual chunk text field
@@ -541,11 +599,18 @@ async def _process_discovery_async(
                                 # Emit stored event for frontend
                                 await emit_document_stored(
                                     processing_id=processing_id,
+                                    case_id=case_name,
                                     document_id=stored_doc_id,
                                     vectors_stored=len(stored_ids)
                                 )
                             except Exception as e:
                                 logger.error(f"Failed to store chunks: {e}")
+                                await emit_processing_error(
+                                    processing_id=processing_id,
+                                    case_id=case_name,
+                                    error=f"Vector storage failed: {str(e)}",
+                                    stage="vector_storage"
+                                )
                                 raise
                         
                         # Extract facts if enabled
@@ -585,7 +650,7 @@ async def _process_discovery_async(
                                             "page_range": f"{segment.start_page}-{segment.end_page}"
                                         }
                                     }
-                                })
+                                }, room=f"case_{case_name}")
                                 processing_result["facts_extracted"] += 1
                         
                         # Update processed count
@@ -602,7 +667,7 @@ async def _process_discovery_async(
                             "document_id": stored_doc_id,
                             "segment_idx": segment_idx,
                             "facts_extracted": facts_count
-                        })
+                        }, room=f"case_{case_name}")
                         
                     except Exception as segment_error:
                         logger.error(f"Error processing segment {segment_idx}: {str(segment_error)}")
@@ -613,9 +678,9 @@ async def _process_discovery_async(
                         
                         await emit_processing_error(
                             processing_id=processing_id,
+                            case_id=case_name,
                             error=str(segment_error),
-                            stage="processing_segment",
-                            document_id=f"{processing_id}_seg_{segment_idx}"
+                            stage="processing_segment"
                         )
                         
             finally:
@@ -651,6 +716,7 @@ async def _process_discovery_async(
         logger.info(f"   - Processing time: {summary['processingTime']:.2f}s")
         await emit_processing_completed(
             processing_id=processing_id,
+            case_id=case_name,
             summary=summary
         )
         
@@ -667,6 +733,7 @@ async def _process_discovery_async(
         
         await emit_processing_error(
             processing_id=processing_id,
+            case_id=case_name,
             error=str(e),
             stage="discovery_processing"
         )
@@ -859,6 +926,39 @@ async def list_box_files(
     return [f for f in files if f["name"].endswith(".pdf")]
 
 
+@router.get("/websocket-status")
+async def get_websocket_status() -> Dict[str, Any]:
+    """Get current WebSocket connection status"""
+    from src.websocket.socket_server import sio, active_connections
+    
+    status = {
+        "connected_clients": len(active_connections),
+        "clients": [],
+        "rooms": {}
+    }
+    
+    for sid, info in active_connections.items():
+        client_info = {
+            "sid": sid,
+            "case_id": info.get("case_id"),
+            "connected_at": str(info.get("connected_at")),
+            "rooms": list(sio.rooms(sid)) if hasattr(sio, 'rooms') else []
+        }
+        status["clients"].append(client_info)
+    
+    # Get all rooms
+    try:
+        for sid, rooms in sio.manager.rooms.get('/', {}).items():
+            for room in rooms:
+                if room not in status["rooms"]:
+                    status["rooms"][room] = []
+                status["rooms"][room].append(sid)
+    except:
+        pass
+    
+    return status
+
+
 @router.post("/test-events")
 async def test_discovery_events(
     case_context: CaseContext = Depends(get_case_context),
@@ -884,6 +984,7 @@ async def test_discovery_events(
         doc_id = f"test_doc_{uuid.uuid4()}"
         await emit_document_found(
             processing_id=test_id,
+            case_id=case_context.case_id if case_context else "test_case",
             document_id=doc_id,
             title="Test Document",
             doc_type="motion",
@@ -898,6 +999,7 @@ async def test_discovery_events(
         # Emit chunking progress
         await emit_chunking_progress(
             processing_id=test_id,
+            case_id=case_context.case_id if case_context else "test_case",
             document_id=doc_id,
             progress=0.5,
             chunks_created=5
@@ -925,7 +1027,7 @@ async def test_discovery_events(
                 }
             }
         }
-        await sio.emit("discovery:fact_extracted", fact_data)
+        await sio.emit("discovery:fact_extracted", fact_data, room=f"case_{case_context.case_id if case_context else 'test_case'}")
         logger.info(f"✅ Emitted discovery:fact_extracted")
         
         await asyncio.sleep(1)
@@ -935,7 +1037,7 @@ async def test_discovery_events(
             "processing_id": test_id,
             "document_id": doc_id,
             "facts_extracted": 1
-        })
+        }, room=f"case_{case_context.case_id if case_context else 'test_case'}")
         logger.info(f"✅ Emitted discovery:document_completed")
         
         await asyncio.sleep(1)
@@ -943,6 +1045,7 @@ async def test_discovery_events(
         # Emit processing completed
         await emit_processing_completed(
             processing_id=test_id,
+            case_id=case_context.case_id if case_context else "test_case",
             summary={
                 "totalDocuments": 1,
                 "processedDocuments": 1,
@@ -1021,3 +1124,43 @@ async def store_processing_result(processing_id: str, result: Dict[str, Any]):
             processing_status[processing_id].completed_at = datetime.fromisoformat(result["completed_at"])
         if result.get("error"):
             processing_status[processing_id].error_message = result["error"]
+
+
+async def emit_processing_completed(processing_id: str, case_id: str, summary: Dict[str, Any]):
+    """
+    Emit processing completed event via WebSocket.
+    
+    Args:
+        processing_id: Unique ID for the processing job
+        case_id: Case ID for room-based event emission
+        summary: Summary of processing results
+    """
+    await sio.emit(
+        "discovery:completed",
+        {
+            "processingId": processing_id,
+            "summary": summary
+        },
+        room=f"case_{case_id}"
+    )
+
+
+async def emit_processing_error(processing_id: str, case_id: str, error: str, stage: str):
+    """
+    Emit processing error event via WebSocket.
+    
+    Args:
+        processing_id: Unique ID for the processing job
+        case_id: Case ID for room-based event emission
+        error: Error message
+        stage: Stage where error occurred
+    """
+    await sio.emit(
+        "discovery:error",
+        {
+            "processingId": processing_id,
+            "error": error,
+            "stage": stage
+        },
+        room=f"case_{case_id}"
+    )

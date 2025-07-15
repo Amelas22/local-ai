@@ -8,12 +8,17 @@ import re
 import io
 import json
 import os
+import asyncio
+import time
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from functools import wraps
+from concurrent.futures import ThreadPoolExecutor
 
 import PyPDF2
 import pdfplumber
-from openai import OpenAI
+from openai import AsyncOpenAI
+import httpx
 
 from src.models.unified_document_models import (
     DiscoverySegment,
@@ -29,6 +34,30 @@ from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
+# Thread pool for CPU-intensive operations
+executor = ThreadPoolExecutor(max_workers=4)
+
+
+def async_retry(max_retries: int = 3, initial_delay: float = 1.0, exponential_base: float = 2.0):
+    """Retry decorator for async functions with exponential backoff"""
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            delay = initial_delay
+            for attempt in range(max_retries):
+                try:
+                    return await func(*args, **kwargs)
+                except (httpx.ConnectError, httpx.TimeoutException, Exception) as e:
+                    if attempt == max_retries - 1:
+                        logger.error(f"Final retry attempt failed for {func.__name__}: {str(e)}")
+                        raise
+                    logger.warning(f"Attempt {attempt + 1} failed for {func.__name__}: {str(e)}. Retrying in {delay}s...")
+                    await asyncio.sleep(delay)
+                    delay *= exponential_base
+            return None
+        return wrapper
+    return decorator
+
 
 class BoundaryDetector:
     """Detects document boundaries within large multi-document PDFs"""
@@ -37,7 +66,12 @@ class BoundaryDetector:
         """Initialize boundary detector with specified model"""
         # Use model from settings with fallback to gpt-4.1-mini
         self.model = model or os.getenv('DISCOVERY_BOUNDARY_MODEL', settings.discovery.boundary_detection_model)
-        self.client = OpenAI(api_key=settings.openai.api_key)
+        # Create async OpenAI client with timeout
+        self.client = AsyncOpenAI(
+            api_key=settings.openai.api_key,
+            timeout=httpx.Timeout(30.0, connect=10.0),
+            max_retries=2
+        )
         self.confidence_threshold = float(os.getenv('DISCOVERY_CONFIDENCE_THRESHOLD', settings.discovery.boundary_confidence_threshold))
         # Get window settings from environment
         self.default_window_size = int(os.getenv('DISCOVERY_WINDOW_SIZE', '5'))
@@ -50,8 +84,8 @@ class BoundaryDetector:
         logger.info(f"  Window overlap: {self.default_window_overlap}")
         logger.info(f"  Confidence threshold: {self.confidence_threshold}")
 
-    def detect_all_boundaries(
-        self, pdf_path: str, window_size: int = None, window_overlap: int = None
+    async def detect_all_boundaries(
+        self, pdf_path: str, window_size: int = None, window_overlap: int = None, progress_callback=None
     ) -> List[DocumentBoundary]:
         """
         Detect all document boundaries in a PDF using AI-powered approach
@@ -75,7 +109,7 @@ class BoundaryDetector:
         logger.info(f"Window size: {window_size}, Overlap: {window_overlap}")
 
         # Get total page count
-        total_pages = self._get_pdf_page_count(pdf_path)
+        total_pages = await self._get_pdf_page_count_async(pdf_path)
         logger.info(f"Total pages in PDF: {total_pages}")
 
         # Process windows
@@ -86,12 +120,23 @@ class BoundaryDetector:
             window_end = min(window_start + window_size, total_pages)
 
             logger.info(f"Processing window: pages {window_start} to {window_end}")
+            
+            # Emit progress for each window
+            if progress_callback:
+                window_num = (window_start // stride) + 1
+                total_windows = ((total_pages - 1) // stride) + 1
+                await progress_callback("boundary_detection_progress", {
+                    "message": f"Analyzing pages {window_start + 1} to {window_end}",
+                    "current_window": window_num,
+                    "total_windows": total_windows,
+                    "progress_percent": int((window_num / total_windows) * 100)
+                })
 
-            # Extract window text
-            window_text = self._extract_pages(pdf_path, window_start, window_end)
+            # Extract window text asynchronously to avoid blocking
+            window_text = await self._extract_pages_async(pdf_path, window_start, window_end)
 
             # Detect boundaries in this window
-            window_boundaries = self._detect_boundaries_in_window(
+            window_boundaries = await self._detect_boundaries_in_window(
                 window_text, window_start, window_end
             )
 
@@ -112,6 +157,11 @@ class BoundaryDetector:
         with open(pdf_path, "rb") as file:
             pdf_reader = PyPDF2.PdfReader(file)
             return len(pdf_reader.pages)
+    
+    async def _get_pdf_page_count_async(self, pdf_path: str) -> int:
+        """Get total page count from PDF asynchronously"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(executor, self._get_pdf_page_count, pdf_path)
 
     def _extract_pages(self, pdf_path: str, start_page: int, end_page: int) -> str:
         """Extract text from specified page range"""
@@ -124,10 +174,15 @@ class BoundaryDetector:
 
                 # Add page marker for reference
                 text_parts.append(f"\n[Page {page_num + 1}]\n{page_text}")
-
+        
         return "\n".join(text_parts)
+    
+    async def _extract_pages_async(self, pdf_path: str, start_page: int, end_page: int) -> str:
+        """Extract text from specified page range asynchronously"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(executor, self._extract_pages, pdf_path, start_page, end_page)
 
-    def _detect_boundaries_in_window(
+    async def _detect_boundaries_in_window(
         self, window_text: str, start_page: int, end_page: int
     ) -> List[DocumentBoundary]:
         """Use LLM to detect document boundaries in window"""
@@ -174,7 +229,10 @@ Text to analyze:
 """
 
         try:
-            response = self.client.chat.completions.create(
+            logger.info(f"Making OpenAI API call with model {self.model}")
+            logger.info(f"Prompt length: {len(prompt)} characters")
+            
+            response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {
@@ -240,6 +298,10 @@ Text to analyze:
 
         except Exception as e:
             logger.error(f"Error detecting boundaries: {str(e)}")
+            logger.error(f"Error type: {type(e).__name__}")
+            logger.error(f"Full error details: {repr(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return []
 
     def _map_document_type(self, type_hint: str) -> Optional[DocumentType]:
@@ -342,10 +404,10 @@ class DiscoveryDocumentProcessor:
         self.pdf_extractor = PDFExtractor()
         self.chunker = DocumentChunker()
         self.context_generator = ContextGenerator()
-        self.client = OpenAI(api_key=settings.openai.api_key)
+        self.client = AsyncOpenAI(api_key=settings.openai.api_key)
         self.classification_model = settings.discovery.classification_model
 
-    def process_segmented_document(
+    async def process_segmented_document(
         self,
         document_text: str,
         document_metadata: Dict[str, Any],
@@ -395,7 +457,8 @@ class DiscoveryDocumentProcessor:
         logger.info(f"Created {len(enhanced_chunks)} chunks for document")
         return enhanced_chunks
 
-    def generate_document_context(
+    @async_retry(max_retries=3, initial_delay=1.0)
+    async def generate_document_context(
         self, document_text: str, doc_type: str, boundary_info: DocumentBoundary
     ) -> str:
         """Generate context for this specific document, not entire production"""
@@ -473,7 +536,8 @@ Provide ONLY the context summary, no additional explanation."""
 
         return chunk
 
-    def classify_document(self, document_text: str, boundary: DocumentBoundary) -> str:
+    @async_retry(max_retries=3, initial_delay=1.0)
+    async def classify_document(self, document_text: str, boundary: DocumentBoundary) -> str:
         """Classify the document type using LLM"""
 
         # Use hint if confidence is high
@@ -532,7 +596,7 @@ Return ONLY the category name, nothing else."""
             logger.error(f"Error classifying document: {str(e)}")
             return DocumentType.OTHER.value
 
-    def process_large_segmented_document(
+    async def process_large_segmented_document(
         self, pdf_path: str, doc_metadata: Dict[str, Any], boundary: DocumentBoundary
     ) -> List[Any]:
         """Process large documents in sections, each with its own context"""
@@ -551,8 +615,8 @@ Return ONLY the category name, nothing else."""
         ):
             section_end = min(section_start + section_size - 1, boundary.end_page)
 
-            # Extract section
-            section_text = self._extract_pdf_pages(pdf_path, section_start, section_end)
+            # Extract section asynchronously
+            section_text = await self._extract_pdf_pages_async(pdf_path, section_start, section_end)
 
             # Generate context for this section
             section_boundary = DocumentBoundary(
@@ -565,7 +629,7 @@ Return ONLY the category name, nothing else."""
                 bates_range=None
             )
 
-            section_context = self.generate_document_context(
+            section_context = await self.generate_document_context(
                 section_text, doc_metadata["document_type"], section_boundary
             )
 
@@ -582,7 +646,7 @@ Return ONLY the category name, nothing else."""
             }
 
             # Process section
-            section_chunks = self.process_segmented_document(
+            section_chunks = await self.process_segmented_document(
                 section_text, section_metadata, section_boundary
             )
 
@@ -601,6 +665,11 @@ Return ONLY the category name, nothing else."""
 
         for page_num in range(start_page, min(end_page + 1, len(pdf_reader.pages))):
             pdf_writer.add_page(pdf_reader.pages[page_num])
+    
+    async def _extract_pdf_pages_async(self, pdf_path: str, start_page: int, end_page: int) -> str:
+        """Extract text from specific page range asynchronously"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(executor, self._extract_pdf_pages, pdf_path, start_page, end_page)
 
         # Extract text from temporary PDF
         temp_pdf = io.BytesIO()
@@ -616,14 +685,15 @@ Return ONLY the category name, nothing else."""
 class DiscoveryProductionProcessor:
     """Main processor for entire discovery productions"""
 
-    def __init__(self, case_name: str):
+    def __init__(self, case_name: str, progress_callback=None):
         """Initialize production processor"""
         self.case_name = case_name
         self.boundary_detector = BoundaryDetector()
         self.document_processor = DiscoveryDocumentProcessor(case_name)
         self.pdf_extractor = PDFExtractor()
+        self.progress_callback = progress_callback
 
-    def process_discovery_production(
+    async def process_discovery_production(
         self, pdf_path: str, production_metadata: Dict[str, Any]
     ) -> DiscoveryProductionResult:
         """
@@ -646,8 +716,26 @@ class DiscoveryProductionProcessor:
         try:
             # Phase 1: Detect all boundaries
             logger.info("Phase 1: Detecting document boundaries")
-            boundaries = self.boundary_detector.detect_all_boundaries(pdf_path)
+            
+            # Emit progress event before starting boundary detection
+            if self.progress_callback:
+                await self.progress_callback("boundary_detection_started", {
+                    "message": "Starting AI-powered document boundary detection",
+                    "total_pages": self._get_total_pages(pdf_path)
+                })
+            
+            boundaries = await self.boundary_detector.detect_all_boundaries(
+                pdf_path, 
+                progress_callback=self.progress_callback
+            )
             result.processing_windows = len(boundaries)
+            
+            # Emit progress event after boundary detection
+            if self.progress_callback:
+                await self.progress_callback("boundary_detection_completed", {
+                    "message": f"Found {len(boundaries)} document boundaries",
+                    "boundaries_found": len(boundaries)
+                })
 
             # Identify low confidence boundaries
             result.low_confidence_boundaries = [
@@ -676,12 +764,12 @@ class DiscoveryProductionProcessor:
                             LargeDocumentProcessingStrategy.CHUNKED
                         )
                         # Process large document in sections
-                        self._process_large_document(
+                        await self._process_large_document(
                             pdf_path, segment, production_metadata
                         )
                     else:
                         # Process normal document
-                        self._process_standard_document(
+                        await self._process_standard_document(
                             pdf_path, segment, production_metadata
                         )
 
@@ -716,7 +804,7 @@ class DiscoveryProductionProcessor:
             pdf_reader = PyPDF2.PdfReader(file)
             return len(pdf_reader.pages)
 
-    def _process_standard_document(
+    async def _process_standard_document(
         self,
         pdf_path: str,
         segment: DiscoverySegment,
@@ -731,7 +819,7 @@ class DiscoveryProductionProcessor:
 
         # Classify document
         segment.document_type = DocumentType(
-            self.document_processor.classify_document(
+            await self.document_processor.classify_document(
                 doc_text,
                 DocumentBoundary(
                     start_page=segment.start_page,
@@ -751,7 +839,7 @@ class DiscoveryProductionProcessor:
         # Extract Bates range
         segment.bates_range = self._extract_bates_range(doc_text)
 
-    def _process_large_document(
+    async def _process_large_document(
         self,
         pdf_path: str,
         segment: DiscoverySegment,
@@ -766,7 +854,7 @@ class DiscoveryProductionProcessor:
 
         # Classify based on preview
         segment.document_type = DocumentType(
-            self.document_processor.classify_document(
+            await self.document_processor.classify_document(
                 preview_text,
                 DocumentBoundary(
                     start_page=segment.start_page,

@@ -88,7 +88,9 @@
       "Bash(COMPOSE_PROJECT_NAME=localai docker-compose -f docker-compose.yml -f docker-compose.clerk.yml restart clerk)",
       "Bash(COMPOSE_PROJECT_NAME=localai docker-compose -f docker-compose.yml -f docker-compose.clerk.yml up -d --build clerk)",
       "Bash(COMPOSE_PROJECT_NAME=localai docker-compose -f docker-compose.yml -f docker-compose.clerk.yml down clerk)",
-      "Bash(COMPOSE_PROJECT_NAME=localai docker-compose -f docker-compose.yml -f docker-compose.clerk.yml down -v)"
+      "Bash(COMPOSE_PROJECT_NAME=localai docker-compose -f docker-compose.yml -f docker-compose.clerk.yml down -v)",
+      "Bash(git add:*)",
+      "Bash(git restore:*)"
     ],
     "deny": []
   }

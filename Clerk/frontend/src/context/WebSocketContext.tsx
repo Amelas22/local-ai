@@ -121,6 +121,11 @@ export function WebSocketProvider({ children, wsUrl }: WebSocketProviderProps): 
     socket.on('connected', (data) => {
       console.log('Received connected event from server:', data);
     });
+    
+    // Debug: Log all incoming events
+    socket.onAny((event, ...args) => {
+      console.log(`[WebSocket] Received event: ${event}`, args);
+    });
   };
 
   const disconnect = () => {
@@ -186,18 +191,21 @@ export function WebSocketProvider({ children, wsUrl }: WebSocketProviderProps): 
       return;
     }
     
+    // Use ref to check current subscription to avoid stale closure
+    const currentSubscription = socketRef.current?.id ? state.subscribedCase : null;
+    
     // Don't re-subscribe if already subscribed to this case
-    if (state.subscribedCase === caseId) {
+    if (currentSubscription === caseId) {
       console.log(`Already subscribed to case: ${caseId}`);
       return;
     }
     
-    console.log(`Subscribing to case: ${caseId} (previous: ${state.subscribedCase || 'none'})`);
+    console.log(`Subscribing to case: ${caseId} (previous: ${currentSubscription || 'none'})`);
     
     // Unsubscribe from previous case if any
-    if (state.subscribedCase) {
-      console.log(`Unsubscribing from previous case: ${state.subscribedCase}`);
-      emit('unsubscribe_case', { case_id: state.subscribedCase });
+    if (currentSubscription) {
+      console.log(`Unsubscribing from previous case: ${currentSubscription}`);
+      emit('unsubscribe_case', { case_id: currentSubscription });
     }
     
     emit('subscribe_case', { case_id: caseId });

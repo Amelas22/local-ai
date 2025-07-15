@@ -177,17 +177,51 @@ export const useDiscoverySocket = (options: UseDiscoverySocketOptions = {}) => {
 
     console.log('[useDiscoverySocket] Subscribing to discovery events');
 
-    socket.on('discovery:started', handleDiscoveryStarted);
-    socket.on('discovery:document_found', handleDocumentFound);
-    socket.on('discovery:chunking', handleChunking);
-    socket.on('discovery:embedding', handleEmbedding);
-    socket.on('discovery:stored', handleStored);
-    socket.on('discovery:fact_extracted', handleFactExtracted);
-    socket.on('discovery:document_completed', handleDocumentCompleted);
-    socket.on('discovery:completed', handleCompleted);
-    socket.on('discovery:error', handleError);
-    socket.on('fact:updated', handleFactUpdated);
-    socket.on('fact:deleted', handleFactDeleted);
+    // Use the handlers from the ref to avoid stale closures
+    socket.on('discovery:started', (data) => {
+      console.log('[useDiscoverySocket] Received discovery:started', data);
+      handlersRef.current.handleDiscoveryStarted(data);
+    });
+    socket.on('discovery:document_found', (data) => {
+      console.log('[useDiscoverySocket] Received discovery:document_found', data);
+      handlersRef.current.handleDocumentFound(data);
+    });
+    socket.on('discovery:chunking', (data) => {
+      console.log('[useDiscoverySocket] Received discovery:chunking', data);
+      handlersRef.current.handleChunking(data);
+    });
+    socket.on('discovery:embedding', (data) => {
+      console.log('[useDiscoverySocket] Received discovery:embedding', data);
+      handlersRef.current.handleEmbedding(data);
+    });
+    socket.on('discovery:stored', (data) => {
+      console.log('[useDiscoverySocket] Received discovery:stored', data);
+      handlersRef.current.handleStored(data);
+    });
+    socket.on('discovery:fact_extracted', (data) => {
+      console.log('[useDiscoverySocket] Received discovery:fact_extracted', data);
+      handlersRef.current.handleFactExtracted(data);
+    });
+    socket.on('discovery:document_completed', (data) => {
+      console.log('[useDiscoverySocket] Received discovery:document_completed', data);
+      handlersRef.current.handleDocumentCompleted(data);
+    });
+    socket.on('discovery:completed', (data) => {
+      console.log('[useDiscoverySocket] Received discovery:completed', data);
+      handlersRef.current.handleCompleted(data);
+    });
+    socket.on('discovery:error', (data) => {
+      console.log('[useDiscoverySocket] Received discovery:error', data);
+      handlersRef.current.handleError(data);
+    });
+    socket.on('fact:updated', (data) => {
+      console.log('[useDiscoverySocket] Received fact:updated', data);
+      handlersRef.current.handleFactUpdated(data);
+    });
+    socket.on('fact:deleted', (data) => {
+      console.log('[useDiscoverySocket] Received fact:deleted', data);
+      handlersRef.current.handleFactDeleted(data);
+    });
 
     // Note: Case subscription is now handled by CaseContext to prevent duplicates
     // Removed: socket.emit('subscribe_case', { case_id: caseId });
@@ -287,7 +321,7 @@ export const useDiscoverySocket = (options: UseDiscoverySocketOptions = {}) => {
         clearTimeout(reconnectTimeoutRef.current);
       }
     };
-  }, [isConnected, socket, subscribeToDiscoveryEvents, unsubscribeFromDiscoveryEvents]); // Add back required dependencies
+  }, [isConnected, socket]); // Only depend on connection state, not the functions
 
   // Handle reconnection - no longer needed as WebSocketContext handles this
   // The subscription will be re-established when isConnected becomes true

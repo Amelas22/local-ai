@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactElement, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, ReactElement, ReactNode } from 'react';
 import { useWebSocketContext } from './WebSocketContext';
 import { apiClient } from '@/services/utils/apiClient';
 
@@ -99,7 +99,7 @@ export function CaseProvider({ children }: CaseProviderProps): ReactElement {
   };
 
   // Select a case and update WebSocket subscription
-  const selectCase = (caseName: string) => {
+  const selectCase = useCallback((caseName: string) => {
     if (caseName === activeCase) return;
     
     // Just set the active case - the useEffect will handle subscription
@@ -109,7 +109,7 @@ export function CaseProvider({ children }: CaseProviderProps): ReactElement {
     localStorage.setItem('activeCase', caseName);
     
     console.log(`Selected case: ${caseName}`);
-  };
+  }, [activeCase]);
 
   // Load cases on mount
   useEffect(() => {

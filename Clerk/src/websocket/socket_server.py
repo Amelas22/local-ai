@@ -104,9 +104,30 @@ async def subscribe_case(sid, data):
     """Subscribe to updates for a specific case"""
     case_id = data.get("case_id")
     if case_id and sid in active_connections:
+        # Leave previous room if any
+        if active_connections[sid]["case_id"]:
+            prev_case = active_connections[sid]["case_id"]
+            sio.leave_room(sid, f"case_{prev_case}")
+            logger.info(f"Client {sid} left room case_{prev_case}")
+        
+        # Join new case room
         active_connections[sid]["case_id"] = case_id
-        logger.info(f"Client {sid} subscribed to case {case_id}")
+        room_name = f"case_{case_id}"
+        sio.enter_room(sid, room_name)
+        logger.info(f"Client {sid} joined room {room_name}")
+        
         await sio.emit("subscribed", {"case_id": case_id}, room=sid)
+
+
+@sio.event
+async def unsubscribe_case(sid, data):
+    """Unsubscribe from case updates"""
+    if sid in active_connections and active_connections[sid]["case_id"]:
+        case_id = active_connections[sid]["case_id"]
+        sio.leave_room(sid, f"case_{case_id}")
+        active_connections[sid]["case_id"] = None
+        logger.info(f"Client {sid} unsubscribed from case {case_id}")
+        await sio.emit("unsubscribed", {"case_id": case_id}, room=sid)
 
 
 # Discovery processing event emitters
@@ -117,13 +138,19 @@ async def emit_discovery_started(processing_id: str, case_id: str, total_files: 
         "case_id": case_id,
         "total_files": total_files,
     }
-    logger.debug(f"Emitting discovery:started with data: {event_data}")
-    await sio.emit("discovery:started", event_data)
-    logger.info(f"Emitted discovery:started for processing {processing_id}")
+    room = f"case_{case_id}"
+    logger.info(f"About to emit discovery:started to room '{room}' with data: {event_data}")
+    
+    # Debug: Log emission details
+    logger.debug(f"Emitting to room: {room}")
+    
+    await sio.emit("discovery:started", event_data, room=room)
+    logger.info(f"Emitted discovery:started for processing {processing_id} to room {room}")
 
 
 async def emit_document_found(
     processing_id: str,
+    case_id: str,
     document_id: str,
     title: str,
     doc_type: str,
@@ -141,13 +168,14 @@ async def emit_document_found(
         "bates_range": bates_range,
         "confidence": confidence,
     }
-    logger.debug(f"Emitting discovery:document_found with data: {event_data}")
-    await sio.emit("discovery:document_found", event_data)
-    logger.debug(f"Emitted discovery:document_found for document {document_id}")
+    room = f"case_{case_id}"
+    logger.debug(f"Emitting discovery:document_found to room {room} with data: {event_data}")
+    await sio.emit("discovery:document_found", event_data, room=room)
+    logger.debug(f"Emitted discovery:document_found for document {document_id} to room {room}")
 
 
 async def emit_chunking_progress(
-    processing_id: str, document_id: str, progress: float, chunks_created: int
+    processing_id: str, case_id: str, document_id: str, progress: float, chunks_created: int
 ):
     """Emit document chunking progress"""
     event_data = {
@@ -156,12 +184,13 @@ async def emit_chunking_progress(
         "progress": progress,
         "chunks_created": chunks_created,
     }
-    logger.debug(f"Emitting discovery:chunking with data: {event_data}")
-    await sio.emit("discovery:chunking", event_data)
+    room = f"case_{case_id}"
+    logger.debug(f"Emitting discovery:chunking to room {room} with data: {event_data}")
+    await sio.emit("discovery:chunking", event_data, room=room)
 
 
 async def emit_embedding_progress(
-    processing_id: str, document_id: str, chunk_id: str, progress: float
+    processing_id: str, case_id: str, document_id: str, chunk_id: str, progress: float
 ):
     """Emit embedding generation progress"""
     event_data = {
@@ -170,12 +199,13 @@ async def emit_embedding_progress(
         "chunk_id": chunk_id,
         "progress": progress,
     }
-    logger.debug(f"Emitting discovery:embedding with data: {event_data}")
-    await sio.emit("discovery:embedding", event_data)
+    room = f"case_{case_id}"
+    logger.debug(f"Emitting discovery:embedding to room {room} with data: {event_data}")
+    await sio.emit("discovery:embedding", event_data, room=room)
 
 
 async def emit_document_stored(
-    processing_id: str, document_id: str, vectors_stored: int
+    processing_id: str, case_id: str, document_id: str, vectors_stored: int
 ):
     """Emit when document vectors are stored"""
     event_data = {
@@ -183,20 +213,22 @@ async def emit_document_stored(
         "document_id": document_id,
         "vectors_stored": vectors_stored,
     }
-    logger.debug(f"Emitting discovery:stored with data: {event_data}")
-    await sio.emit("discovery:stored", event_data)
+    room = f"case_{case_id}"
+    logger.debug(f"Emitting discovery:stored to room {room} with data: {event_data}")
+    await sio.emit("discovery:stored", event_data, room=room)
 
 
-async def emit_processing_completed(processing_id: str, summary: Dict[str, Any]):
+async def emit_processing_completed(processing_id: str, case_id: str, summary: Dict[str, Any]):
     """Emit when processing is completed"""
     event_data = {"processing_id": processing_id, "summary": summary}
-    logger.debug(f"Emitting discovery:completed with data: {event_data}")
-    await sio.emit("discovery:completed", event_data)
-    logger.info(f"Emitted discovery:completed for processing {processing_id}")
+    room = f"case_{case_id}"
+    logger.debug(f"Emitting discovery:completed to room {room} with data: {event_data}")
+    await sio.emit("discovery:completed", event_data, room=room)
+    logger.info(f"Emitted discovery:completed for processing {processing_id} to room {room}")
 
 
 async def emit_processing_error(
-    processing_id: str, error: str, stage: str, document_id: Optional[str] = None
+    processing_id: str, case_id: str, error: str, stage: str, document_id: Optional[str] = None
 ):
     """Emit when an error occurs during processing"""
     event_data = {
@@ -205,9 +237,10 @@ async def emit_processing_error(
         "stage": stage,
         "document_id": document_id,
     }
-    logger.debug(f"Emitting discovery:error with data: {event_data}")
-    await sio.emit("discovery:error", event_data)
-    logger.error(f"Emitted discovery:error for processing {processing_id}: {error}")
+    room = f"case_{case_id}"
+    logger.debug(f"Emitting discovery:error to room {room} with data: {event_data}")
+    await sio.emit("discovery:error", event_data, room=room)
+    logger.error(f"Emitted discovery:error for processing {processing_id} to room {room}: {error}")
 
 
 # Motion drafting event emitters (for future use)
