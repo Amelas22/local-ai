@@ -5,7 +5,24 @@ import { tokenService } from './token.service';
 import type { TokenResponse, User, LoginCredentials, SignUpData } from '@/types/auth.types';
 export type { LoginCredentials, SignUpData } from '@/types/auth.types';
 
-class AuthService {
+// Export AuthTokens type for MVP auth service
+export interface AuthTokens {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+}
+
+// Export AuthService interface for MVP auth service
+export interface AuthService {
+  login(credentials: LoginCredentials): Promise<AuthTokens>;
+  signUp?(data: SignUpData): Promise<any>;
+  logout(): Promise<void>;
+  getCurrentUser(): Promise<any>;
+  refreshAccessToken(): Promise<AuthTokens>;
+  isAuthenticated(): boolean;
+}
+
+class DefaultAuthService implements AuthService {
   private baseURL: string;
 
   constructor() {
@@ -38,7 +55,7 @@ class AuthService {
     }
   }
 
-  async login(credentials: LoginCredentials) {
+  async login(credentials: LoginCredentials): Promise<AuthTokens> {
     try {
       store.dispatch(loginStart());
       
@@ -74,8 +91,9 @@ class AuthService {
       }));
 
       return {
-        user,
-        token: tokens.access_token,
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        token_type: tokens.token_type,
       };
     } catch (error: any) {
       const message = error.response?.data?.detail || error.message || 'Login failed';
@@ -187,7 +205,7 @@ class AuthService {
     return response.data;
   }
 
-  async refreshAccessToken(): Promise<TokenResponse> {
+  async refreshAccessToken(): Promise<AuthTokens> {
     const refreshToken = tokenService.getRefreshToken();
     
     if (!refreshToken) {
@@ -209,7 +227,11 @@ class AuthService {
     const tokens = response.data;
     tokenService.setTokens(tokens);
     
-    return tokens;
+    return {
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      token_type: tokens.token_type,
+    };
   }
 
   isAuthenticated(): boolean {
@@ -227,8 +249,15 @@ class AuthServiceManager {
   }
 
   private async initializeAuthService(): Promise<AuthService> {
-    if (import.meta.env.VITE_AUTH_ENABLED === 'true') {
-      this.authServiceInstance = new AuthService();
+    // Check for MVP mode first
+    if (import.meta.env.VITE_MVP_MODE === 'true') {
+      console.log('MVP Mode enabled - using MVP auth service');
+      const module = await import('./mvp-auth.service');
+      this.authServiceInstance = module.mvpAuthService as any;
+      // Initialize MVP auth
+      await (this.authServiceInstance as any).initialize();
+    } else if (import.meta.env.VITE_AUTH_ENABLED === 'true') {
+      this.authServiceInstance = new DefaultAuthService();
     } else {
       // In development, use mock auth service
       console.log('Auth disabled - using development auth service');

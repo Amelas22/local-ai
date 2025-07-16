@@ -1,0 +1,209 @@
+Clerk/
+├── main.py                              # FastAPI application entry point
+├── cli_injector.py                      # Legacy document processing CLI
+├── cli_injector_unified.py              # Unified document processing CLI
+├── init_db.py                           # Database initialization
+├── init_shared_knowledge.py             # Shared knowledge base setup
+├── check_db.py                          # Database verification utility
+├── fix_alembic_state.py                 # Alembic migration fixes
+├── mock_discovery_endpoint.py           # Mock discovery testing endpoint
+│
+├── config/                              # Application configuration
+│   ├── __init__.py
+│   ├── settings.py                      # Core settings
+│   ├── agent_settings.py                # AI agent configurations
+│   ├── prompts.py                       # System prompts
+│   └── database_fix.py                  # Database utilities
+│
+├── src/                                 # Main source directory
+│   ├── __init__.py
+│   ├── document_injector.py             # Legacy document processing
+│   ├── document_injector_unified.py     # Unified document processing
+│   │
+│   ├── ai_agents/                       # Legal AI agents module
+│   │   ├── __init__.py
+│   │   ├── motion_drafter.py            # Motion drafting agent
+│   │   ├── motion_drafter_original.py   # Original motion drafter
+│   │   ├── motion_models.py             # Motion data models
+│   │   ├── motion_api_endpoints.py      # Motion API routes
+│   │   ├── motion_cache_manager.py      # Motion caching
+│   │   ├── outline_cache_manager.py     # Outline caching
+│   │   ├── case_researcher.py           # Case research agent
+│   │   ├── legal_document_agent.py      # Document analysis agent
+│   │   ├── fact_extractor.py            # Fact extraction agent
+│   │   ├── evidence_discovery_agent.py  # Evidence discovery agent
+│   │   ├── evidence_mapper.py           # Evidence mapping
+│   │   ├── enhanced_rag_agent.py        # Enhanced RAG agent
+│   │   ├── rag_research_agent.py        # RAG research agent
+│   │   ├── citation_formatter.py        # Citation formatting
+│   │   ├── legal_formatter.py           # Legal document formatting
+│   │   └── task_manager.py              # Task management
+│   │
+│   ├── document_processing/             # PDF processing module
+│   │   ├── __init__.py
+│   │   ├── box_client.py                # Box API client
+│   │   ├── pdf_extractor.py             # PDF extraction
+│   │   ├── chunker.py                   # Document chunking
+│   │   ├── enhanced_chunker.py          # Advanced chunking
+│   │   ├── unified_document_manager.py  # Unified document management
+│   │   ├── hierarchical_document_manager.py  # Hierarchical document handling
+│   │   ├── normalized_document_service.py    # Normalized document service
+│   │   ├── discovery_splitter.py        # Discovery document splitting
+│   │   ├── discovery_splitter_normalized.py  # Normalized discovery splitting
+│   │   ├── discovery_normalized_adapter.py   # Discovery adapter
+│   │   ├── websocket_document_processor.py   # WebSocket processing
+│   │   ├── deposition_parser.py         # Deposition parsing
+│   │   ├── medical_processor.py         # Medical document processing
+│   │   ├── context_generator.py         # Context generation
+│   │   ├── exhibit_indexer.py           # Exhibit indexing
+│   │   ├── source_document_indexer.py   # Source document indexing
+│   │   └── qdrant_deduplicator.py       # Deduplication utilities
+│   │
+│   ├── vector_storage/                  # Vector database module
+│   │   ├── __init__.py
+│   │   ├── qdrant_store.py              # Qdrant vector store
+│   │   ├── embeddings.py                # Embedding generation
+│   │   ├── sparse_encoder.py            # Sparse encoding
+│   │   └── tests/
+│   │       ├── __init__.py
+│   │       └── test_qdrant_store.py
+│   │
+│   ├── websocket/                       # Real-time updates module
+│   │   ├── __init__.py
+│   │   └── socket_server.py             # Socket.io server
+│   │
+│   ├── models/                          # Data models
+│   │   ├── __init__.py
+│   │   ├── unified_document_models.py   # Unified document models
+│   │   ├── normalized_document_models.py # Normalized document models
+│   │   ├── source_document_models.py    # Source document models
+│   │   ├── case_models.py               # Case management models
+│   │   └── fact_models.py               # Fact extraction models
+│   │
+│   ├── services/                        # Business logic services
+│   │   ├── __init__.py
+│   │   ├── case_manager.py              # Case CRUD operations
+│   │   ├── case_manager_supabase_backup.py  # Supabase backup
+│   │   ├── case_service.py              # Case service layer
+│   │   ├── auth_service.py              # Authentication service
+│   │   ├── user_service.py              # User management
+│   │   └── tests/
+│   │       ├── __init__.py
+│   │       └── test_case_manager.py
+│   │
+│   ├── middleware/                      # FastAPI middleware
+│   │   ├── __init__.py
+│   │   ├── case_context.py              # Case validation middleware
+│   │   ├── auth_middleware.py           # Authentication middleware
+│   │   └── tests/
+│   │       ├── __init__.py
+│   │       └── test_case_context.py
+│   │
+│   ├── api/                             # API endpoints
+│   │   ├── auth_endpoints.py            # Authentication routes
+│   │   ├── case_endpoints.py            # Case management routes
+│   │   ├── discovery_normalized_endpoints.py  # Discovery routes
+│   │   └── tests/
+│   │       ├── __init__.py
+│   │       ├── test_case_endpoints.py
+│   │       └── test_case_integration.py
+│   │
+│   ├── config/                          # Configuration modules
+│   │   ├── __init__.py
+│   │   ├── shared_resources.py          # Shared resource configuration
+│   │   └── tests/
+│   │       ├── __init__.py
+│   │       └── test_shared_resources.py
+│   │
+│   ├── utils/                           # Shared utilities
+│   │   ├── __init__.py
+│   │   ├── logger.py                    # Logging utilities
+│   │   ├── validators.py                # Input validators
+│   │   ├── cache.py                     # Caching utilities
+│   │   ├── cost_tracker.py              # Cost tracking
+│   │   ├── cost_report_excel.py         # Cost reporting
+│   │   ├── env_validator.py             # Environment validation
+│   │   ├── timeline_generator.py        # Timeline generation
+│   │   ├── timeout_monitor.py           # Timeout monitoring
+│   │   └── tests/
+│   │       ├── __init__.py
+│   │       └── test_env_validator.py
+│   │
+│   ├── database/                        # Database layer
+│   │   ├── connection.py                # Database connections
+│   │   ├── models.py                    # SQLAlchemy models
+│   │   ├── caching_manager.py           # Cache management
+│   │   ├── query_optimizer.py           # Query optimization
+│   │   ├── partitioning_manager.py      # Partitioning strategies
+│   │   └── indexing_strategy_manager.py # Index management
+│   │
+│   ├── migrations/                      # Database migrations
+│   │   ├── env.py                       # Alembic environment
+│   │   ├── unified_to_normalized_migration.py  # Migration script
+│   │   └── versions/
+│   │       ├── 001_initial_schema.py
+│   │       ├── 002_add_password_hash.py
+│   │       └── 003_add_default_updated_at.py
+│   │
+│   ├── data_loaders/                    # Data loading utilities
+│   │   ├── __init__.py
+│   │   ├── florida_statutes_loader.py   # Florida statutes loader
+│   │   └── fmcsr_loader.py              # FMCSR regulations loader
+│   │
+│   ├── integrations/                    # External integrations
+│   │   ├── __init__.py
+│   │   ├── docx_generator.py            # DOCX generation
+│   │   ├── spreadsheet.py               # Spreadsheet export
+│   │   ├── jina.py                      # Jina integration
+│   │   └── perplexity.py                # Perplexity API
+│   │
+│   ├── openwebui/                       # OpenWebUI integration
+│   │   └── functions/
+│   │
+│   └── tests/                           # Core tests
+│       ├── __init__.py
+│       └── test_container_connectivity.py
+│
+├── tests/                               # Integration tests
+│   ├── __init__.py
+│   ├── test_api_integration.py
+│   ├── test_auth_headers.py
+│   ├── test_case_isolation.py
+│   ├── test_dev_auth_flow.py
+│   ├── verify_frontend_auth.py
+│   ├── test_ai_agents/
+│   │   └── __init__.py
+│   ├── test_document_processing/
+│   │   └── __init__.py
+│   ├── test_integrations/
+│   │   └── __init__.py
+│   └── test_vector_storage/
+│       └── __init__.py
+│
+├── frontend/                            # Frontend application
+│   ├── src/
+│   │   ├── components/                  # React components
+│   │   ├── context/                     # React context
+│   │   ├── hooks/                       # Custom hooks
+│   │   ├── pages/                       # Page components
+│   │   ├── services/                    # API services
+│   │   ├── store/                       # State management
+│   │   ├── styles/                      # CSS/styling
+│   │   ├── types/                       # TypeScript types
+│   │   └── utils/                       # Frontend utilities
+│   ├── public/                          # Public assets
+│   └── dist/                            # Build output
+│       └── assets/
+│
+├── migrations/                          # Database migrations (legacy)
+├── logs/                                # Application logs
+├── uploads/                             # File uploads
+├── exports/                             # Export directory
+├── data/                                # Data storage
+├── qdrant/                              # Qdrant storage
+├── deployment/                          # Deployment configs
+├── docs/                                # Documentation
+├── flowise/                             # Flowise integration
+│   └── flows/
+└── n8n/                                 # n8n workflows
+    └── workflows/

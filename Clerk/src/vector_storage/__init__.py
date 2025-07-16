@@ -19,11 +19,11 @@ __all__ = [
     "EmbeddingGenerator",
     "QdrantVectorStore",
     "SearchResult",
-    "SparseVectorEncoder", 
+    "SparseVectorEncoder",
     "LegalQueryAnalyzer",
     # Legacy
     "VectorStore",
-    "FullTextSearchManager"
+    "FullTextSearchManager",
 ]
 
 __version__ = "2.0.0"  # Major version bump for Qdrant migration

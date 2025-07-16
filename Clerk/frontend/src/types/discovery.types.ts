@@ -87,6 +87,7 @@ export interface ProcessingSummary {
   totalErrors: number;
   processingTime: number;
   averageConfidence: number;
+  totalFacts: number;
 }
 
 // WebSocket event types
@@ -128,4 +129,92 @@ export interface DiscoveryWebSocketEvents {
     error: string;
     stage: ProcessingStage;
   };
+  'discovery:fact_extracted': {
+    factId: string;
+    documentId: string;
+    content: string;
+    category: string;
+    confidence: number;
+  };
+}
+
+export interface DiscoveryProcessingResponse {
+  processing_id: string;
+  status: 'started' | 'processing' | 'completed' | 'error';
+  message?: string;
+}
+
+export interface FactSource {
+  doc_id: string;
+  doc_title: string;
+  page: number;
+  bbox: number[];
+  text_snippet: string;
+}
+
+export interface ExtractedFactWithSource {
+  id: string;
+  content: string;
+  category: string;
+  confidence: number;
+  source: FactSource;
+  is_edited: boolean;
+  edit_history: FactEditHistory[];
+  review_status: 'pending' | 'reviewed' | 'rejected';
+  created_at: string;
+  updated_at: string;
+  entities?: string[];
+  keywords?: string[];
+  dates?: string[];
+}
+
+export interface FactEditHistory {
+  timestamp: string;
+  user_id: string;
+  old_content: string;
+  new_content: string;
+  reason?: string;
+}
+
+export interface FactUpdateRequest {
+  content: string;
+  category?: string;
+  reason?: string;
+}
+
+export interface FactSearchRequest {
+  case_name: string;
+  query?: string;
+  category?: string;
+  confidence_min?: number;
+  confidence_max?: number;
+  document_ids?: string[];
+  review_status?: 'pending' | 'reviewed' | 'rejected';
+  is_edited?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface FactSearchResponse {
+  facts: ExtractedFactWithSource[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface FactBulkOperation {
+  operation: 'mark_reviewed' | 'delete' | 'change_category';
+  fact_ids: string[];
+  category?: string;
+}
+
+export interface DiscoveryDocument {
+  id: string;
+  title: string;
+  type: DocumentType;
+  bates_range?: BatesRange;
+  page_count: number;
+  confidence: number;
+  file_path?: string;
+  box_file_id?: string;
 }

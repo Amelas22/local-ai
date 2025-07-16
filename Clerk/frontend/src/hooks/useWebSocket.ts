@@ -71,6 +71,7 @@ export function useWebSocket(_caseId?: string) {
 
   return {
     connected: state.connected,
+    isConnected: state.connected,
     connecting: state.connecting,
     error: state.error,
     subscribedCase: state.subscribedCase,

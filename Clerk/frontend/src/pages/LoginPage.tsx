@@ -14,7 +14,7 @@ import {
 } from '@mui/material';
 import { Visibility, VisibilityOff } from '@mui/icons-material';
 import { useAppDispatch } from '@/hooks/redux';
-import { loginStart, loginSuccess } from '@/store/slices/authSlice';
+import { loginStart } from '@/store/slices/authSlice';
 import { authService, LoginCredentials } from '@/services/auth.service';
 
 const LoginPage = () => {
@@ -37,8 +37,7 @@ const LoginPage = () => {
     dispatch(loginStart());
 
     try {
-      const result = await authService.login(data);
-      dispatch(loginSuccess(result));
+      await authService.login(data);
       navigate(from, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');

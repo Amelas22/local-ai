@@ -3,7 +3,7 @@ import { Box } from '@mui/material';
 import Layout from '@components/common/Layout';
 import ProtectedRoute from '@components/auth/ProtectedRoute';
 import { WebSocketEventManager } from '@components/common/WebSocketEventManager';
-import DiscoveryPage from './pages/DiscoveryPage';
+import DiscoveryProcessing from './pages/DiscoveryProcessing';
 import DashboardPage from './pages/DashboardPage';
 import MotionDraftingPage from './pages/MotionDraftingPage';
 import SearchPage from './pages/SearchPage';
@@ -23,7 +23,7 @@ function App() {
           <Route path="/" element={<Layout />}>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />
-            <Route path="discovery" element={<DiscoveryPage />} />
+            <Route path="discovery" element={<DiscoveryProcessing />} />
             <Route path="motion-drafting" element={<MotionDraftingPage />} />
             <Route path="search" element={<SearchPage />} />
             <Route path="websocket-test" element={<WebSocketTest />} />
@@ -57,7 +57,7 @@ function App() {
         >
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="discovery" element={<DiscoveryPage />} />
+          <Route path="discovery" element={<DiscoveryProcessing />} />
           <Route path="motion-drafting" element={<MotionDraftingPage />} />
           <Route path="search" element={<SearchPage />} />
         </Route>

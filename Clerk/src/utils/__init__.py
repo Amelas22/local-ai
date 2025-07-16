@@ -7,16 +7,17 @@ from .logger import setup_logging, get_logger, QueryLogger
 
 __all__ = [
     "CostTracker",
-    "TokenUsage", 
+    "TokenUsage",
     "DocumentCost",
     "setup_logging",
     "get_logger",
-    "QueryLogger"
+    "QueryLogger",
 ]
 
 # Optional Excel reporting (requires pandas)
 try:
     from .cost_report_excel import ExcelCostReporter
+
     __all__.append("ExcelCostReporter")
 except ImportError:
     pass

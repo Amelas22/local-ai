@@ -26,7 +26,7 @@ interface CasePermissionRequest {
 }
 
 export const useCaseManagement = () => {
-  const { refreshCases } = useCaseSelection();
+  const { refreshCases, activeCaseInfo } = useCaseSelection();
   const [isCreating, setIsCreating] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -147,5 +147,6 @@ export const useCaseManagement = () => {
     isCreating,
     isUpdating,
     error,
+    selectedCase: activeCaseInfo,
   };
 };

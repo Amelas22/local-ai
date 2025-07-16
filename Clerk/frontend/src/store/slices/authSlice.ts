@@ -62,6 +62,13 @@ const authSlice = createSlice({
       state.initialized = true;
       state.error = action.payload;
     },
+    setLoading: (state, action: PayloadAction<boolean>) => {
+      state.isLoading = action.payload;
+    },
+    setInitialized: (state) => {
+      state.initialized = true;
+      state.initializing = false;
+    },
   },
 });
 
@@ -75,6 +82,8 @@ export const {
   authInitStart,
   authInitComplete,
   authInitError,
+  setLoading,
+  setInitialized,
 } = authSlice.actions;
 
 export default authSlice.reducer;

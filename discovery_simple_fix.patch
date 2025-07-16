@@ -1,0 +1,59 @@
+--- discovery_endpoints.py.orig	2025-07-12 00:00:00.000000000 +0000
++++ discovery_endpoints.py	2025-07-12 00:00:00.000000000 +0000
+@@ -258,18 +258,15 @@
+ ):
+     """Background task for processing discovery documents with document splitting"""
+     # Initialize processors
+-    vector_store = QdrantVectorStore()
+-    
+-    # Initialize services required for NormalizedDiscoveryProductionProcessor
+-    from src.document_processing.normalized_document_service import NormalizedDocumentService
+-    from src.document_processing.hierarchical_document_manager import HierarchicalDocumentManager
+-    
+-    # Initialize embedding generator for normalized service
+-    embedding_generator = EmbeddingGenerator()
+-    
+-    normalized_service = NormalizedDocumentService(
+-        qdrant_store=vector_store,
+-        embedding_generator=embedding_generator
+-    )
+-    hierarchical_manager = HierarchicalDocumentManager(
+-        qdrant_store=vector_store
+-    )
+-    
+-    # Initialize discovery processor with required services
+-    discovery_processor = NormalizedDiscoveryProductionProcessor(
+-        normalized_service=normalized_service,
+-        hierarchical_manager=hierarchical_manager,
+-        case_name=case_name  # Required by parent DiscoveryProductionProcessor
+-    )
++    try:
++        vector_store = QdrantVectorStore()
++        embedding_generator = EmbeddingGenerator()
++        
++        # Use the standard discovery processor without normalized services
++        from src.document_processing.discovery_splitter import DiscoveryProductionProcessor
++        discovery_processor = DiscoveryProductionProcessor(case_name=case_name)
++        
++        # Simple document manager for deduplication
++        from src.document_processing.unified_document_manager import UnifiedDocumentManager
++        document_manager = UnifiedDocumentManager(case_name)
++        
++        # Initialize fact extractor if needed
++        fact_extractor = FactExtractor(case_name=case_name) if enable_fact_extraction else None
++        
++        # Enhanced chunker for creating chunks
++        chunker = EnhancedChunker(
++            embedding_generator=embedding_generator,
++            chunk_size=1400,
++            chunk_overlap=200
++        )
++    except Exception as init_error:
++        logger.error(f"Failed to initialize processors: {init_error}")
++        processing_status[processing_id].status = "error"
++        processing_status[processing_id].error_message = str(init_error)
++        await sio.emit("discovery:error", {
++            "processing_id": processing_id,
++            "error": str(init_error)
++        })
++        return

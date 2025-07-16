@@ -17,6 +17,7 @@ import sys
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
+from subprocess import CalledProcessError
 
 # Load environment variables from .env file
 load_dotenv()
@@ -57,7 +58,7 @@ def stop_existing_containers(profile=None):
     cmd = ["docker", "compose", "-p", "localai"]
     if profile and profile != "none":
         cmd.extend(["--profile", profile])
-    cmd.extend(["-f", "docker-compose.yml", "-f", "docker-compose.clerk.yml", "down"])
+    cmd.extend(["-f", "docker-compose.yml", "-f", "docker-compose.clerk.yml", "-f", "docker-compose.clerk-jwt.yml", "down"])
     run_command(cmd)
 
 def rebuild_container(container_name, profile=None):
@@ -100,7 +101,7 @@ def rebuild_container(container_name, profile=None):
             cmd = ["docker", "compose", "-p", "localai"]
             if profile and profile != "none":
                 cmd.extend(["--profile", profile])
-            cmd.extend(["-f", "docker-compose.yml", "-f", "docker-compose.clerk.yml", "build", "--no-cache", container_name])
+            cmd.extend(["-f", "docker-compose.yml", "-f", "docker-compose.clerk.yml", "-f", "docker-compose.clerk-jwt.yml", "build", "--no-cache", container_name])
             run_command(cmd)
 
 def start_supabase(environment=None):
@@ -127,18 +128,19 @@ def start_local_ai(profile=None, environment=None, expose_postgres=True, exclude
     # Include Clerk frontend compose file
     cmd.extend(["-f", "docker-compose.clerk.yml"])
     
-    # Include Clerk JWT configuration
-    cmd.extend(["-f", "docker-compose.clerk-jwt.yml"])
+    # Include environment-specific overrides first
+    if environment and environment == "private":
+        cmd.extend(["-f", "docker-compose.override.private.yml"])
+    if environment and environment == "public":
+        cmd.extend(["-f", "docker-compose.override.public.yml"])
     
     # Include PostgreSQL exposure for development
     if expose_postgres:
         print("Including PostgreSQL exposure for Clerk JWT authentication...")
         cmd.extend(["-f", "docker-compose.postgres-expose.yml"])
     
-    if environment and environment == "private":
-        cmd.extend(["-f", "docker-compose.override.private.yml"])
-    if environment and environment == "public":
-        cmd.extend(["-f", "docker-compose.override.public.yml"])
+    # Include Clerk JWT configuration LAST to ensure it overrides everything
+    cmd.extend(["-f", "docker-compose.clerk-jwt.yml"])
     
     if exclude_clerk:
         # Start all services except clerk
@@ -146,17 +148,51 @@ def start_local_ai(profile=None, environment=None, expose_postgres=True, exclude
     else:
         cmd.extend(["up", "-d"])
     
-    run_command(cmd)
+    # Try to run the command, with retry for port conflicts
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            run_command(cmd)
+            break
+        except subprocess.CalledProcessError as e:
+            if "address already in use" in str(e) and attempt < max_retries - 1:
+                print(f"\nPort conflict detected (attempt {attempt + 1}/{max_retries}). Waiting and retrying...")
+                time.sleep(5)
+                # Try to clean up any orphaned containers
+                cleanup_cmd = ["docker", "compose", "-p", "localai", "down"]
+                subprocess.run(cleanup_cmd, capture_output=True)
+                time.sleep(2)
+            else:
+                raise
 
-def get_compose_files(profile=None, expose_postgres=True):
+def get_compose_files(profile=None, expose_postgres=True, environment=None):
     """Get the list of compose files to use."""
-    compose_files = ["-f", "docker-compose.yml", "-f", "docker-compose.clerk.yml", 
-                     "-f", "docker-compose.clerk-jwt.yml"]
+    compose_files = ["-f", "docker-compose.yml", "-f", "docker-compose.clerk.yml"]
+    
+    # Include environment-specific overrides first
+    if environment and environment == "private":
+        compose_files.extend(["-f", "docker-compose.override.private.yml"])
+    if environment and environment == "public":
+        compose_files.extend(["-f", "docker-compose.override.public.yml"])
     
     if expose_postgres:
         compose_files.extend(["-f", "docker-compose.postgres-expose.yml"])
     
+    # Include Clerk JWT configuration LAST to ensure it overrides everything
+    compose_files.extend(["-f", "docker-compose.clerk-jwt.yml"])
+    
     return compose_files
+
+def check_port_available(port):
+    """Check if a port is available."""
+    import socket
+    try:
+        # Try to bind to the port
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('127.0.0.1', port))
+            return True
+    except OSError:
+        return False
 
 def wait_for_postgres():
     """Wait for PostgreSQL to be ready."""
@@ -575,8 +611,8 @@ def main():
     parser = argparse.ArgumentParser(description="Start local AI services with optional GPU support")
     parser.add_argument("--profile", choices=["none", "gpu", "cpu"], default="cpu",
                       help="Docker Compose profile to use (default: cpu)")
-    parser.add_argument("--environment", choices=["none", "private", "public"], default="none",
-                      help="Environment override file to use (default: none)")
+    parser.add_argument("--environment", choices=["none", "private", "public"], default="private",
+                      help="Environment override file to use (default: private)")
     parser.add_argument("--skip-supabase", action="store_true",
                       help="Skip starting Supabase services")
     parser.add_argument("--rebuild", type=str, metavar="CONTAINER",
@@ -622,6 +658,16 @@ def main():
     # Generate SearXNG secret key if needed
     generate_searxng_secret_key()
 
+    # Check if PostgreSQL port is available
+    postgres_port = int(os.getenv('POSTGRES_HOST_PORT', '5433'))
+    if not args.no_postgres_expose and not check_port_available(postgres_port):
+        print(f"\nWarning: Port {postgres_port} is already in use!")
+        print("Possible solutions:")
+        print(f"1. Stop any service using port {postgres_port}")
+        print(f"2. Set POSTGRES_HOST_PORT environment variable to a different port")
+        print(f"3. Run with --no-postgres-expose flag to skip PostgreSQL exposure")
+        print("\nAttempting to continue anyway...")
+    
     # Start local AI services with PostgreSQL exposed by default (step 2)
     # But exclude Clerk initially since it needs the database to exist
     start_local_ai(args.profile, args.environment, expose_postgres=not args.no_postgres_expose, exclude_clerk=True)
@@ -634,7 +680,7 @@ def main():
             
             # Now start Clerk after database is ready
             print("Starting Clerk service after database initialization...")
-            compose_files = get_compose_files(args.profile, expose_postgres=not args.no_postgres_expose)
+            compose_files = get_compose_files(args.profile, expose_postgres=not args.no_postgres_expose, environment=args.environment)
             cmd = ["docker", "compose", "-p", "localai"] + compose_files + ["up", "-d", "clerk"]
             run_command(cmd)
     

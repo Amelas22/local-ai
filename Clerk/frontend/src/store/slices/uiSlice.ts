@@ -72,6 +72,15 @@ const uiSlice = createSlice({
       state.isLoading = action.payload.isLoading;
       state.loadingMessage = action.payload.message || null;
     },
+    showNotification: (state, action: PayloadAction<{ message: string; severity?: 'success' | 'error' | 'warning' | 'info' }>) => {
+      const toast: Toast = {
+        id: Date.now().toString(),
+        message: action.payload.message,
+        severity: action.payload.severity || 'info',
+        duration: 5000,
+      };
+      state.toasts.push(toast);
+    },
   },
 });
 
@@ -83,6 +92,7 @@ export const {
   openModal,
   closeModal,
   setLoading,
+  showNotification,
 } = uiSlice.actions;
 
 export default uiSlice.reducer;
