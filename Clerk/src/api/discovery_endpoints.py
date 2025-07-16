@@ -106,6 +106,7 @@ async def process_discovery(
     discovery_files = []
     box_folder_id = None
     rfp_file = None
+    defense_response_file = None
     production_batch = "Batch001"
     producing_party = "Opposing Counsel"
     production_date = None
@@ -122,6 +123,7 @@ async def process_discovery(
             discovery_files = request_data.get("discovery_files", [])
             box_folder_id = request_data.get("box_folder_id")
             rfp_file = request_data.get("rfp_file")
+            defense_response_file = request_data.get("defense_response_file")
             production_batch = request_data.get("production_batch", "Batch001")
             producing_party = request_data.get("producing_party", "Opposing Counsel")
             production_date = request_data.get("production_date")
@@ -157,6 +159,30 @@ async def process_discovery(
                 if files:
                     discovery_files = files
                     logger.info(f"Set discovery_files to {len(discovery_files)} files")
+                
+                # Handle RFP file
+                rfp_upload = form.get("rfp_file")
+                if rfp_upload and isinstance(rfp_upload, UploadFile):
+                    logger.info(f"Found RFP file: {rfp_upload.filename}")
+                    content = await rfp_upload.read()
+                    rfp_file = {
+                        "filename": rfp_upload.filename,
+                        "content": base64.b64encode(content).decode('utf-8'),
+                        "content_type": rfp_upload.content_type
+                    }
+                    await rfp_upload.close()
+                
+                # Handle Defense Response file
+                defense_upload = form.get("defense_response_file")
+                if defense_upload and isinstance(defense_upload, UploadFile):
+                    logger.info(f"Found Defense Response file: {defense_upload.filename}")
+                    content = await defense_upload.read()
+                    defense_response_file = {
+                        "filename": defense_upload.filename,
+                        "content": base64.b64encode(content).decode('utf-8'),
+                        "content_type": defense_upload.content_type
+                    }
+                    await defense_upload.close()
                 
                 # Get other form fields
                 production_batch = form.get("production_batch", "Batch001")
@@ -240,6 +266,7 @@ async def process_discovery(
         discovery_request,
         file_contents,  # Pass file contents instead of UploadFile objects
         rfp_file,
+        defense_response_file,
         production_batch,
         producing_party,
         production_date,
@@ -269,6 +296,7 @@ async def _process_discovery_async(
     request: EndpointDiscoveryRequest,
     discovery_files: List[Dict[str, Any]],
     rfp_file: Optional[UploadFile],
+    defense_response_file: Optional[Dict[str, Any]],
     production_batch: str,
     producing_party: str,
     production_date: Optional[str],

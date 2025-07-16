@@ -42,6 +42,7 @@ interface DiscoveryUploadProps {
 export const DiscoveryUpload: React.FC<DiscoveryUploadProps> = ({ onUploadComplete }) => {
   const [discoveryFiles, setDiscoveryFiles] = useState<UploadedFile[]>([]);
   const [rfpFile, setRfpFile] = useState<UploadedFile | null>(null);
+  const [defenseResponseFile, setDefenseResponseFile] = useState<UploadedFile | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [boxFolderId, setBoxFolderId] = useState<string | null>(null);
   
@@ -82,6 +83,18 @@ export const DiscoveryUpload: React.FC<DiscoveryUploadProps> = ({ onUploadComple
     }
   }, []);
 
+  const onDefenseResponseDrop = useCallback((acceptedFiles: File[]) => {
+    if (acceptedFiles.length > 0) {
+      const file = acceptedFiles[0];
+      const error = validateFile(file);
+      setDefenseResponseFile({
+        file,
+        status: error ? 'error' : 'pending',
+        error,
+      });
+    }
+  }, []);
+
   const discoveryDropzone = useDropzone({
     onDrop: onDiscoveryDrop,
     accept: {
@@ -98,12 +111,24 @@ export const DiscoveryUpload: React.FC<DiscoveryUploadProps> = ({ onUploadComple
     multiple: false,
   });
 
+  const defenseResponseDropzone = useDropzone({
+    onDrop: onDefenseResponseDrop,
+    accept: {
+      'application/pdf': ['.pdf'],
+    },
+    multiple: false,
+  });
+
   const removeDiscoveryFile = (index: number) => {
     setDiscoveryFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   const removeRfpFile = () => {
     setRfpFile(null);
+  };
+
+  const removeDefenseResponseFile = () => {
+    setDefenseResponseFile(null);
   };
 
   const handleBoxSelect = async () => {
@@ -193,6 +218,11 @@ export const DiscoveryUpload: React.FC<DiscoveryUploadProps> = ({ onUploadComple
         setRfpFile(prev => prev ? { ...prev, status: 'uploading' } : null);
       }
 
+      if (defenseResponseFile && defenseResponseFile.status !== 'error') {
+        formData.append('defense_response_file', defenseResponseFile.file);
+        setDefenseResponseFile(prev => prev ? { ...prev, status: 'uploading' } : null);
+      }
+
       if (boxFolderId) {
         formData.append('box_folder_id', boxFolderId);
       }
@@ -204,6 +234,9 @@ export const DiscoveryUpload: React.FC<DiscoveryUploadProps> = ({ onUploadComple
       );
       if (rfpFile) {
         setRfpFile(prev => prev ? { ...prev, status: 'success' } : null);
+      }
+      if (defenseResponseFile) {
+        setDefenseResponseFile(prev => prev ? { ...prev, status: 'success' } : null);
       }
 
       dispatch(showNotification({
@@ -223,6 +256,9 @@ export const DiscoveryUpload: React.FC<DiscoveryUploadProps> = ({ onUploadComple
       );
       if (rfpFile) {
         setRfpFile(prev => prev ? { ...prev, status: 'error', error: 'Upload failed' } : null);
+      }
+      if (defenseResponseFile) {
+        setDefenseResponseFile(prev => prev ? { ...prev, status: 'error', error: 'Upload failed' } : null);
       }
     } finally {
       setIsUploading(false);
@@ -264,10 +300,10 @@ export const DiscoveryUpload: React.FC<DiscoveryUploadProps> = ({ onUploadComple
   return (
     <Box>
       <Grid container spacing={3}>
-        <Grid item xs={12} md={6}>
+        <Grid item xs={12} md={4}>
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
-              Discovery Documents
+              Responsive Documents
             </Typography>
             <Typography variant="body2" color="text.secondary" paragraph>
               Upload concatenated discovery response PDFs for processing
@@ -331,7 +367,7 @@ export const DiscoveryUpload: React.FC<DiscoveryUploadProps> = ({ onUploadComple
           </Paper>
         </Grid>
 
-        <Grid item xs={12} md={6}>
+        <Grid item xs={12} md={4}>
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
               Request for Production (Optional)
@@ -391,6 +427,77 @@ export const DiscoveryUpload: React.FC<DiscoveryUploadProps> = ({ onUploadComple
                       {rfpFile.status === 'error' && <ErrorIcon color="error" />}
                       {rfpFile.status === 'pending' && (
                         <IconButton edge="end" onClick={removeRfpFile} size="small">
+                          <DeleteIcon />
+                        </IconButton>
+                      )}
+                    </ListItemSecondaryAction>
+                  </ListItem>
+                </List>
+              </Box>
+            )}
+          </Paper>
+        </Grid>
+
+        <Grid item xs={12} md={4}>
+          <Paper sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              Defense Response to Discovery
+            </Typography>
+            <Typography variant="body2" color="text.secondary" paragraph>
+              Upload your defense response to discovery document
+            </Typography>
+            
+            <Box
+              {...defenseResponseDropzone.getRootProps()}
+              sx={{
+                border: '2px dashed',
+                borderColor: defenseResponseDropzone.isDragActive ? 'primary.main' : 'divider',
+                borderRadius: 2,
+                p: 3,
+                textAlign: 'center',
+                cursor: 'pointer',
+                backgroundColor: defenseResponseDropzone.isDragActive ? 'action.hover' : 'background.paper',
+                transition: 'all 0.2s ease',
+                '&:hover': {
+                  backgroundColor: 'action.hover',
+                },
+              }}
+            >
+              <input {...defenseResponseDropzone.getInputProps()} />
+              <DescriptionIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+              <Typography variant="body1" gutterBottom>
+                {defenseResponseDropzone.isDragActive
+                  ? 'Drop Defense Response here...'
+                  : 'Drag & drop Defense Response PDF here, or click to select'}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Single file only • PDF format
+              </Typography>
+            </Box>
+
+            {defenseResponseFile && (
+              <Box sx={{ mt: 2 }}>
+                <List dense>
+                  <ListItem>
+                    <DescriptionIcon sx={{ mr: 2, color: 'text.secondary' }} />
+                    <ListItemText
+                      primary={defenseResponseFile.file.name}
+                      secondary={
+                        defenseResponseFile.error ? (
+                          <Typography variant="caption" color="error">
+                            {defenseResponseFile.error}
+                          </Typography>
+                        ) : (
+                          `${(defenseResponseFile.file.size / 1024 / 1024).toFixed(2)} MB`
+                        )
+                      }
+                    />
+                    <ListItemSecondaryAction>
+                      {defenseResponseFile.status === 'uploading' && <CircularProgress size={20} />}
+                      {defenseResponseFile.status === 'success' && <CheckCircleIcon color="success" />}
+                      {defenseResponseFile.status === 'error' && <ErrorIcon color="error" />}
+                      {defenseResponseFile.status === 'pending' && (
+                        <IconButton edge="end" onClick={removeDefenseResponseFile} size="small">
                           <DeleteIcon />
                         </IconButton>
                       )}

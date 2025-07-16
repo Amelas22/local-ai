@@ -9,6 +9,7 @@ services:
       dockerfile: Dockerfile
       target: builder
       args:
+        - CACHE_BUST=${CACHE_BUST:-1}
         - VITE_API_URL=
         - VITE_WS_URL=
         - VITE_AUTH_ENABLED=false
