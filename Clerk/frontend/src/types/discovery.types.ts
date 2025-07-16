@@ -142,6 +142,9 @@ export interface DiscoveryProcessingResponse {
   processing_id: string;
   status: 'started' | 'processing' | 'completed' | 'error';
   message?: string;
+  production_batch?: string;
+  rfp_file_id?: string;
+  defense_response_file_id?: string;
 }
 
 export interface FactSource {
@@ -217,4 +220,60 @@ export interface DiscoveryDocument {
   confidence: number;
   file_path?: string;
   box_file_id?: string;
+}
+
+// Deficiency Analysis Types
+
+export enum ProductionStatus {
+  FULLY_PRODUCED = 'fully_produced',
+  PARTIALLY_PRODUCED = 'partially_produced',
+  NOT_PRODUCED = 'not_produced',
+}
+
+export interface EvidenceItem {
+  document_id: string;
+  document_title: string;
+  bates_range?: string;
+  quoted_text: string;
+  confidence_score: number;
+  page_numbers?: number[];
+}
+
+export interface RequestAnalysis {
+  request_number: number;
+  request_text: string;
+  response_text?: string;
+  status: ProductionStatus;
+  confidence: number;
+  evidence: EvidenceItem[];
+  deficiencies: string[];
+  search_queries_used: string[];
+}
+
+export interface DeficiencyReport {
+  id: string;
+  case_name: string;
+  processing_id: string;
+  production_batch: string;
+  rfp_document_id: string;
+  defense_response_id?: string;
+  analyses: RequestAnalysis[];
+  overall_completeness: number;
+  generated_at: string;
+  generated_by: string;
+  report_version: number;
+}
+
+export interface DeficiencyAnalysisRequest {
+  rfp_document_id: string;
+  defense_response_id?: string;
+  production_batch: string;
+  processing_id: string;
+}
+
+export interface DeficiencyReportResponse {
+  analysis_id: string;
+  status: string;
+  message: string;
+  report_id?: string;
 }

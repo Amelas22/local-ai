@@ -20,6 +20,7 @@ import uuid
 import base64
 import asyncio
 import hashlib
+import json
 
 from ..models.discovery_models import (
     DiscoveryProcessingRequest as EndpointDiscoveryRequest,
@@ -31,10 +32,17 @@ from ..models.discovery_models import (
     FactSearchResponse,
     FactBulkOperation,
 )
+from ..models.deficiency_models import (
+    DeficiencyAnalysisRequest,
+    DeficiencyReportResponse,
+    DeficiencyReport
+)
+from ..ai_agents.deficiency_analyzer import DeficiencyAnalyzer
 from ..services.fact_manager import FactManager
 from ..document_processing.unified_document_manager import UnifiedDocumentManager
 from ..document_processing.enhanced_chunker import EnhancedChunker
 from ..vector_storage.embeddings import EmbeddingGenerator
+from ..vector_storage.qdrant_store import QdrantVectorStore
 from ..models.unified_document_models import DocumentType, UnifiedDocument, DiscoveryProcessingRequest
 from ..ai_agents.fact_extractor import FactExtractor
 from ..websocket.socket_server import (
@@ -287,6 +295,9 @@ async def process_discovery(
         processing_id=processing_id,
         status="started",
         message="Discovery processing started",
+        production_batch=production_batch,
+        rfp_file_id=rfp_file.get("filename") if rfp_file else None,
+        defense_response_file_id=defense_response_file.get("filename") if defense_response_file else None,
     )
 
 
@@ -1172,6 +1183,215 @@ async def emit_processing_completed(processing_id: str, case_id: str, summary: D
         },
         room=f"case_{case_id}"
     )
+
+
+@router.post("/analyze-deficiencies", response_model=DeficiencyReportResponse)
+async def analyze_discovery_deficiencies(
+    request: DeficiencyAnalysisRequest,
+    background_tasks: BackgroundTasks,
+    case_context: CaseContext = Depends(require_case_context("read"))
+) -> DeficiencyReportResponse:
+    """Analyze discovery production for deficiencies against RFP requests.
+    
+    This endpoint starts a background analysis that:
+    1. Extracts requests from the RFP document
+    2. Searches ONLY within the specified production batch
+    3. Determines what was produced, partially produced, or not produced
+    4. Generates a comprehensive deficiency report
+    
+    Args:
+        request: Analysis request with RFP and production details
+        background_tasks: FastAPI background task handler
+        case_context: Case access validation
+        
+    Returns:
+        DeficiencyReportResponse with analysis ID and status
+    """
+    analysis_id = str(uuid.uuid4())
+    
+    # Start background analysis
+    background_tasks.add_task(
+        _analyze_deficiencies_async,
+        analysis_id=analysis_id,
+        case_name=case_context.case_name,
+        rfp_document_id=request.rfp_document_id,
+        defense_response_id=request.defense_response_id,
+        production_batch=request.production_batch,
+        processing_id=request.processing_id
+    )
+    
+    return DeficiencyReportResponse(
+        analysis_id=analysis_id,
+        status="analyzing",
+        message="Deficiency analysis started"
+    )
+
+
+@router.get("/deficiency-reports/{report_id}")
+async def get_deficiency_report(
+    report_id: str,
+    case_context: CaseContext = Depends(require_case_context("read"))
+) -> DeficiencyReport:
+    """Get a completed deficiency report.
+    
+    Args:
+        report_id: ID of the deficiency report
+        case_context: Case access validation
+        
+    Returns:
+        DeficiencyReport with analysis results
+    """
+    # Retrieve report from storage
+    report = await get_stored_deficiency_report(report_id, case_context.case_name)
+    
+    if not report:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Deficiency report {report_id} not found"
+        )
+    
+    return report
+
+
+async def _analyze_deficiencies_async(
+    analysis_id: str,
+    case_name: str,
+    rfp_document_id: str,
+    defense_response_id: Optional[str],
+    production_batch: str,
+    processing_id: str
+):
+    """Background task for deficiency analysis.
+    
+    This task:
+    1. Emits WebSocket events for progress tracking
+    2. Runs the deficiency analysis
+    3. Stores the report
+    4. Emits completion or error events
+    """
+    try:
+        logger.info(f"Starting deficiency analysis {analysis_id} for case {case_name}")
+        
+        # Emit started event
+        await sio.emit(
+            'discovery:deficiency_analysis_started',
+            {
+                'analysisId': analysis_id,
+                'caseId': case_name,
+                'processingId': processing_id
+            },
+            room=f'case_{case_name}'
+        )
+        
+        # Run analysis
+        analyzer = DeficiencyAnalyzer(case_name)
+        report = await analyzer.analyze_discovery_deficiencies(
+            rfp_document_id=rfp_document_id,
+            defense_response_id=defense_response_id,
+            production_batch=production_batch,
+            processing_id=processing_id
+        )
+        
+        # Store report
+        await store_deficiency_report(report)
+        
+        # Emit completed event
+        await sio.emit(
+            'discovery:deficiency_analysis_completed',
+            {
+                'analysisId': analysis_id,
+                'reportId': report.id,
+                'overallCompleteness': report.overall_completeness,
+                'totalRequests': len(report.analyses),
+                'deficiencyCount': sum(1 for a in report.analyses if a.status == "not_produced")
+            },
+            room=f'case_{case_name}'
+        )
+        
+        logger.info(f"Deficiency analysis {analysis_id} completed successfully")
+        
+    except Exception as e:
+        logger.error(f"Deficiency analysis {analysis_id} failed: {str(e)}", exc_info=True)
+        await sio.emit(
+            'discovery:deficiency_analysis_error',
+            {
+                'analysisId': analysis_id,
+                'error': str(e)
+            },
+            room=f'case_{case_name}'
+        )
+
+
+async def store_deficiency_report(report: DeficiencyReport):
+    """Store deficiency report in vector database.
+    
+    Args:
+        report: DeficiencyReport to store
+    """
+    try:
+        vector_store = QdrantVectorStore()
+        
+        # Create a document representation of the report
+        report_document = UnifiedDocument(
+            id=report.id,
+            case_name=report.case_name,
+            document_hash=hashlib.sha256(report.model_dump_json().encode()).hexdigest(),
+            file_name=f"deficiency_report_{report.production_batch}.json",
+            title=f"Deficiency Analysis Report - {report.production_batch}",
+            content=report.model_dump_json(),
+            document_type="deficiency_report",
+            metadata={
+                "report_type": "deficiency_analysis",
+                "processing_id": report.processing_id,
+                "production_batch": report.production_batch,
+                "rfp_document_id": report.rfp_document_id,
+                "overall_completeness": report.overall_completeness,
+                "generated_at": report.generated_at.isoformat()
+            }
+        )
+        
+        # Store in vector database
+        await vector_store.add_documents(
+            collection_name=report.case_name,
+            documents=[report_document]
+        )
+        
+        logger.info(f"Stored deficiency report {report.id} for case {report.case_name}")
+        
+    except Exception as e:
+        logger.error(f"Failed to store deficiency report: {str(e)}", exc_info=True)
+        raise
+
+
+async def get_stored_deficiency_report(report_id: str, case_name: str) -> Optional[DeficiencyReport]:
+    """Retrieve deficiency report from storage.
+    
+    Args:
+        report_id: ID of the report to retrieve
+        case_name: Case name for access control
+        
+    Returns:
+        DeficiencyReport if found, None otherwise
+    """
+    try:
+        vector_store = QdrantVectorStore()
+        
+        # Get document by ID
+        document = await vector_store.get_document_by_id(
+            collection_name=case_name,
+            document_id=report_id
+        )
+        
+        if document and document.document_type == "deficiency_report":
+            # Parse the JSON content back to DeficiencyReport
+            report_data = json.loads(document.content)
+            return DeficiencyReport(**report_data)
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Failed to retrieve deficiency report: {str(e)}", exc_info=True)
+        return None
 
 
 async def emit_processing_error(processing_id: str, case_id: str, error: str, stage: str):

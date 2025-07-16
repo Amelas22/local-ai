@@ -5,7 +5,10 @@ import {
   FactUpdateRequest,
   FactSearchRequest,
   FactSearchResponse,
-  FactBulkOperation
+  FactBulkOperation,
+  DeficiencyAnalysisRequest,
+  DeficiencyReportResponse,
+  DeficiencyReport
 } from '../types/discovery.types';
 
 class DiscoveryService {
@@ -81,6 +84,23 @@ class DiscoveryService {
   async getBoxFiles(folderId: string): Promise<any[]> {
     const response = await apiClient.get(`${this.baseUrl}/box/files`, {
       params: { folder_id: folderId },
+    });
+    return response.data;
+  }
+
+  async startDeficiencyAnalysis(request: DeficiencyAnalysisRequest): Promise<DeficiencyReportResponse> {
+    const response = await apiClient.post(`${this.baseUrl}/analyze-deficiencies`, request);
+    return response.data;
+  }
+
+  async getDeficiencyReport(reportId: string): Promise<DeficiencyReport> {
+    const response = await apiClient.get(`${this.baseUrl}/deficiency-reports/${reportId}`);
+    return response.data;
+  }
+
+  async downloadDeficiencyReport(reportId: string): Promise<Blob> {
+    const response = await apiClient.get(`${this.baseUrl}/deficiency-reports/${reportId}/download`, {
+      responseType: 'blob',
     });
     return response.data;
   }

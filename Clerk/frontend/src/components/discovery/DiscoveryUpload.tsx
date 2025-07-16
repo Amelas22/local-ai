@@ -36,7 +36,11 @@ interface UploadedFile {
 }
 
 interface DiscoveryUploadProps {
-  onUploadComplete: (processingId: string) => void;
+  onUploadComplete: (processingId: string, uploadInfo?: {
+    rfpFileId?: string;
+    defenseResponseFileId?: string;
+    productionBatch: string;
+  }) => void;
 }
 
 export const DiscoveryUpload: React.FC<DiscoveryUploadProps> = ({ onUploadComplete }) => {
@@ -244,7 +248,14 @@ export const DiscoveryUpload: React.FC<DiscoveryUploadProps> = ({ onUploadComple
         severity: 'success',
       }));
 
-      onUploadComplete(response.processing_id);
+      // Pass additional upload info for deficiency analysis
+      const uploadInfo = {
+        rfpFileId: response.rfp_file_id,
+        defenseResponseFileId: response.defense_response_file_id,
+        productionBatch: response.production_batch || response.processing_id,
+      };
+      
+      onUploadComplete(response.processing_id, uploadInfo);
     } catch (error: any) {
       dispatch(showNotification({
         message: error.message || 'Failed to start discovery processing',

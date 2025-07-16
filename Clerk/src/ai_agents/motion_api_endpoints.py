@@ -217,8 +217,9 @@ async def upload_draft_to_box(draft_id: str, request: ExportRequest):
         output_path = f"/tmp/motion_{draft_id}.docx"
         motion_drafter.export_to_docx(draft, output_path)
 
-        # Upload to Box (requires Box client from document_injector)
-        from src.document_injector import document_injector
+        # Upload to Box (requires Box client from document_injector_unified)
+        from src.document_injector_unified import UnifiedDocumentInjector
+        document_injector = UnifiedDocumentInjector()
 
         with open(output_path, "rb") as f:
             uploaded_file = document_injector.box_client.upload_file(

@@ -12,6 +12,7 @@ import {
   removeExtractedFact,
 } from '../store/slices/discoverySlice';
 import { showNotification } from '../store/slices/uiSlice';
+import { handleWebSocketEvent } from '../store/slices/deficiencySlice';
 import { 
   DiscoveryWebSocketEvents,
   ProcessingStage,
@@ -172,6 +173,10 @@ export const useDiscoverySocket = (options: UseDiscoverySocketOptions = {}) => {
     dispatch(removeExtractedFact(data.fact_id));
   }, [dispatch]);
 
+  const handleDeficiencyEvent = useCallback((eventType: string, data: any) => {
+    dispatch(handleWebSocketEvent({ type: eventType, ...data }));
+  }, [dispatch]);
+
   const subscribeToDiscoveryEvents = useCallback(() => {
     if (!socket || !isConnected || subscribedRef.current) return;
 
@@ -222,6 +227,24 @@ export const useDiscoverySocket = (options: UseDiscoverySocketOptions = {}) => {
       console.log('[useDiscoverySocket] Received fact:deleted', data);
       handlersRef.current.handleFactDeleted(data);
     });
+    
+    // Deficiency analysis events
+    socket.on('deficiency:analysis_started', (data) => {
+      console.log('[useDiscoverySocket] Received deficiency:analysis_started', data);
+      handlersRef.current.handleDeficiencyEvent('deficiency_analysis_started', data);
+    });
+    socket.on('deficiency:analysis_progress', (data) => {
+      console.log('[useDiscoverySocket] Received deficiency:analysis_progress', data);
+      handlersRef.current.handleDeficiencyEvent('deficiency_analysis_progress', data);
+    });
+    socket.on('deficiency:analysis_completed', (data) => {
+      console.log('[useDiscoverySocket] Received deficiency:analysis_completed', data);
+      handlersRef.current.handleDeficiencyEvent('deficiency_analysis_completed', data);
+    });
+    socket.on('deficiency:analysis_error', (data) => {
+      console.log('[useDiscoverySocket] Received deficiency:analysis_error', data);
+      handlersRef.current.handleDeficiencyEvent('deficiency_analysis_error', data);
+    });
 
     // Note: Case subscription is now handled by CaseContext to prevent duplicates
     // Removed: socket.emit('subscribe_case', { case_id: caseId });
@@ -245,6 +268,10 @@ export const useDiscoverySocket = (options: UseDiscoverySocketOptions = {}) => {
     socket.off('discovery:error');
     socket.off('fact:updated');
     socket.off('fact:deleted');
+    socket.off('deficiency:analysis_started');
+    socket.off('deficiency:analysis_progress');
+    socket.off('deficiency:analysis_completed');
+    socket.off('deficiency:analysis_error');
 
     // Note: Case unsubscription is now handled by CaseContext
     // Removed: socket.emit('unsubscribe_case', { case_id: caseId });
@@ -306,6 +333,7 @@ export const useDiscoverySocket = (options: UseDiscoverySocketOptions = {}) => {
       handleError,
       handleFactUpdated,
       handleFactDeleted,
+      handleDeficiencyEvent,
     };
   });
 
