@@ -107,13 +107,13 @@ async def subscribe_case(sid, data):
         # Leave previous room if any
         if active_connections[sid]["case_id"]:
             prev_case = active_connections[sid]["case_id"]
-            sio.leave_room(sid, f"case_{prev_case}")
+            await sio.leave_room(sid, f"case_{prev_case}")
             logger.info(f"Client {sid} left room case_{prev_case}")
         
         # Join new case room
         active_connections[sid]["case_id"] = case_id
         room_name = f"case_{case_id}"
-        sio.enter_room(sid, room_name)
+        await sio.enter_room(sid, room_name)
         logger.info(f"Client {sid} joined room {room_name}")
         
         await sio.emit("subscribed", {"case_id": case_id}, room=sid)
@@ -124,7 +124,7 @@ async def unsubscribe_case(sid, data):
     """Unsubscribe from case updates"""
     if sid in active_connections and active_connections[sid]["case_id"]:
         case_id = active_connections[sid]["case_id"]
-        sio.leave_room(sid, f"case_{case_id}")
+        await sio.leave_room(sid, f"case_{case_id}")
         active_connections[sid]["case_id"] = None
         logger.info(f"Client {sid} unsubscribed from case {case_id}")
         await sio.emit("unsubscribed", {"case_id": case_id}, room=sid)

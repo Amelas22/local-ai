@@ -18,6 +18,7 @@ from starlette.datastructures import UploadFile
 from typing import List, Optional, Dict, Any
 import uuid
 import base64
+import asyncio
 import hashlib
 
 from ..models.discovery_models import (

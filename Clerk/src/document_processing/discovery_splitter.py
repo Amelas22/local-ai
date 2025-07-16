@@ -49,12 +49,11 @@ def async_retry(max_retries: int = 3, initial_delay: float = 1.0, exponential_ba
                     return await func(*args, **kwargs)
                 except (httpx.ConnectError, httpx.TimeoutException, Exception) as e:
                     if attempt == max_retries - 1:
-                        logger.error(f"Final retry attempt failed for {func.__name__}: {str(e)}")
+                        logger.error(f"Final retry attempt failed for {func.__name__}: {str(e)}", exc_info=True)
                         raise
-                    logger.warning(f"Attempt {attempt + 1} failed for {func.__name__}: {str(e)}. Retrying in {delay}s...")
+                    logger.warning(f"Attempt {attempt + 1} failed for {func.__name__}: {str(e)}. Retrying in {delay}s...", exc_info=True)
                     await asyncio.sleep(delay)
                     delay *= exponential_base
-            return None
         return wrapper
     return decorator
 
@@ -404,8 +403,17 @@ class DiscoveryDocumentProcessor:
         self.pdf_extractor = PDFExtractor()
         self.chunker = DocumentChunker()
         self.context_generator = ContextGenerator()
-        self.client = AsyncOpenAI(api_key=settings.openai.api_key)
+        
+        # Initialize OpenAI client with logging
+        api_key = settings.openai.api_key
+        if not api_key:
+            logger.error("OpenAI API key is not set!")
+        else:
+            logger.info(f"OpenAI API key is configured (length: {len(api_key)})")
+        
+        self.client = AsyncOpenAI(api_key=api_key)
         self.classification_model = settings.discovery.classification_model
+        logger.info(f"Using classification model: {self.classification_model}")
 
     async def process_segmented_document(
         self,
@@ -544,6 +552,11 @@ Provide ONLY the context summary, no additional explanation."""
         if boundary.document_type_hint and boundary.confidence > 0.8:
             return boundary.document_type_hint.value
 
+        # Handle None or empty text
+        if not document_text:
+            logger.warning("Document text is None or empty, defaulting to OTHER")
+            return DocumentType.OTHER.value
+
         # Otherwise classify with LLM
         preview = document_text[:2000]
 
@@ -570,8 +583,16 @@ Document preview:
 
 Return ONLY the category name, nothing else."""
 
+        logger.info(f"Attempting to classify document with model: {self.classification_model}")
+        logger.info(f"Client type: {type(self.client)}, has chat attr: {hasattr(self.client, 'chat')}")
+        
+        if not self.client:
+            logger.error("OpenAI client is None!")
+            return DocumentType.OTHER.value
+        
+        response = None
         try:
-            response = self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 model=self.classification_model,
                 messages=[
                     {
@@ -583,17 +604,28 @@ Return ONLY the category name, nothing else."""
                 temperature=0.1,
                 max_tokens=50,
             )
-
-            classification = response.choices[0].message.content.strip().upper()
-
-            # Validate classification
-            try:
-                return DocumentType(classification.lower()).value
-            except ValueError:
-                return DocumentType.OTHER.value
-
         except Exception as e:
-            logger.error(f"Error classifying document: {str(e)}")
+            logger.error(f"OpenAI API call failed: {type(e).__name__}: {str(e)}", exc_info=True)
+            # Re-raise for retry decorator
+            raise
+
+        # Check if response is valid
+        if not response or not response.choices or len(response.choices) == 0:
+            logger.error(f"Invalid response from OpenAI: {response}")
+            raise ValueError("Invalid OpenAI response - no choices")
+
+        if not response.choices[0].message or not response.choices[0].message.content:
+            logger.error(f"No content in OpenAI response: {response.choices[0]}")
+            raise ValueError("Invalid OpenAI response - no content")
+
+        classification = response.choices[0].message.content.strip().upper()
+        logger.info(f"Document classified as: {classification}")
+
+        # Validate classification
+        try:
+            return DocumentType(classification.lower()).value
+        except ValueError:
+            logger.warning(f"Unknown document type: {classification}, defaulting to OTHER")
             return DocumentType.OTHER.value
 
     async def process_large_segmented_document(
@@ -656,30 +688,44 @@ Return ONLY the category name, nothing else."""
 
     def _extract_pdf_pages(self, pdf_path: str, start_page: int, end_page: int) -> str:
         """Extract text from specific page range"""
+        logger.info(f"Extracting pages {start_page}-{end_page} from {pdf_path}")
+        
         with open(pdf_path, "rb") as file:
             pdf_content = file.read()
+            logger.info(f"Read {len(pdf_content)} bytes from PDF")
 
         # Create a temporary PDF with just the pages we need
         pdf_reader = PyPDF2.PdfReader(io.BytesIO(pdf_content))
+        total_pages = len(pdf_reader.pages)
+        logger.info(f"PDF has {total_pages} total pages")
+        
         pdf_writer = PyPDF2.PdfWriter()
 
-        for page_num in range(start_page, min(end_page + 1, len(pdf_reader.pages))):
+        for page_num in range(start_page, min(end_page + 1, total_pages)):
             pdf_writer.add_page(pdf_reader.pages[page_num])
-    
-    async def _extract_pdf_pages_async(self, pdf_path: str, start_page: int, end_page: int) -> str:
-        """Extract text from specific page range asynchronously"""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(executor, self._extract_pdf_pages, pdf_path, start_page, end_page)
+            logger.debug(f"Added page {page_num} to temporary PDF")
 
         # Extract text from temporary PDF
         temp_pdf = io.BytesIO()
         pdf_writer.write(temp_pdf)
         temp_pdf.seek(0)
+        
+        temp_pdf_content = temp_pdf.read()
+        logger.info(f"Temporary PDF size: {len(temp_pdf_content)} bytes")
 
         extracted = self.pdf_extractor.extract_text(
-            temp_pdf.read(), f"pages_{start_page}-{end_page}.pdf"
+            temp_pdf_content, f"pages_{start_page}-{end_page}.pdf"
         )
+        
+        logger.info(f"Extracted text length: {len(extracted.text) if extracted.text else 0}")
+        logger.info(f"Extraction method used: {extracted.extraction_method}")
+        
         return extracted.text
+    
+    async def _extract_pdf_pages_async(self, pdf_path: str, start_page: int, end_page: int) -> str:
+        """Extract text from specific page range asynchronously"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(executor, self._extract_pdf_pages, pdf_path, start_page, end_page)
 
 
 class DiscoveryProductionProcessor:

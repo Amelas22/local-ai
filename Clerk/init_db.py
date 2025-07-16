@@ -89,7 +89,6 @@ async def seed_initial_data():
             # Create default law firm
             # In MVP mode, create the specific law firm expected by MockUserMiddleware
             if os.getenv("MVP_MODE", "false").lower() == "true":
-                from sqlalchemy import text
                 # Create law firm with specific ID for MVP mode
                 firm_id = "123e4567-e89b-12d3-a456-426614174000"
                 await db.execute(
