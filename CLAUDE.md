@@ -396,6 +396,59 @@ motion: DraftedMotion = await drafter.draft_motion_from_outline(
 )
 ```
 
+### Deficiency Analysis Pattern
+Analyze RTP requests against discovery productions:
+```python
+from src.services.deficiency_service import DeficiencyService
+from src.models.deficiency_models import DeficiencyReport, DeficiencyItem
+
+# Initialize service
+service = DeficiencyService()
+
+# Process deficiency analysis (stub for now)
+report: DeficiencyReport = await service.process_deficiency_analysis(
+    production_id="prod-123",
+    case_name="Smith_v_Jones_2024"
+)
+
+# Update analysis status
+await service.update_analysis_status(
+    report_id="report-456",
+    status="completed"  # pending|processing|completed|failed
+)
+
+# DeficiencyReport model structure
+report = DeficiencyReport(
+    case_name="Smith_v_Jones_2024",  # REQUIRED: Case isolation
+    production_id=uuid4(),
+    rtp_document_id=uuid4(),
+    oc_response_document_id=uuid4(),
+    analysis_status="processing",
+    total_requests=25,
+    summary_statistics={
+        "fully_produced": 10,
+        "partially_produced": 5,
+        "not_produced": 8,
+        "no_responsive_docs": 2
+    }
+)
+
+# DeficiencyItem model structure
+item = DeficiencyItem(
+    report_id=report.id,
+    request_number="RFP No. 12",
+    request_text="All emails regarding contract",
+    oc_response_text="No responsive documents",
+    classification="not_produced",  # fully_produced|partially_produced|not_produced|no_responsive_docs
+    confidence_score=0.85,
+    evidence_chunks=[{
+        "document_id": "doc123",
+        "chunk_text": "Email discussing contract",
+        "relevance_score": 0.92
+    }]
+)
+```
+
 ### API Endpoint Pattern
 All endpoints must include proper error handling and validation:
 ```python

@@ -4,6 +4,7 @@ Models package for Clerk Legal AI System
 
 from .fact_models import *
 from .source_document_models import *
+from .deficiency_models import *
 
 __all__ = [
     # Fact models
@@ -26,4 +27,7 @@ __all__ = [
     "EvidenceSearchResult",
     "DocumentClassificationRequest",
     "DocumentClassificationResult",
+    # Deficiency models
+    "DeficiencyReport",
+    "DeficiencyItem",
 ]
