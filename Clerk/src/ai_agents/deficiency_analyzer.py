@@ -9,21 +9,17 @@ requested in RFPs and what was actually produced. It uses AI agents to:
 4. Generate comprehensive deficiency reports
 """
 
-import asyncio
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Dict, Optional, Set
 from datetime import datetime
 from pydantic_ai import Agent
 from pydantic import BaseModel
-import hashlib
 
 from ..models.deficiency_models import (
     ProductionStatus,
-    EvidenceItem,
     RequestAnalysis,
     DeficiencyReport
 )
-from ..models.unified_document_models import UnifiedDocument
-from ..vector_storage.qdrant_store import QdrantVectorStore
+from ..vector_storage.qdrant_store import QdrantVectorStore, SearchResult
 from ..utils.logger import setup_logger
 from ..websocket.socket_server import sio
 
@@ -59,15 +55,32 @@ class DeficiencyAnalyzer:
         self.search_agent = Agent(
             'gpt-4.1-mini',
             result_type=SearchStrategy,
-            system_prompt="""You are a legal discovery expert. Given a Request for Production (RFP), 
-            generate effective search queries to find responsive documents. Consider:
-            - Key terms and concepts
-            - Document types mentioned
-            - Date ranges
-            - Parties involved
-            - Legal terminology variations
+            system_prompt="""You are a legal discovery expert generating semantic search queries for a vector database using natural language processing.
             
-            DO NOT make assumptions. Only search for what is explicitly requested."""
+            CRITICAL: Generate queries as if you're asking a question or describing what you need to a colleague.
+            The vector database understands MEANING and CONTEXT, not just keywords.
+            
+            EXCELLENT semantic query examples:
+            - "What safety procedures were in place for commercial truck drivers before the accident?"
+            - "Show me all maintenance and inspection records for the vehicle involved in the crash"
+            - "Find communications between the trucking company and drivers about safety violations"
+            - "Documents showing the driver's training history and medical certification status"
+            - "Any reports or complaints about vehicle defects or maintenance issues"
+            
+            TERRIBLE query examples (NEVER DO THIS):
+            - "safety AND training AND truck" (Boolean operators)
+            - "documents maintenance records" (keyword soup)
+            - driver qualification medical (disconnected terms)
+            - "truck" AND "crash" AND "documents" (Boolean search)
+            
+            Remember:
+            1. Write queries as complete thoughts or questions
+            2. Include context about WHY you want the documents
+            3. Use natural, conversational language
+            4. Think about the MEANING behind what you're searching for
+            5. Consider different ways someone might describe the same concept
+            
+            Generate 3-5 semantic queries that explore different aspects of the request."""
         )
         
         # Agent for analyzing completeness
@@ -127,13 +140,23 @@ class DeficiencyAnalyzer:
         """
         logger.info(f"Starting deficiency analysis for case {self.case_name}, batch {production_batch}")
         
-        # Extract RFP requests
-        rfp_requests = await self._extract_rfp_requests(rfp_document_id)
+        try:
+            # Extract RFP requests - MUST succeed or we stop
+            rfp_requests = await self._extract_rfp_requests(rfp_document_id)
+            logger.info(f"Successfully extracted {len(rfp_requests)} RFP requests")
+        except Exception as e:
+            logger.error(f"Failed to extract RFP requests: {str(e)}")
+            raise  # Re-raise to stop the analysis
         
         # Extract defense responses if provided
         defense_responses = {}
         if defense_response_id:
-            defense_responses = await self._extract_defense_responses(defense_response_id)
+            try:
+                defense_responses = await self._extract_defense_responses(defense_response_id)
+                logger.info(f"Successfully extracted {len(defense_responses)} defense responses")
+            except Exception as e:
+                logger.warning(f"Failed to extract defense responses: {str(e)}")
+                # Continue without defense responses - not critical
         
         # Analyze each request
         analyses = []
@@ -173,7 +196,7 @@ class DeficiencyAnalyzer:
         query: str,
         production_batch: str,
         limit: int = 20
-    ) -> List[UnifiedDocument]:
+    ) -> List[SearchResult]:
         """Search ONLY within current production batch.
         
         CRITICAL: This method enforces production-scoped search to prevent
@@ -187,36 +210,76 @@ class DeficiencyAnalyzer:
         Returns:
             List of documents from the specified production only
         """
-        from qdrant_client import models
-        
-        # CRITICAL: Filter to current production only
-        production_filter = models.Filter(
-            must=[
-                models.FieldCondition(
-                    key="case_name",
-                    match=models.MatchValue(value=self.case_name)
-                ),
-                models.FieldCondition(
-                    key="metadata.production_batch",
-                    match=models.MatchValue(value=production_batch)
-                )
-            ]
-        )
-        
         logger.info(f"Searching production {production_batch} with query: {query}")
         
-        # Perform hybrid search
-        results = await self.vector_store.hybrid_search(
-            collection_name=self.case_name,
-            query_text=query,
-            query_filter=production_filter,
-            limit=limit,
-            vector_weight=0.7,
-            text_weight=0.3
-        )
+        # Generate embeddings for the query
+        from ..vector_storage.embeddings import EmbeddingGenerator
+        embedding_generator = EmbeddingGenerator()
         
-        logger.info(f"Found {len(results)} documents in production {production_batch}")
-        return results
+        try:
+            query_embedding, token_count = embedding_generator.generate_embedding(query)
+        except Exception as e:
+            logger.error(f"Failed to generate embedding for query: {str(e)}")
+            return []
+        
+        # Validate embedding was generated
+        if not query_embedding or not isinstance(query_embedding, list):
+            logger.error(f"Invalid embedding generated for query: {query}")
+            return []
+        
+        try:
+            # Log search parameters for debugging
+            logger.debug(f"Search parameters:")
+            logger.debug(f"  - Collection: {self.case_name}")
+            logger.debug(f"  - Query: '{query}'")
+            logger.debug(f"  - Embedding length: {len(query_embedding)}")
+            logger.debug(f"  - Filters: {{'production_batch': '{production_batch}'}}")
+            logger.debug(f"  - Limit: {limit}, Threshold: 0.0")
+            
+            # Perform vector search with production filter
+            # Note: hybrid_search doesn't support filters, so we'll use search_documents instead
+            results = self.vector_store.search_documents(
+                collection_name=self.case_name,
+                query_embedding=query_embedding,
+                limit=limit,
+                threshold=0.0,  # Lower threshold to get more results
+                filters={"production_batch": production_batch}
+            )
+            
+            logger.info(f"Found {len(results)} documents in production {production_batch}")
+            
+            # Log details about results
+            if results:
+                logger.debug(f"Top result scores: {[r.score for r in results[:3]]}")
+                logger.debug(f"First result metadata: {results[0].metadata if results else 'No results'}")
+            else:
+                logger.warning(f"No results found! Debugging info:")
+                logger.warning(f"  - Query: '{query}'")
+                logger.warning(f"  - Production batch filter: '{production_batch}'")
+                logger.warning(f"  - Collection name: '{self.case_name}'")
+                
+                # Try a search without filters to see if documents exist
+                try:
+                    unfiltered_results = self.vector_store.search_documents(
+                        collection_name=self.case_name,
+                        query_embedding=query_embedding,
+                        limit=5,
+                        threshold=0.0,
+                        filters=None  # No filters
+                    )
+                    logger.warning(f"  - Unfiltered search found {len(unfiltered_results)} documents")
+                    if unfiltered_results:
+                        logger.warning(f"  - Sample metadata from unfiltered results:")
+                        for i, res in enumerate(unfiltered_results[:2]):
+                            logger.warning(f"    Result {i+1}: {res.metadata}")
+                except Exception as debug_e:
+                    logger.error(f"  - Debug unfiltered search failed: {str(debug_e)}")
+            
+            return results
+        except Exception as e:
+            logger.error(f"Error searching production documents: {str(e)}")
+            logger.error(f"Full exception details:", exc_info=True)
+            return []
     
     async def _analyze_single_request(
         self,
@@ -291,22 +354,67 @@ class DeficiencyAnalyzer:
         """
         logger.info(f"Extracting RFP requests from document {document_id}")
         
-        # Get document content from vector store
-        document = await self.vector_store.get_document_by_id(
-            collection_name=self.case_name,
-            document_id=document_id
-        )
+        # Get the RFP content from processing status
+        from src.api.discovery_endpoints import processing_status
+        from src.document_processing.pdf_extractor import PDFExtractor
         
-        if not document:
-            raise ValueError(f"RFP document {document_id} not found")
+        logger.info(f"Looking for RFP document with ID: {document_id}")
+        logger.info(f"Current processing status entries: {list(processing_status.keys())}")
         
-        # Use AI to parse requests
-        result = await self.parser_agent.run(
-            f"Extract all numbered requests from this Request for Production:\n\n{document.content}"
-        )
+        # Find the processing status that has this RFP document ID
+        rfp_content = None
+        found_status = None
+        for proc_id, status in processing_status.items():
+            logger.debug(f"Checking processing ID {proc_id}")
+            if hasattr(status, 'rfp_document_id'):
+                logger.debug(f"  - Has rfp_document_id: {status.rfp_document_id}")
+                if status.rfp_document_id == document_id:
+                    rfp_content = getattr(status, 'rfp_content', None)
+                    found_status = status
+                    logger.info(f"Found RFP in processing ID {proc_id}, content size: {len(rfp_content) if rfp_content else 0} bytes")
+                    break
+            else:
+                logger.debug(f"  - No rfp_document_id attribute")
         
-        logger.info(f"Extracted {len(result.data.requests)} requests from RFP")
-        return result.data.requests
+        if not rfp_content:
+            error_msg = f"CRITICAL ERROR: RFP document {document_id} not found in processing status. Cannot proceed with deficiency analysis."
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        # Extract text from PDF
+        pdf_extractor = PDFExtractor()
+        extracted_doc = pdf_extractor.extract_text(rfp_content, filename="rfp.pdf")
+        extracted_text = extracted_doc.text
+        
+        if not extracted_text or extracted_text.strip() == "":
+            error_msg = f"CRITICAL ERROR: No text extracted from RFP document {document_id}. PDF extraction failed completely."
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        try:
+            # Use AI to parse requests
+            result = await self.parser_agent.run(
+                f"Extract all numbered requests from this Request for Production:\n\n{extracted_text}"
+            )
+            
+            if not result.data.requests:
+                error_msg = "CRITICAL ERROR: AI agent failed to extract any requests from the RFP document"
+                logger.error(error_msg)
+                logger.error(f"Extracted text preview: {extracted_text[:500]}...")
+                raise ValueError(error_msg)
+            
+            logger.info(f"Successfully extracted {len(result.data.requests)} requests from RFP")
+            
+            # Log the actual requests for debugging
+            for num, req in result.data.requests.items():
+                logger.info(f"RFP Request {num}: {req[:200]}...")
+                
+            return result.data.requests
+        except Exception as e:
+            error_msg = f"CRITICAL ERROR: Failed to parse RFP requests: {str(e)}"
+            logger.error(error_msg)
+            logger.error(f"Full exception:", exc_info=True)
+            raise ValueError(error_msg)
     
     async def _extract_defense_responses(self, document_id: str) -> Dict[int, str]:
         """Extract defense responses mapped to request numbers.
@@ -319,23 +427,42 @@ class DeficiencyAnalyzer:
         """
         logger.info(f"Extracting defense responses from document {document_id}")
         
-        # Get document content
-        document = await self.vector_store.get_document_by_id(
-            collection_name=self.case_name,
-            document_id=document_id
-        )
+        # Get the defense response content from processing status
+        from src.api.discovery_endpoints import processing_status
+        from src.document_processing.pdf_extractor import PDFExtractor
         
-        if not document:
-            logger.warning(f"Defense response document {document_id} not found")
+        # Find the processing status that has this defense response document ID
+        defense_content = None
+        for proc_id, status in processing_status.items():
+            if hasattr(status, 'defense_response_id') and status.defense_response_id == document_id:
+                defense_content = getattr(status, 'defense_content', None)
+                break
+        
+        if not defense_content:
+            logger.warning(f"Defense response document {document_id} not found in processing status")
             return {}
         
-        # Use AI to parse responses
-        result = await self.parser_agent.run(
-            f"Extract numbered responses from this defense response document:\n\n{document.content}"
-        )
+        # Extract text from PDF
+        pdf_extractor = PDFExtractor()
+        extracted_doc = pdf_extractor.extract_text(defense_content, filename="defense_response.pdf")
+        extracted_text = extracted_doc.text
         
-        logger.info(f"Extracted {len(result.data.requests)} responses")
-        return result.data.requests
+        if not extracted_text or extracted_text.strip() == "":
+            logger.warning(f"No text extracted from defense response document {document_id}")
+            return {}
+        
+        try:
+            # Use AI to parse responses
+            result = await self.parser_agent.run(
+                f"Extract numbered responses from this defense response document:\n\n{extracted_text}"
+            )
+            
+            logger.info(f"Extracted {len(result.data.requests)} responses")
+            return result.data.requests
+        except Exception as e:
+            logger.error(f"Failed to parse defense responses: {str(e)}")
+            # Return empty dict if parsing fails
+            return {}
     
     async def _emit_progress(self, processing_id: str, current: int, total: int):
         """Emit WebSocket progress event.
@@ -358,51 +485,54 @@ class DeficiencyAnalyzer:
             room=f'case_{self.case_name}'
         )
     
-    def _deduplicate_results(self, documents: List[UnifiedDocument]) -> List[UnifiedDocument]:
-        """Remove duplicate documents based on document hash.
+    def _deduplicate_results(self, results: List[SearchResult]) -> List[SearchResult]:
+        """Remove duplicate documents based on document ID.
         
         Args:
-            documents: List of documents that may contain duplicates
+            results: List of search results that may contain duplicates
             
         Returns:
-            List of unique documents
+            List of unique search results
         """
-        seen_hashes: Set[str] = set()
-        unique_documents = []
+        seen_ids: Set[str] = set()
+        unique_results = []
         
-        for doc in documents:
-            if doc.document_hash not in seen_hashes:
-                seen_hashes.add(doc.document_hash)
-                unique_documents.append(doc)
+        for result in results:
+            if result.document_id not in seen_ids:
+                seen_ids.add(result.document_id)
+                unique_results.append(result)
         
-        return unique_documents
+        return unique_results
     
-    def _format_documents_for_analysis(self, documents: List[UnifiedDocument]) -> str:
-        """Format documents for AI analysis.
+    def _format_documents_for_analysis(self, results: List[SearchResult]) -> str:
+        """Format search results for AI analysis.
         
         Args:
-            documents: List of documents to format
+            results: List of search results to format
             
         Returns:
             Formatted string representation
         """
-        if not documents:
+        if not results:
             return "No documents found"
         
         formatted = []
-        for doc in documents[:10]:  # Limit to first 10 for context window
-            metadata = doc.metadata or {}
+        for result in results[:10]:  # Limit to first 10 for context window
+            metadata = result.metadata or {}
             bates_range = metadata.get('bates_range', 'No bates numbers')
+            document_type = metadata.get('document_type', 'Unknown')
+            title = metadata.get('title', metadata.get('document_name', f'Document {result.document_id}'))
             
             formatted.append(f"""
-Document: {doc.title or doc.file_name}
+Document: {title}
 Bates: {bates_range}
-Type: {doc.document_type}
-Content excerpt: {doc.content[:500]}...
+Type: {document_type}
+Score: {result.score:.3f}
+Content excerpt: {result.content[:500]}...
 ---""")
         
-        if len(documents) > 10:
-            formatted.append(f"\n... and {len(documents) - 10} more documents")
+        if len(results) > 10:
+            formatted.append(f"\n... and {len(results) - 10} more documents")
         
         return "\n".join(formatted)
     

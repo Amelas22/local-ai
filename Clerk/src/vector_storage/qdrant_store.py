@@ -271,6 +271,11 @@ class QdrantVectorStore:
             ("has_citations", "bool"),  # Citation presence
             ("chunk_index", "integer"),  # Chunk ordering
             ("created_at", "datetime"),  # Processing time
+            # Discovery/production related indexes (top-level due to Qdrant filtering issues)
+            ("production_batch", "keyword"),  # CRITICAL for production filtering
+            ("producing_party", "keyword"),  # Track source
+            ("confidentiality_designation", "keyword"),  # Legal designations
+            ("production_date", "datetime"),  # Production timeline
         ]
 
         for field_name, field_type in index_fields:
@@ -408,6 +413,11 @@ class QdrantVectorStore:
             ("has_citations", "bool"),
             ("citation_density", "float"),
             ("created_at", "datetime"),
+            # Discovery/production related indexes
+            ("metadata.production_batch", "keyword"),
+            ("metadata.producing_party", "keyword"),
+            ("metadata.confidentiality_designation", "keyword"),
+            ("metadata.production_date", "datetime"),
         ]
 
         for field_name, field_type in indexes:
@@ -603,11 +613,14 @@ class QdrantVectorStore:
             if filters:
                 conditions = []
                 for key, value in filters.items():
+                    # Log the exact filter being applied
+                    logger.debug(f"Adding filter condition: {key} = {value}")
                     conditions.append(
                         FieldCondition(key=key, match=MatchValue(value=value))
                     )
                 query_filter = Filter(must=conditions)
                 logger.debug(f"Applied filters: {filters}")
+                logger.debug(f"Built query filter: {query_filter}")
 
             # Check if collection has multiple vector configurations
             try:
@@ -1219,6 +1232,28 @@ class QdrantVectorStore:
                     "vector_version": "1.0",
                     "total_chunks": chunk_metadata.get("total_chunks", len(chunks)),
                 }
+                
+                # Add any additional metadata fields that aren't already in payload
+                # This ensures we don't miss fields like production_batch
+                # IMPORTANT: Due to Qdrant filtering issues with dotted field names,
+                # we store production-related fields as top-level fields
+                production_fields = {
+                    "production_batch", "producing_party", "production_date",
+                    "responsive_to_requests", "confidentiality_designation"
+                }
+                
+                # First, extract production fields and add them at top level
+                for field in production_fields:
+                    if field in chunk_metadata and chunk_metadata[field] is not None:
+                        payload[field] = chunk_metadata[field]
+                        logger.info(f"Added production field at top level: {field} = {chunk_metadata[field]}")
+                
+                # Then add remaining metadata fields with prefix
+                for key, value in chunk_metadata.items():
+                    if key not in payload and key not in production_fields and value is not None:
+                        # Store other metadata fields with 'metadata.' prefix
+                        payload[f"metadata.{key}"] = value
+                        logger.debug(f"Storing metadata field with prefix: metadata.{key} = {value}")
 
                 # Create point based on collection type
                 if getattr(settings.legal, "enable_hybrid_search", False):

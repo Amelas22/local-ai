@@ -15,7 +15,7 @@ from typing import List
 
 from ..deficiency_analyzer import DeficiencyAnalyzer, SearchStrategy
 from ...models.deficiency_models import ProductionStatus, RequestAnalysis, EvidenceItem
-from ...models.unified_document_models import UnifiedDocument
+from ...vector_storage.qdrant_store import SearchResult
 
 
 @pytest.fixture
@@ -28,28 +28,30 @@ def analyzer():
 def mock_documents():
     """Create mock documents for testing."""
     return [
-        UnifiedDocument(
+        SearchResult(
             id="doc1",
             case_name="test_case",
-            document_hash="hash1",
-            file_name="training_manual.pdf",
-            title="Safety Training Manual",
+            document_id="hash1",
             content="This manual covers safety training procedures...",
-            document_type="manual",
+            score=0.95,
             metadata={
+                "file_name": "training_manual.pdf",
+                "title": "Safety Training Manual",
+                "document_type": "manual",
                 "production_batch": "PROD_001",
                 "bates_range": "DEF00001-DEF00050"
             }
         ),
-        UnifiedDocument(
+        SearchResult(
             id="doc2", 
             case_name="test_case",
-            document_hash="hash2",
-            file_name="policy.pdf",
-            title="Company Safety Policy",
+            document_id="hash2",
             content="Our safety policy requires all employees...",
-            document_type="policy",
+            score=0.92,
             metadata={
+                "file_name": "policy.pdf",
+                "title": "Company Safety Policy",
+                "document_type": "policy",
                 "production_batch": "PROD_001",
                 "bates_range": "DEF00051-DEF00075"
             }
@@ -60,29 +62,28 @@ def mock_documents():
 @pytest.mark.asyncio
 async def test_production_filtering(analyzer):
     """Ensure searches are filtered to production batch only."""
-    with patch.object(analyzer.vector_store, 'hybrid_search') as mock_search:
+    with patch.object(analyzer.vector_store, 'search_documents') as mock_search:
         mock_search.return_value = []
         
-        await analyzer._search_production_documents(
-            query="test query",
-            production_batch="PROD_001"
-        )
-        
-        # Verify filter was applied
-        call_args = mock_search.call_args
-        filter_arg = call_args.kwargs['query_filter']
-        
-        # Check that both case_name and production_batch filters are present
-        assert filter_arg is not None
-        assert len(filter_arg.must) == 2
-        
-        # Verify case_name filter
-        case_filter = next(f for f in filter_arg.must if f.key == "case_name")
-        assert case_filter.match.value == "test_case"
-        
-        # Verify production_batch filter
-        prod_filter = next(f for f in filter_arg.must if f.key == "metadata.production_batch")
-        assert prod_filter.match.value == "PROD_001"
+        # Mock embedding generation
+        with patch('src.ai_agents.deficiency_analyzer.EmbeddingGenerator') as mock_embedding:
+            mock_generator = Mock()
+            mock_generator.generate_embedding.return_value = ([0.1] * 1536, 10)
+            mock_embedding.return_value = mock_generator
+            
+            await analyzer._search_production_documents(
+                query="test query",
+                production_batch="PROD_001"
+            )
+            
+            # Verify filter was applied
+            call_args = mock_search.call_args
+            filters = call_args.kwargs['filters']
+            
+            # Check that production_batch filter is present
+            assert filters is not None
+            assert "metadata.production_batch" in filters
+            assert filters["metadata.production_batch"] == "PROD_001"
 
 
 @pytest.mark.asyncio
@@ -201,7 +202,7 @@ def test_deduplication(analyzer, mock_documents):
     unique = analyzer._deduplicate_results(duplicated)
     
     assert len(unique) == 2  # Should only have 2 unique documents
-    assert all(doc.document_hash in ["hash1", "hash2"] for doc in unique)
+    assert all(doc.document_id in ["hash1", "hash2"] for doc in unique)
 
 
 def test_completeness_calculation(analyzer):
@@ -238,6 +239,8 @@ def test_format_documents_for_analysis(analyzer, mock_documents):
     assert "Company Safety Policy" in formatted
     assert "DEF00001-DEF00050" in formatted
     assert "DEF00051-DEF00075" in formatted
+    assert "Score: 0.950" in formatted  # Check score formatting
+    assert "Score: 0.920" in formatted
     
     # Test with no documents
     formatted_empty = analyzer._format_documents_for_analysis([])

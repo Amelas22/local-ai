@@ -93,6 +93,17 @@ class DiscoveryProcessingStatus(BaseModel):
     # Document tracking
     documents: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     # Format: {doc_id: {"title": str, "pages": int, "facts": int, "status": str}}
+    
+    # RFP and Defense Response file storage (temporary)
+    rfp_content: Optional[bytes] = Field(None, exclude=True)  # Exclude from API responses
+    rfp_filename: Optional[str] = None
+    rfp_document_id: Optional[str] = None
+    defense_content: Optional[bytes] = Field(None, exclude=True)  # Exclude from API responses
+    defense_filename: Optional[str] = None
+    defense_response_id: Optional[str] = None
+    
+    # Deficiency report storage (temporary)
+    deficiency_report: Optional[Any] = Field(None, exclude=True)  # Exclude from API responses
 
 
 class FactDeleteRequest(BaseModel):
@@ -220,6 +231,9 @@ class DiscoveryProcessingResponse(BaseModel):
     status: str
     message: str
     websocket_url: Optional[str] = None
+    production_batch: Optional[str] = None
+    rfp_file_id: Optional[str] = None
+    defense_response_file_id: Optional[str] = None
 
 
 class FactSearchRequest(BaseModel):

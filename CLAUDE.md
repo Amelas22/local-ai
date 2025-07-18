@@ -316,6 +316,24 @@ async def search_case_documents(case_name: str, query: str) -> List[UnifiedDocum
     )
 ```
 
+### Production Batch Filtering Pattern (IMPORTANT)
+Due to Qdrant limitations with filtering on fields containing dots, production-related fields are stored at the top level:
+```python
+# When filtering by production batch, use top-level field name (no dots)
+results = vector_store.search_documents(
+    collection_name=case_name,
+    query_embedding=embedding,
+    filters={"production_batch": "Batch001"}  # NOT "metadata.production_batch"
+)
+
+# Production fields stored at top level:
+# - production_batch
+# - producing_party  
+# - production_date
+# - responsive_to_requests
+# - confidentiality_designation
+```
+
 ### Document Processing Pattern
 Use the unified document management system:
 ```python

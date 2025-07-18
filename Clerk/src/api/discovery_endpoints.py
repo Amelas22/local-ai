@@ -9,8 +9,6 @@ from fastapi import (
     APIRouter,
     HTTPException,
     Depends,
-    File,
-    Form,
     BackgroundTasks,
     Request,
 )
@@ -20,7 +18,6 @@ import uuid
 import base64
 import asyncio
 import hashlib
-import json
 
 from ..models.discovery_models import (
     DiscoveryProcessingRequest as EndpointDiscoveryRequest,
@@ -43,7 +40,7 @@ from ..document_processing.unified_document_manager import UnifiedDocumentManage
 from ..document_processing.enhanced_chunker import EnhancedChunker
 from ..vector_storage.embeddings import EmbeddingGenerator
 from ..vector_storage.qdrant_store import QdrantVectorStore
-from ..models.unified_document_models import DocumentType, UnifiedDocument, DiscoveryProcessingRequest
+from ..models.unified_document_models import UnifiedDocument
 from ..ai_agents.fact_extractor import FactExtractor
 from ..websocket.socket_server import (
     sio,
@@ -76,8 +73,6 @@ else:
     )
 
 from ..document_processing.box_client import BoxClient
-from ..document_processing.pdf_extractor import PDFExtractor
-from ..vector_storage.qdrant_store import QdrantVectorStore
 from ..utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -291,13 +286,19 @@ async def process_discovery(
         total_files=len(discovery_files) if discovery_files else 0
     )
 
+    # Store the IDs in the processing status for later use
+    if rfp_file:
+        processing_status[processing_id].rfp_document_id = f"rfp_{processing_id}"
+    if defense_response_file:
+        processing_status[processing_id].defense_response_id = f"defense_{processing_id}"
+    
     return DiscoveryProcessingResponse(
         processing_id=processing_id,
         status="started",
         message="Discovery processing started",
         production_batch=production_batch,
-        rfp_file_id=rfp_file.get("filename") if rfp_file else None,
-        defense_response_file_id=defense_response_file.get("filename") if defense_response_file else None,
+        rfp_file_id=f"rfp_{processing_id}" if rfp_file else None,
+        defense_response_file_id=f"defense_{processing_id}" if defense_response_file else None,
     )
 
 
@@ -306,7 +307,7 @@ async def _process_discovery_async(
     case_name: str,
     request: EndpointDiscoveryRequest,
     discovery_files: List[Dict[str, Any]],
-    rfp_file: Optional[UploadFile],
+    rfp_file: Optional[Dict[str, Any]],
     defense_response_file: Optional[Dict[str, Any]],
     production_batch: str,
     producing_party: str,
@@ -355,7 +356,7 @@ async def _process_discovery_async(
     }
     
     try:
-        logger.info(f"Emitting discovery:started event")
+        logger.info("Emitting discovery:started event")
         # Emit start event
         await emit_discovery_started(
             processing_id=processing_id,
@@ -363,6 +364,43 @@ async def _process_discovery_async(
             total_files=len(discovery_files or [])
         )
         logger.info(f"Event emitted, processing {len(discovery_files or [])} files")
+        
+        # Store RFP and defense response files if provided
+        rfp_document_id = None
+        defense_response_id = None
+        
+        if rfp_file and isinstance(rfp_file, dict):
+            logger.info(f"Storing RFP file: {rfp_file.get('filename')}")
+            try:
+                # Decode base64 content
+                rfp_content = base64.b64decode(rfp_file['content'])
+                rfp_document_id = f"rfp_{processing_id}"
+                
+                # Store the RFP document content temporarily for later access
+                # We'll store it in memory or a temporary location
+                processing_status[processing_id].rfp_content = rfp_content
+                processing_status[processing_id].rfp_filename = rfp_file.get('filename', 'rfp.pdf')
+                processing_status[processing_id].rfp_document_id = rfp_document_id
+                
+                logger.info(f"Stored RFP file with ID: {rfp_document_id}")
+            except Exception as e:
+                logger.error(f"Failed to store RFP file: {str(e)}")
+        
+        if defense_response_file and isinstance(defense_response_file, dict):
+            logger.info(f"Storing defense response file: {defense_response_file.get('filename')}")
+            try:
+                # Decode base64 content
+                defense_content = base64.b64decode(defense_response_file['content'])
+                defense_response_id = f"defense_{processing_id}"
+                
+                # Store the defense response document content temporarily for later access
+                processing_status[processing_id].defense_content = defense_content
+                processing_status[processing_id].defense_filename = defense_response_file.get('filename', 'defense_response.pdf')
+                processing_status[processing_id].defense_response_id = defense_response_id
+                
+                logger.info(f"Stored defense response file with ID: {defense_response_id}")
+            except Exception as e:
+                logger.error(f"Failed to store defense response file: {str(e)}")
         
         # Process each uploaded PDF
         for idx, file_data in enumerate(discovery_files or []):
@@ -577,6 +615,10 @@ async def _process_discovery_async(
                             progress=0.0
                         )
                         
+                        # Initialize sparse encoder for hybrid search
+                        from src.vector_storage.sparse_encoder import SparseVectorEncoder
+                        sparse_encoder = SparseVectorEncoder()
+                        
                         # Prepare all chunks for batch storage
                         chunk_data = []
                         logger.info(f"📦 [Discovery {processing_id}] Preparing {len(chunks)} chunks for batch storage")
@@ -599,6 +641,9 @@ async def _process_discovery_async(
                                 )
                                 raise
                             
+                            # Generate sparse vectors for hybrid search
+                            keywords_sparse, citations_sparse = sparse_encoder.encode_for_hybrid_search(chunk_text)
+                            
                             # Use the actual chunk text field
                             chunk_content = chunk_text
                             
@@ -611,8 +656,13 @@ async def _process_discovery_async(
                                 "document_type": segment.document_type.value,
                                 "document_path": f"discovery/{production_batch}/{segment.title or 'document'}.pdf",
                                 "bates_range": segment.bates_range,
-                                "producing_party": producing_party,
+                                # Production metadata - CRITICAL for filtering
                                 "production_batch": production_batch,
+                                "producing_party": producing_party,
+                                "production_date": production_date or datetime.utcnow().isoformat(),
+                                "responsive_to_requests": responsive_to_requests,
+                                "confidentiality_designation": confidentiality_designation,
+                                # Chunk-specific metadata
                                 "section_title": chunk.section_title,
                                 "semantic_type": chunk.semantic_type,
                                 "start_page": chunk.start_page,
@@ -622,6 +672,8 @@ async def _process_discovery_async(
                             chunk_data.append({
                                 "content": chunk_content,
                                 "embedding": embedding,
+                                "keywords_sparse": keywords_sparse,
+                                "citations_sparse": citations_sparse,
                                 "metadata": chunk_metadata
                             })
                         
@@ -1068,7 +1120,7 @@ async def test_discovery_events(
             }
         }
         await sio.emit("discovery:fact_extracted", fact_data, room=f"case_{case_context.case_id if case_context else 'test_case'}")
-        logger.info(f"✅ Emitted discovery:fact_extracted")
+        logger.info("✅ Emitted discovery:fact_extracted")
         
         await asyncio.sleep(1)
         
@@ -1078,7 +1130,7 @@ async def test_discovery_events(
             "document_id": doc_id,
             "facts_extracted": 1
         }, room=f"case_{case_context.case_id if case_context else 'test_case'}")
-        logger.info(f"✅ Emitted discovery:document_completed")
+        logger.info("✅ Emitted discovery:document_completed")
         
         await asyncio.sleep(1)
         
@@ -1096,7 +1148,7 @@ async def test_discovery_events(
                 "processingTime": 5.0
             }
         )
-        logger.info(f"✅ Emitted discovery:completed")
+        logger.info("✅ Emitted discovery:completed")
         
         return {
             "message": "Test events emitted successfully",
@@ -1234,6 +1286,9 @@ async def get_deficiency_report(
 ) -> DeficiencyReport:
     """Get a completed deficiency report.
     
+    Note: This retrieves from temporary storage, NOT from the vector database
+    to maintain separation between case documents and AI analysis.
+    
     Args:
         report_id: ID of the deficiency report
         case_context: Case access validation
@@ -1241,8 +1296,34 @@ async def get_deficiency_report(
     Returns:
         DeficiencyReport with analysis results
     """
-    # Retrieve report from storage
-    report = await get_stored_deficiency_report(report_id, case_context.case_name)
+    # Look for the report in processing status
+    for proc_id, status in processing_status.items():
+        if hasattr(status, 'deficiency_report') and status.deficiency_report:
+            if status.deficiency_report.id == report_id and status.case_name == case_context.case_name:
+                return status.deficiency_report
+    
+    raise HTTPException(
+        status_code=404,
+        detail=f"Deficiency report {report_id} not found"
+    )
+
+
+@router.get("/deficiency-reports/{report_id}/pdf")
+async def download_deficiency_report_pdf(
+    report_id: str,
+    case_context: CaseContext = Depends(require_case_context("read"))
+):
+    """Download deficiency report as PDF.
+    
+    Generates a PDF on-the-fly from the report data.
+    """
+    # First get the report
+    report = None
+    for proc_id, status in processing_status.items():
+        if hasattr(status, 'deficiency_report') and status.deficiency_report:
+            if status.deficiency_report.id == report_id and status.case_name == case_context.case_name:
+                report = status.deficiency_report
+                break
     
     if not report:
         raise HTTPException(
@@ -1250,7 +1331,113 @@ async def get_deficiency_report(
             detail=f"Deficiency report {report_id} not found"
         )
     
-    return report
+    # Generate PDF content
+    from io import BytesIO
+    from reportlab.lib.pagesizes import letter
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.lib import colors
+    
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    styles = getSampleStyleSheet()
+    story = []
+    
+    # Title
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        textColor=colors.HexColor('#1a73e8'),
+        spaceAfter=30
+    )
+    story.append(Paragraph("Discovery Deficiency Analysis Report", title_style))
+    story.append(Spacer(1, 0.2*inch))
+    
+    # Report metadata
+    metadata = [
+        ["Case:", report.case_name],
+        ["Production Batch:", report.production_batch],
+        ["Generated:", report.generated_at.strftime("%B %d, %Y at %I:%M %p")],
+        ["Overall Completeness:", f"{report.overall_completeness:.1f}%"]
+    ]
+    
+    metadata_table = Table(metadata, colWidths=[2*inch, 4*inch])
+    metadata_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    story.append(metadata_table)
+    story.append(Spacer(1, 0.5*inch))
+    
+    # Analysis summary
+    story.append(Paragraph("Analysis Summary", styles['Heading2']))
+    summary_data = [
+        ["Total Requests:", str(len(report.analyses))],
+        ["Fully Produced:", str(sum(1 for a in report.analyses if a.status == ProductionStatus.FULLY_PRODUCED))],
+        ["Partially Produced:", str(sum(1 for a in report.analyses if a.status == ProductionStatus.PARTIALLY_PRODUCED))],
+        ["Not Produced:", str(sum(1 for a in report.analyses if a.status == ProductionStatus.NOT_PRODUCED))]
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[2*inch, 1*inch])
+    summary_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 0.5*inch))
+    
+    # Detailed analysis for each request
+    story.append(Paragraph("Detailed Analysis", styles['Heading2']))
+    
+    for analysis in report.analyses:
+        # Request header
+        status_color = {
+            ProductionStatus.FULLY_PRODUCED: colors.green,
+            ProductionStatus.PARTIALLY_PRODUCED: colors.orange,
+            ProductionStatus.NOT_PRODUCED: colors.red
+        }.get(analysis.status, colors.black)
+        
+        request_style = ParagraphStyle(
+            'RequestHeader',
+            parent=styles['Heading3'],
+            textColor=status_color,
+            fontSize=12
+        )
+        
+        story.append(Paragraph(f"Request {analysis.request_number}: {analysis.status.value.replace('_', ' ').title()}", request_style))
+        story.append(Paragraph(f"<b>Request:</b> {analysis.request_text}", styles['Normal']))
+        
+        if analysis.response_text:
+            story.append(Paragraph(f"<b>Defense Response:</b> {analysis.response_text}", styles['Normal']))
+        
+        if analysis.deficiencies:
+            story.append(Paragraph("<b>Deficiencies:</b>", styles['Normal']))
+            for deficiency in analysis.deficiencies:
+                story.append(Paragraph(f"• {deficiency}", styles['Normal']))
+        
+        story.append(Spacer(1, 0.3*inch))
+    
+    # Build PDF
+    doc.build(story)
+    buffer.seek(0)
+    
+    from fastapi.responses import StreamingResponse
+    
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=deficiency_report_{report.production_batch}_{report.generated_at.strftime('%Y%m%d')}.pdf"
+        }
+    )
 
 
 async def _analyze_deficiencies_async(
@@ -1323,75 +1510,31 @@ async def _analyze_deficiencies_async(
 
 
 async def store_deficiency_report(report: DeficiencyReport):
-    """Store deficiency report in vector database.
+    """Store deficiency report for later retrieval (temporary storage).
+    
+    Note: This does NOT store in the vector database to avoid contaminating
+    case documents with AI-generated analysis.
     
     Args:
         report: DeficiencyReport to store
     """
     try:
-        vector_store = QdrantVectorStore()
-        
-        # Create a document representation of the report
-        report_document = UnifiedDocument(
-            id=report.id,
-            case_name=report.case_name,
-            document_hash=hashlib.sha256(report.model_dump_json().encode()).hexdigest(),
-            file_name=f"deficiency_report_{report.production_batch}.json",
-            title=f"Deficiency Analysis Report - {report.production_batch}",
-            content=report.model_dump_json(),
-            document_type="deficiency_report",
-            metadata={
-                "report_type": "deficiency_analysis",
-                "processing_id": report.processing_id,
-                "production_batch": report.production_batch,
-                "rfp_document_id": report.rfp_document_id,
-                "overall_completeness": report.overall_completeness,
-                "generated_at": report.generated_at.isoformat()
-            }
-        )
-        
-        # Store in vector database
-        await vector_store.add_documents(
-            collection_name=report.case_name,
-            documents=[report_document]
-        )
-        
-        logger.info(f"Stored deficiency report {report.id} for case {report.case_name}")
+        # For now, just store in memory with the processing status
+        # In the future, this could be stored in a separate analysis database
+        processing_id = report.processing_id
+        if processing_id in processing_status:
+            processing_status[processing_id].deficiency_report = report
+            logger.info(f"Temporarily stored deficiency report {report.id} for case {report.case_name}")
+        else:
+            logger.warning(f"Processing status not found for {processing_id}, report not stored")
         
     except Exception as e:
         logger.error(f"Failed to store deficiency report: {str(e)}", exc_info=True)
         raise
 
 
-async def get_stored_deficiency_report(report_id: str, case_name: str) -> Optional[DeficiencyReport]:
-    """Retrieve deficiency report from storage.
-    
-    Args:
-        report_id: ID of the report to retrieve
-        case_name: Case name for access control
-        
-    Returns:
-        DeficiencyReport if found, None otherwise
-    """
-    try:
-        vector_store = QdrantVectorStore()
-        
-        # Get document by ID
-        document = await vector_store.get_document_by_id(
-            collection_name=case_name,
-            document_id=report_id
-        )
-        
-        if document and document.document_type == "deficiency_report":
-            # Parse the JSON content back to DeficiencyReport
-            report_data = json.loads(document.content)
-            return DeficiencyReport(**report_data)
-        
-        return None
-        
-    except Exception as e:
-        logger.error(f"Failed to retrieve deficiency report: {str(e)}", exc_info=True)
-        return None
+# Note: get_stored_deficiency_report was removed as we no longer store reports in the vector database
+# to maintain separation between case documents and AI-generated analysis
 
 
 async def emit_processing_error(processing_id: str, case_id: str, error: str, stage: str):
