@@ -30,7 +30,6 @@ from qdrant_client.models import (
     SparseVectorParams,
     SparseIndexParams,
     SparseVector,
-    models,
 )
 from config.settings import settings
 from src.utils.logger import get_logger

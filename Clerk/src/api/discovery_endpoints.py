@@ -71,6 +71,8 @@ from ..document_processing.box_client import BoxClient
 from ..document_processing.pdf_extractor import PDFExtractor
 from ..vector_storage.qdrant_store import QdrantVectorStore
 from ..utils.logger import setup_logger
+from ..utils.temp_file_manager import get_temp_file_manager
+from ..utils.pdf_validator import validate_pdf_content, PDFValidationError
 
 logger = setup_logger(__name__)
 
@@ -227,6 +229,14 @@ async def process_discovery(
                     logger.error(f"Failed to decode base64 content for {filename}: {e}")
                     content = b""
                     
+                # Validate PDF content
+                is_valid, message = validate_pdf_content(content, filename)
+                if not is_valid:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid PDF file '{filename}': {message}"
+                    )
+                    
                 file_contents.append({
                     "filename": filename,
                     "content": content,
@@ -263,23 +273,29 @@ async def process_discovery(
     )
 
 
-async def _process_discovery_async(
+async def _process_discovery_core(
     processing_id: str,
     case_name: str,
-    request: EndpointDiscoveryRequest,
     discovery_files: List[Dict[str, Any]],
-    rfp_file: Optional[UploadFile],
-    production_batch: str,
-    producing_party: str,
-    production_date: Optional[str],
-    responsive_to_requests: List[str],
-    confidentiality_designation: Optional[str],
-    enable_fact_extraction: bool,
-):
-    """Background task for processing discovery documents with document splitting"""
-    logger.info(f"🚀 Starting async discovery processing for {processing_id}")
+    production_metadata: Dict[str, Any],
+    enable_fact_extraction: bool = True,
+) -> Dict[str, Any]:
+    """
+    Core discovery processing logic used by all discovery endpoints.
+    
+    Args:
+        processing_id: Unique ID for the processing job
+        case_name: Name of the case for isolation
+        discovery_files: List of file data dicts with 'filename', 'content', 'content_type'
+        production_metadata: Metadata about the production including batch, party, etc.
+        enable_fact_extraction: Whether to extract facts from documents
+        
+    Returns:
+        Processing result dictionary
+    """
+    logger.info(f"🚀 Starting core discovery processing for {processing_id}")
     logger.info(f"📋 Case: {case_name}, Files: {len(discovery_files or [])}")
-    logger.info(f"📋 Production batch: {production_batch}, Producing party: {producing_party}")
+    logger.info(f"📋 Production metadata: {production_metadata}")
     logger.info(f"📋 Fact extraction enabled: {enable_fact_extraction}")
     
     # Initialize processors
@@ -339,13 +355,6 @@ async def _process_discovery_async(
                 
                 # Process with discovery splitter
                 logger.info(f"📄 [Discovery {processing_id}] Processing PDF: {filename}")
-                production_metadata = {
-                    "production_batch": production_batch or f"batch_{idx}",
-                    "producing_party": producing_party or "Unknown",
-                    "production_date": production_date or datetime.now().isoformat(),
-                    "responsive_to_requests": responsive_to_requests or [],
-                    "confidentiality_designation": confidentiality_designation,
-                }
                 logger.info(f"📝 [Discovery {processing_id}] Production metadata: {production_metadata}")
                 
                 # Create progress callback to emit WebSocket events
@@ -459,23 +468,24 @@ async def _process_discovery_async(
                             case_name=case_name,
                             document_hash=doc_hash,
                             file_name=f"{segment.title or 'document'}.pdf",
-                            file_path=f"discovery/{production_batch}/{segment.title or 'document'}.pdf",
+                            file_path=f"discovery/{production_metadata.get('production_batch', 'batch')}/{segment.title or 'document'}.pdf",
                             file_size=len(segment_text.encode('utf-8')),  # Approximate size
                             document_type=segment.document_type,
                             title=segment.title or f"{segment.document_type} Document",
-                            description=f"Discovery document: {segment.document_type.value} from {producing_party}",
+                            description=f"Discovery document: {segment.document_type.value} from {production_metadata.get('producing_party', 'Unknown')}",
                             last_modified=datetime.utcnow(),
                             total_pages=segment.end_page - segment.start_page + 1,
                             summary=f"Pages {segment.start_page}-{segment.end_page} of discovery production",
                             search_text=segment_text,
                             # Optional fields with discovery metadata
                             metadata={
-                                "producing_party": producing_party,
-                                "production_batch": production_batch,
+                                "producing_party": production_metadata.get('producing_party', 'Unknown'),
+                                "production_batch": production_metadata.get('production_batch', 'batch'),
                                 "bates_range": segment.bates_range,
                                 "page_range": f"{segment.start_page}-{segment.end_page}",
                                 "confidence_score": segment.confidence_score,
                                 "processing_id": processing_id,
+                                **production_metadata  # Include all production metadata
                             }
                         )
                         
@@ -570,10 +580,10 @@ async def _process_discovery_async(
                                 "document_id": stored_doc_id,
                                 "document_name": segment.title or f"Document {segment.document_type}",
                                 "document_type": segment.document_type.value,
-                                "document_path": f"discovery/{production_batch}/{segment.title or 'document'}.pdf",
+                                "document_path": f"discovery/{production_metadata.get('production_batch', 'batch')}/{segment.title or 'document'}.pdf",
                                 "bates_range": segment.bates_range,
-                                "producing_party": producing_party,
-                                "production_batch": production_batch,
+                                "producing_party": production_metadata.get('producing_party', 'Unknown'),
+                                "production_batch": production_metadata.get('production_batch', 'batch'),
                                 "section_title": chunk.section_title,
                                 "semantic_type": chunk.semantic_type,
                                 "start_page": chunk.start_page,
@@ -593,7 +603,7 @@ async def _process_discovery_async(
                                     case_name=case_name,
                                     document_id=stored_doc_id,
                                     chunks=chunk_data,
-                                    use_hybrid=True
+                                    use_hybrid=True  # Store in hybrid collection for better search
                                 )
                                 logger.info(f"Stored {len(stored_ids)} chunks for document {stored_doc_id}")
                                 
@@ -623,8 +633,8 @@ async def _process_discovery_async(
                                 metadata={
                                     "document_type": segment.document_type.value,
                                     "bates_range": segment.bates_range,
-                                    "producing_party": producing_party,
-                                    "production_batch": production_batch
+                                    "producing_party": production_metadata.get('producing_party', 'Unknown'),
+                                    "production_batch": production_metadata.get('production_batch', 'batch')
                                 }
                             )
                             
@@ -738,6 +748,373 @@ async def _process_discovery_async(
             error=str(e),
             stage="discovery_processing"
         )
+        
+    return processing_result
+
+
+async def _process_discovery_async(
+    processing_id: str,
+    case_name: str,
+    request: EndpointDiscoveryRequest,
+    discovery_files: List[Dict[str, Any]],
+    rfp_file: Optional[UploadFile],
+    production_batch: str,
+    producing_party: str,
+    production_date: Optional[str],
+    responsive_to_requests: List[str],
+    confidentiality_designation: Optional[str],
+    enable_fact_extraction: bool,
+):
+    """
+    Legacy async wrapper for background task compatibility.
+    Calls the refactored core processing logic.
+    """
+    # Build production metadata
+    production_metadata = {
+        "production_batch": production_batch or "Batch001",
+        "producing_party": producing_party or "Opposing Counsel",
+        "production_date": production_date or datetime.now().isoformat(),
+        "responsive_to_requests": responsive_to_requests or [],
+        "confidentiality_designation": confidentiality_designation,
+    }
+    
+    # Call core processing logic
+    await _process_discovery_core(
+        processing_id=processing_id,
+        case_name=case_name,
+        discovery_files=discovery_files,
+        production_metadata=production_metadata,
+        enable_fact_extraction=enable_fact_extraction
+    )
+
+
+async def _process_discovery_with_cleanup(
+    processing_id: str,
+    case_name: str,
+    discovery_files: List[Dict[str, Any]],
+    production_metadata: Dict[str, Any],
+    enable_fact_extraction: bool = True,
+    cleanup_on_complete: bool = False
+):
+    """
+    Wrapper for discovery processing that ensures temp file cleanup.
+    
+    Args:
+        Same as _process_discovery_core plus:
+        cleanup_on_complete: Whether to clean up temp files after processing
+    """
+    try:
+        # Run the core processing
+        result = await _process_discovery_core(
+            processing_id=processing_id,
+            case_name=case_name,
+            discovery_files=discovery_files,
+            production_metadata=production_metadata,
+            enable_fact_extraction=enable_fact_extraction
+        )
+        return result
+    finally:
+        # Clean up temp files if requested
+        if cleanup_on_complete:
+            try:
+                temp_file_manager = get_temp_file_manager()
+                cleaned = await temp_file_manager.cleanup_temp_files(processing_id=processing_id)
+                logger.info(f"Cleaned up {cleaned} temp files for processing {processing_id}")
+            except Exception as e:
+                logger.error(f"Error during temp file cleanup: {e}")
+
+
+@router.post("/process-with-deficiency", response_model=DiscoveryProcessingResponse)
+async def process_discovery_with_deficiency(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    case_context: CaseContext = Depends(require_case_context("write")),
+) -> DiscoveryProcessingResponse:
+    """
+    Process discovery documents with optional RTP and OC response documents for deficiency analysis.
+    
+    Supports multiple input formats:
+    - JSON with base64 encoded files (discovery PDF, RTP PDF, OC response PDF)
+    - multipart/form-data uploads
+    - Optional deficiency analysis triggering
+    """
+    processing_id = str(uuid.uuid4())
+    
+    # Check content type
+    content_type = request.headers.get("content-type", "")
+    logger.info(f"Discovery with deficiency request content-type: {content_type}")
+    
+    # Initialize default values
+    discovery_files = []
+    rtp_file = None
+    oc_response_file = None
+    production_batch = "Batch001"
+    producing_party = "Opposing Counsel"
+    production_date = None
+    responsive_to_requests = []
+    confidentiality_designation = None
+    enable_fact_extraction = True
+    enable_deficiency_analysis = False
+    
+    try:
+        if "application/json" in content_type:
+            # Handle JSON request with base64-encoded files
+            request_data = await request.json()
+            
+            # Get main discovery file (required)
+            pdf_file = request_data.get("pdf_file")
+            if pdf_file:
+                discovery_files = [{
+                    "filename": "discovery_production.pdf",
+                    "content": base64.b64decode(pdf_file),
+                    "content_type": "application/pdf"
+                }]
+            
+            # Get optional RTP and OC response files
+            rtp_file_b64 = request_data.get("rtp_file")
+            oc_response_file_b64 = request_data.get("oc_response_file")
+            
+            if rtp_file_b64:
+                rtp_file = {
+                    "filename": "rtp_document.pdf",
+                    "content": base64.b64decode(rtp_file_b64),
+                    "content_type": "application/pdf"
+                }
+            
+            if oc_response_file_b64:
+                oc_response_file = {
+                    "filename": "oc_response_document.pdf",
+                    "content": base64.b64decode(oc_response_file_b64),
+                    "content_type": "application/pdf"
+                }
+            
+            # Extract production metadata
+            production_metadata = request_data.get("production_metadata", {})
+            production_batch = production_metadata.get("production_batch", "Batch001")
+            producing_party = production_metadata.get("producing_party", "Opposing Counsel")
+            production_date = production_metadata.get("production_date")
+            responsive_to_requests = production_metadata.get("responsive_to_requests", [])
+            confidentiality_designation = production_metadata.get("confidentiality_designation")
+            
+            # Get processing options
+            enable_fact_extraction = request_data.get("enable_fact_extraction", True)
+            enable_deficiency_analysis = request_data.get("enable_deficiency_analysis", False)
+            
+        else:
+            # Handle multipart/form-data
+            try:
+                form = await request.form()
+                
+                # Get discovery file
+                discovery_file = form.get("pdf_file")
+                if discovery_file and isinstance(discovery_file, UploadFile):
+                    content = await discovery_file.read()
+                    discovery_files = [{
+                        "filename": discovery_file.filename,
+                        "content": content,
+                        "content_type": discovery_file.content_type
+                    }]
+                    await discovery_file.close()
+                
+                # Get optional RTP file
+                rtp_upload = form.get("rtp_file")
+                if rtp_upload and isinstance(rtp_upload, UploadFile):
+                    content = await rtp_upload.read()
+                    rtp_file = {
+                        "filename": rtp_upload.filename,
+                        "content": content,
+                        "content_type": rtp_upload.content_type
+                    }
+                    await rtp_upload.close()
+                
+                # Get optional OC response file
+                oc_upload = form.get("oc_response_file")
+                if oc_upload and isinstance(oc_upload, UploadFile):
+                    content = await oc_upload.read()
+                    oc_response_file = {
+                        "filename": oc_upload.filename,
+                        "content": content,
+                        "content_type": oc_upload.content_type
+                    }
+                    await oc_upload.close()
+                
+                # Get other form fields
+                production_batch = form.get("production_batch", "Batch001")
+                producing_party = form.get("producing_party", "Opposing Counsel")
+                enable_deficiency_analysis = form.get("enable_deficiency_analysis", "false").lower() == "true"
+                
+            except Exception as form_error:
+                logger.error(f"Form parsing failed: {form_error}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid form data: {str(form_error)}"
+                )
+                
+    except Exception as e:
+        logger.error(f"Error parsing request: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid request format: {str(e)}"
+        )
+    
+    # Validate required fields
+    if not discovery_files:
+        raise HTTPException(
+            status_code=400,
+            detail="Discovery PDF file is required"
+        )
+    
+    # Validate PDF files
+    for file_data in discovery_files:
+        is_valid, message = validate_pdf_content(
+            file_data['content'], 
+            file_data.get('filename', 'discovery.pdf')
+        )
+        if not is_valid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid discovery PDF: {message}"
+            )
+    
+    # Validate RTP file if provided
+    if rtp_file:
+        is_valid, message = validate_pdf_content(
+            rtp_file['content'],
+            rtp_file.get('filename', 'rtp.pdf')
+        )
+        if not is_valid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid RTP PDF: {message}"
+            )
+    
+    # Validate OC response file if provided
+    if oc_response_file:
+        is_valid, message = validate_pdf_content(
+            oc_response_file['content'],
+            oc_response_file.get('filename', 'oc_response.pdf')
+        )
+        if not is_valid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid OC response PDF: {message}"
+            )
+    
+    # Initialize processing status
+    status = DiscoveryProcessingStatus(
+        processing_id=processing_id,
+        case_id=case_context.case_id,
+        case_name=case_context.case_name,
+        total_documents=0,
+        processed_documents=0,
+        total_facts=0,
+        status="processing",
+    )
+    processing_status[processing_id] = status
+    
+    # Build production metadata with optional document references
+    production_metadata = {
+        "production_batch": production_batch,
+        "producing_party": producing_party,
+        "production_date": production_date,
+        "responsive_to_requests": responsive_to_requests,
+        "confidentiality_designation": confidentiality_designation,
+        "has_deficiency_analysis": bool(rtp_file and oc_response_file and enable_deficiency_analysis),
+    }
+    
+    # Process RTP and OC response files if provided
+    temp_file_manager = get_temp_file_manager()
+    
+    if rtp_file or oc_response_file:
+        # Store temp files without context manager since we're using background tasks
+        try:
+            if rtp_file:
+                logger.info(f"Storing RTP file: {rtp_file['filename']}")
+                rtp_id, rtp_path = await temp_file_manager.save_temp_file(
+                    content=rtp_file['content'],
+                    filename=rtp_file['filename'],
+                    processing_id=processing_id,
+                    file_type="rtp"
+                )
+                production_metadata["rtp_document_id"] = rtp_id
+                production_metadata["rtp_document_path"] = rtp_path
+                
+                # Emit WebSocket event for RTP upload
+                await sio.emit(
+                    "discovery:rtp_upload",
+                    {
+                        "event_type": "discovery:rtp_upload",
+                        "production_id": processing_id,
+                        "case_name": case_context.case_name,
+                        "document_info": {
+                            "document_id": rtp_id,
+                            "filename": rtp_file['filename'],
+                            "size_bytes": len(rtp_file['content']),
+                            "upload_timestamp": datetime.utcnow().isoformat() + "Z",
+                            "status": "uploaded"
+                        }
+                    },
+                    room=f"case_{case_context.case_id}"
+                )
+                
+            if oc_response_file:
+                logger.info(f"Storing OC response file: {oc_response_file['filename']}")
+                oc_id, oc_path = await temp_file_manager.save_temp_file(
+                    content=oc_response_file['content'],
+                    filename=oc_response_file['filename'],
+                    processing_id=processing_id,
+                    file_type="oc_response"
+                )
+                production_metadata["oc_response_document_id"] = oc_id
+                production_metadata["oc_response_document_path"] = oc_path
+                
+                # Emit WebSocket event for OC response upload
+                await sio.emit(
+                    "discovery:oc_response_upload",
+                    {
+                        "event_type": "discovery:oc_response_upload",
+                        "production_id": processing_id,
+                        "case_name": case_context.case_name,
+                        "document_info": {
+                            "document_id": oc_id,
+                            "filename": oc_response_file['filename'],
+                            "size_bytes": len(oc_response_file['content']),
+                            "upload_timestamp": datetime.utcnow().isoformat() + "Z",
+                            "status": "uploaded"
+                        }
+                    },
+                    room=f"case_{case_context.case_id}"
+                )
+        except Exception as e:
+            logger.error(f"Failed to store temporary files: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to store temporary files: {str(e)}"
+            )
+    
+    # Launch background processing with core logic
+    background_tasks.add_task(
+        _process_discovery_with_cleanup,
+        processing_id,
+        case_context.case_name,
+        discovery_files,
+        production_metadata,
+        enable_fact_extraction,
+        cleanup_on_complete=bool(rtp_file or oc_response_file)
+    )
+    
+    # Emit WebSocket event
+    await emit_discovery_started(
+        processing_id=processing_id,
+        case_id=case_context.case_id,
+        total_files=len(discovery_files)
+    )
+    
+    return DiscoveryProcessingResponse(
+        processing_id=processing_id,
+        status="started",
+        message="Discovery processing with deficiency analysis started",
+    )
 
 
 @router.get("/status/{processing_id}", response_model=DiscoveryProcessingStatus)
@@ -1126,42 +1503,3 @@ async def store_processing_result(processing_id: str, result: Dict[str, Any]):
         if result.get("error"):
             processing_status[processing_id].error_message = result["error"]
 
-
-async def emit_processing_completed(processing_id: str, case_id: str, summary: Dict[str, Any]):
-    """
-    Emit processing completed event via WebSocket.
-    
-    Args:
-        processing_id: Unique ID for the processing job
-        case_id: Case ID for room-based event emission
-        summary: Summary of processing results
-    """
-    await sio.emit(
-        "discovery:completed",
-        {
-            "processingId": processing_id,
-            "summary": summary
-        },
-        room=f"case_{case_id}"
-    )
-
-
-async def emit_processing_error(processing_id: str, case_id: str, error: str, stage: str):
-    """
-    Emit processing error event via WebSocket.
-    
-    Args:
-        processing_id: Unique ID for the processing job
-        case_id: Case ID for room-based event emission
-        error: Error message
-        stage: Stage where error occurred
-    """
-    await sio.emit(
-        "discovery:error",
-        {
-            "processingId": processing_id,
-            "error": error,
-            "stage": stage
-        },
-        room=f"case_{case_id}"
-    )

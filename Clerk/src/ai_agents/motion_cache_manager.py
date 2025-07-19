@@ -79,7 +79,7 @@ class MotionDraftingCache:
         """Estimate size of value in bytes"""
         try:
             return len(pickle.dumps(value))
-        except:
+        except (TypeError, pickle.PicklingError):
             # Fallback for non-pickleable objects
             return len(str(value).encode())
 

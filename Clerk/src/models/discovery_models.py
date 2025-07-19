@@ -5,11 +5,39 @@ Extends existing fact models with source tracking and edit capabilities.
 
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 import uuid
+import base64
 
 from src.models.fact_models import CaseFact, FactCategory
-from src.models.unified_document_models import DocumentType
+from src.models.unified_document_models import DocumentType, DiscoveryMetadata
+
+
+class DiscoveryMetadataWithDeficiency(DiscoveryMetadata):
+    """
+    Extended discovery metadata that includes deficiency analysis references.
+    """
+    
+    has_deficiency_analysis: bool = Field(
+        default=False,
+        description="Whether this production has associated RTP/OC response documents"
+    )
+    rtp_document_path: Optional[str] = Field(
+        None,
+        description="Temporary file path to RTP document"
+    )
+    oc_response_document_path: Optional[str] = Field(
+        None,
+        description="Temporary file path to OC response document"
+    )
+    rtp_document_id: Optional[str] = Field(
+        None,
+        description="UUID reference for RTP document"
+    )
+    oc_response_document_id: Optional[str] = Field(
+        None,
+        description="UUID reference for OC response document"
+    )
 
 
 class FactSource(BaseModel):
@@ -61,6 +89,13 @@ class DiscoveryProcessingRequest(BaseModel):
     )
     box_folder_id: Optional[str] = Field(None, description="Box folder ID if using Box")
     rfp_file: Optional[str] = Field(None, description="Request for Production document")
+    
+    # New optional fields for deficiency analysis
+    rtp_file: Optional[str] = Field(None, description="Base64-encoded RTP document PDF")
+    oc_response_file: Optional[str] = Field(None, description="Base64-encoded OC response document PDF")
+    enable_deficiency_analysis: bool = Field(
+        default=False, description="Enable deficiency analysis when RTP/OC files provided"
+    )
 
     # Processing options
     enable_ocr: bool = Field(
@@ -70,6 +105,70 @@ class DiscoveryProcessingRequest(BaseModel):
     max_facts_per_document: Optional[int] = Field(
         None, description="Limit facts per document"
     )
+
+
+class DiscoveryProcessWithDeficiencyRequest(BaseModel):
+    """
+    Request model for discovery processing with deficiency analysis support.
+    Extends base discovery processing with RTP and OC response document support.
+    """
+    
+    # Main discovery file (required)
+    pdf_file: str = Field(..., description="Base64-encoded discovery production PDF")
+    
+    # Case name from context
+    case_name: Optional[str] = Field(None, description="Case name (usually from context)")
+    
+    # Production metadata
+    production_metadata: Optional[Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Metadata about the production (batch, party, date, etc.)"
+    )
+    
+    # Optional deficiency analysis files
+    rtp_file: Optional[str] = Field(
+        None, 
+        description="Base64-encoded Request to Produce (RTP) document PDF"
+    )
+    oc_response_file: Optional[str] = Field(
+        None, 
+        description="Base64-encoded Opposing Counsel response document PDF"
+    )
+    
+    # Processing options
+    enable_fact_extraction: bool = Field(
+        default=True, 
+        description="Enable fact extraction from discovery documents"
+    )
+    enable_deficiency_analysis: bool = Field(
+        default=False, 
+        description="Enable deficiency analysis (requires RTP and OC response files)"
+    )
+    
+    # Validation
+    @field_validator('enable_deficiency_analysis')
+    @classmethod
+    def validate_deficiency_analysis(cls, v: bool, info) -> bool:
+        """Ensure deficiency analysis is only enabled when both RTP and OC files are provided"""
+        if v and (not info.data.get('rtp_file') or not info.data.get('oc_response_file')):
+            raise ValueError(
+                "Deficiency analysis requires both rtp_file and oc_response_file"
+            )
+        return v
+    
+    @field_validator('pdf_file', 'rtp_file', 'oc_response_file')
+    @classmethod
+    def validate_base64_pdf(cls, v: Optional[str], info) -> Optional[str]:
+        """Validate that the value is a valid base64-encoded string"""
+        if v is None:
+            return v
+        try:
+            # Try to decode to verify it's valid base64
+            decoded = base64.b64decode(v, validate=True)
+            # Could add PDF magic number check here if needed
+            return v
+        except Exception:
+            raise ValueError(f"{info.field_name} must be a valid base64-encoded string")
 
 
 class DiscoveryProcessingStatus(BaseModel):

@@ -132,7 +132,13 @@ class DeficiencyReport(BaseModel):
         description="Number of RTP items analyzed"
     )
     summary_statistics: Dict = Field(
-        default_factory=dict,
+        default_factory=lambda: {
+            "fully_produced": 0,
+            "partially_produced": 0,
+            "not_produced": 0,
+            "no_responsive_docs": 0,
+            "total_analyzed": 0
+        },
         description="Breakdown by category (JSON field)"
     )
     

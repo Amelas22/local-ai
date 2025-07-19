@@ -4,22 +4,21 @@ JWT Authentication Service for Clerk Legal AI System.
 Handles user authentication, password hashing, and JWT token management.
 """
 
+import logging
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
+
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-import secrets
-import logging
 
+from config.settings import settings
 from src.database.models import User, RefreshToken
 
 logger = logging.getLogger(__name__)
-
-# Configuration from settings
-from config.settings import settings
 
 JWT_SECRET_KEY = settings.auth.jwt_secret_key
 JWT_ALGORITHM = settings.auth.jwt_algorithm

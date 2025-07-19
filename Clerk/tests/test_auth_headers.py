@@ -11,12 +11,12 @@ import os
 # Add the src directory to Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.config.settings import get_settings
+from config.settings import settings
 
 
 async def test_auth_headers():
     """Test that API calls include proper Authorization headers."""
-    settings = get_settings()
+    # settings already imported
 
     print("=== Testing Auth Headers ===")
     print(f"Auth Enabled: {settings.auth.auth_enabled}")

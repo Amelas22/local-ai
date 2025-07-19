@@ -42,6 +42,9 @@ from src.utils.env_validator import (
 from config.settings import settings
 from src.models.unified_document_models import DiscoveryProcessingRequest
 from src.document_processing.websocket_document_processor import get_websocket_processor
+from src.websocket import socket_app
+from src.middleware.mock_user_middleware import MockUserMiddleware
+from src.middleware.case_context import CaseContextMiddleware
 
 # MVP Mode conditional imports
 if os.getenv("MVP_MODE", "false").lower() == "true":
@@ -74,6 +77,10 @@ async def lifespan(app: FastAPI):
 
     # Startup
     logger.info("Starting Clerk API service...")
+    
+    # Initialize temp file cleanup
+    from src.utils.temp_file_manager import startup_cleanup, shutdown_cleanup
+    await startup_cleanup()
 
     # MVP Mode Warning
     if os.getenv("MVP_MODE", "false").lower() == "true":
@@ -131,6 +138,10 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down Clerk API service...")
+    
+    # Stop temp file cleanup
+    await shutdown_cleanup()
+    
     if vector_store:
         vector_store.close()
 
@@ -146,9 +157,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Import and mount WebSocket app
-from src.websocket import socket_app
-
+# Mount WebSocket app
 app.mount("/ws", socket_app)
 
 # Configure CORS
@@ -166,7 +175,6 @@ app.add_middleware(
 # Add Authentication Middleware
 # MVP MODE: Auth middleware is commented out - RESTORE FOR PRODUCTION
 # from src.middleware.auth_middleware import AuthMiddleware
-from src.middleware.mock_user_middleware import MockUserMiddleware
 
 # MVP MODE: Using MockUserMiddleware instead of AuthMiddleware
 # To restore auth: Comment out MockUserMiddleware and uncomment AuthMiddleware
@@ -174,8 +182,6 @@ from src.middleware.mock_user_middleware import MockUserMiddleware
 app.add_middleware(MockUserMiddleware)
 
 # Add Case Context Middleware (must be after auth)
-from src.middleware.case_context import CaseContextMiddleware
-
 app.add_middleware(CaseContextMiddleware)
 
 # Include routers
@@ -313,7 +319,8 @@ async def health_check():
     try:
         vector_store.client.get_collections()
         services["qdrant"] = "healthy"
-    except:
+    except Exception as e:
+        logger.error(f"Qdrant health check failed: {str(e)}")
         services["qdrant"] = "unhealthy"
 
     # Check Box (if initialized)
@@ -322,7 +329,8 @@ async def health_check():
             services["box"] = "healthy"
         else:
             services["box"] = "not configured"
-    except:
+    except Exception as e:
+        logger.error(f"Box health check failed: {str(e)}")
         services["box"] = "unhealthy"
 
     # Check OpenAI
@@ -335,7 +343,8 @@ async def health_check():
         try:
             test_embedding, _ = embedding_generator.generate_embedding("test")
             _openai_health_cache["status"] = "healthy"
-        except:
+        except Exception as e:
+            logger.error(f"OpenAI health check failed: {str(e)}")
             _openai_health_cache["status"] = "unhealthy"
         _openai_health_cache["last_check"] = now
 
@@ -380,12 +389,12 @@ async def websocket_test():
             },
         )
 
+        from src.websocket import get_active_connections
+        
         return {
             "status": "success",
             "message": "Test event broadcast to all connected clients",
-            "connected_clients": len(active_connections)
-            if "active_connections" in globals()
-            else 0,
+            "connected_clients": get_active_connections(),
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -835,8 +844,8 @@ async def upload_file_to_box(
             file_info = document_injector.box_client.client.file(uploaded_file.id).get()
             if hasattr(file_info, "shared_link") and file_info.shared_link:
                 web_link = file_info.shared_link.get("url")
-        except:
-            logger.warning("Could not retrieve web link for uploaded file")
+        except Exception as e:
+            logger.warning(f"Could not retrieve web link for uploaded file: {str(e)}")
 
         return UploadResponse(
             status="success",
@@ -904,7 +913,7 @@ async def generate_and_upload_outline(
                     metadata_str = response.headers.get("X-Metadata", "{}")
                     try:
                         metadata = json.loads(metadata_str)
-                    except:
+                    except json.JSONDecodeError:
                         metadata = {}
 
                     # Check if Box upload was successful
@@ -953,7 +962,7 @@ async def generate_and_upload_outline(
                         error_msg = error_data.get(
                             "error", error_data.get("detail", "Unknown error")
                         )
-                    except:
+                    except Exception:
                         error_msg = await response.text()
 
                     logger.error(f"Outline drafter error: {error_msg}")
@@ -985,6 +994,8 @@ async def draft_motion(request: MotionDraftingRequest):
     """
     Draft a complete legal motion from an outline
     """
+    start_time = datetime.utcnow()
+    
     try:
         logger.info(f"Starting motion draft for database: {request.database_name}")
 
@@ -1056,6 +1067,11 @@ async def draft_motion(request: MotionDraftingRequest):
             target_length=target_length_enum,
             motion_title=request.motion_title,
             opposing_motion_text=request.opposing_motion_text,
+        )
+
+        # Generate draft ID
+        draft_id = (
+            f"{request.database_name}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
         )
 
         # Prepare response
@@ -1423,22 +1439,6 @@ async def download_draft(draft_id: str, format: str):
             status_code=400, detail="Invalid format. Use 'docx' or 'json'"
         )
 
-
-@app.get("/websocket/status")
-async def websocket_status():
-    """Get WebSocket connection status"""
-    from src.websocket import get_active_connections
-
-    try:
-        connections = get_active_connections()
-        return {"status": "active", "connections": connections}
-    except Exception as e:
-        logger.error(f"Error getting WebSocket status: {str(e)}")
-        return {
-            "status": "error",
-            "error": str(e),
-            "connections": {"total": 0, "connections": []},
-        }
 
 
 @app.get("/")

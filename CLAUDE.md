@@ -12,6 +12,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 **Open/Closed Principle**: Software entities should be open for extension but closed for modification. Design your systems so that new functionality can be added with minimal changes to existing code.
 
+**NEVER USE SUPABASE**: Supabase was utilized previously for our database storage and some legacy code still references it. However, everything has been migrated to postgres for databases and therefore code and tests should be testing against the postgres container and NOT supabase.
+
 ## 🧱 Code Structure & Modularity
 - **Never create a file longer than 500 lines of code.** If a file approaches this limit, refactor by splitting it into modules or helper files.
 - **Functions should be short and focused sub 50 lines of code** and have a single responsibility.

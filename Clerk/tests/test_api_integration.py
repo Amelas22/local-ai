@@ -6,14 +6,14 @@ through the entire request/response cycle.
 """
 
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, ASGITransport
 from main import app
 
 
 @pytest.mark.asyncio
 async def test_case_creation_api():
     """Test case creation through API endpoint"""
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # Test successful case creation
         response = await client.post(
             "/api/cases",
@@ -33,7 +33,7 @@ async def test_case_creation_api():
 @pytest.mark.asyncio
 async def test_case_creation_with_metadata():
     """Test case creation with metadata"""
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         metadata = {
             "client_name": "John Smith",
             "case_type": "personal_injury",
@@ -54,7 +54,7 @@ async def test_case_creation_with_metadata():
 @pytest.mark.asyncio
 async def test_case_creation_validation_errors():
     """Test case creation validation"""
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # Test empty name
         response = await client.post(
             "/api/cases",
@@ -84,7 +84,7 @@ async def test_case_creation_validation_errors():
 @pytest.mark.asyncio
 async def test_case_creation_duplicate_name():
     """Test case creation with duplicate name"""
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # Create first case
         response = await client.post(
             "/api/cases",
@@ -105,7 +105,7 @@ async def test_case_creation_duplicate_name():
 @pytest.mark.asyncio
 async def test_list_cases_api():
     """Test listing cases through API endpoint"""
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # Create a case first
         await client.post(
             "/api/cases",
@@ -128,7 +128,7 @@ async def test_list_cases_api():
 @pytest.mark.asyncio
 async def test_update_case_status():
     """Test updating case status"""
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # Create a case
         create_response = await client.post(
             "/api/cases",
@@ -156,7 +156,7 @@ async def test_update_case_status():
 @pytest.mark.asyncio
 async def test_api_without_authentication():
     """Test API endpoints without authentication headers"""
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # Test case creation without headers
         response = await client.post("/api/cases", json={"name": "No Auth Test"})
 

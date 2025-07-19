@@ -4,26 +4,25 @@ Authentication API endpoints for Clerk Legal AI System.
 Provides OAuth2-compatible endpoints for user registration, login, and token refresh.
 """
 
+import logging
+import os
 from typing import Dict, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
-from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
-import logging
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.database.connection import get_db
+from src.database.models import User
+from src.services.auth_service import AuthService
+from src.services.user_service import UserService
 
 # Using str instead of EmailStr to avoid email-validator dependency
 # TODO: Replace with EmailStr after installing email-validator
 EmailStr = str
 
-from src.database.connection import get_db
-from src.services.auth_service import AuthService
-from src.services.user_service import UserService
-from src.database.models import User
-
 logger = logging.getLogger(__name__)
-
-# MVP Mode imports
-import os
 
 if os.getenv("MVP_MODE", "false").lower() == "true":
     from src.utils.mock_auth import get_mock_user as get_current_user_mvp

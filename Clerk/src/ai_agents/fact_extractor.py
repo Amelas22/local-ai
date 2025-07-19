@@ -46,8 +46,8 @@ class FactExtractor:
         # Initialize NLP model for entity recognition
         try:
             self.nlp = spacy.load("en_core_web_sm")
-        except:
-            logger.warning("spaCy model not found. Running without NER support.")
+        except (OSError, ImportError) as e:
+            logger.warning(f"spaCy model not found: {str(e)}. Running without NER support.")
             self.nlp = None
 
         # Initialize OpenAI client
@@ -445,7 +445,8 @@ class FactExtractor:
         try:
             category_response = await self.fact_categorizer.run(fact_text)
             category = FactCategory(category_response.data.lower())
-        except:
+        except Exception as e:
+            logger.warning(f"Failed to categorize fact, using default: {str(e)}")
             category = FactCategory.SUBSTANTIVE  # Default
 
         # Find relevant dates for this fact

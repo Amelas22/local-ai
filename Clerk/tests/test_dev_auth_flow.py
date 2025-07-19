@@ -6,13 +6,12 @@ Tests that case list and case creation work properly in dev mode.
 
 import pytest
 from httpx import AsyncClient
-from src.config.settings import get_settings
+from config.settings import settings
 
 
 @pytest.mark.asyncio
 async def test_dev_auth_case_list(async_client: AsyncClient):
     """Test that case list works in dev mode."""
-    settings = get_settings()
 
     # Ensure we're in dev mode
     assert not settings.auth.auth_enabled
@@ -30,7 +29,6 @@ async def test_dev_auth_case_list(async_client: AsyncClient):
 @pytest.mark.asyncio
 async def test_create_case_dev_mode(async_client: AsyncClient):
     """Test case creation in dev mode."""
-    settings = get_settings()
 
     response = await async_client.post(
         "/api/cases",
@@ -139,7 +137,6 @@ async def test_mvp_mode_headers_present(async_client: AsyncClient, mvp_mode):
 @pytest.mark.asyncio
 async def test_case_permissions_dev_mode(async_client: AsyncClient):
     """Test case permissions in dev mode."""
-    settings = get_settings()
 
     # First create a case
     create_response = await async_client.post(
@@ -171,7 +168,7 @@ async def test_websocket_auth_dev_mode(async_client: AsyncClient):
     """Test that WebSocket endpoints are accessible in dev mode."""
     response = await async_client.get(
         "/websocket/status",
-        headers={"Authorization": f"Bearer {get_settings().auth.dev_mock_token}"},
+        headers={"Authorization": f"Bearer {settings.auth.dev_mock_token}"},
     )
 
     # WebSocket status should be accessible

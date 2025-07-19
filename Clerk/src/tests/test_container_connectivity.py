@@ -9,7 +9,7 @@ import pytest
 import os
 import time
 from qdrant_client import QdrantClient
-from src.config.settings import settings
+from config.settings import settings
 
 
 @pytest.mark.container

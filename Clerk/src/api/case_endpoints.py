@@ -4,16 +4,17 @@ Case Management API endpoints for Clerk Legal AI System.
 Provides endpoints for case CRUD operations and permissions management.
 """
 
-from typing import Optional, Dict
+import logging
+import os
 from datetime import datetime
+from typing import Optional, Dict
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-import logging
 
+from src.api.auth_endpoints import get_current_user
 from src.database.connection import get_db
-from src.services.case_service import CaseService
 from src.database.models import User, CaseStatus
-from src.vector_storage.qdrant_store import QdrantVectorStore
 from src.models.case_models import (
     Case,
     CaseCreateRequest,
@@ -22,12 +23,10 @@ from src.models.case_models import (
     CaseContext,
     CasePermissionRequest as PermissionGrantRequest,
 )
-from src.api.auth_endpoints import get_current_user
+from src.services.case_service import CaseService
+from src.vector_storage.qdrant_store import QdrantVectorStore
 
 logger = logging.getLogger(__name__)
-
-# MVP Mode imports
-import os
 
 if os.getenv("MVP_MODE", "false").lower() == "true":
     from src.utils.mock_auth import get_mock_case_context
@@ -209,7 +208,7 @@ async def list_user_cases(
                     import json
 
                     metadata = json.loads(case.case_metadata)
-                except:
+                except json.JSONDecodeError:
                     pass
 
             case_model = Case(
@@ -297,7 +296,7 @@ async def create_case(
                         "message": "Collections will be created when first document is uploaded",
                     },
                 )
-            except:
+            except Exception:
                 pass  # Don't fail on WebSocket error
 
         # Parse metadata for response
@@ -307,7 +306,7 @@ async def create_case(
                 import json
 
                 metadata = json.loads(case.case_metadata)
-            except:
+            except json.JSONDecodeError:
                 pass
 
         return Case(
@@ -361,7 +360,7 @@ async def get_case(
             import json
 
             metadata = json.loads(case.case_metadata)
-        except:
+        except json.JSONDecodeError:
             pass
 
     return Case(
@@ -423,7 +422,7 @@ async def update_case(
                 import json
 
                 metadata = json.loads(case.case_metadata)
-            except:
+            except json.JSONDecodeError:
                 pass
 
         return Case(
