@@ -17,26 +17,22 @@ class DiscoveryMetadataWithDeficiency(DiscoveryMetadata):
     """
     Extended discovery metadata that includes deficiency analysis references.
     """
-    
+
     has_deficiency_analysis: bool = Field(
         default=False,
-        description="Whether this production has associated RTP/OC response documents"
+        description="Whether this production has associated RTP/OC response documents",
     )
     rtp_document_path: Optional[str] = Field(
-        None,
-        description="Temporary file path to RTP document"
+        None, description="Temporary file path to RTP document"
     )
     oc_response_document_path: Optional[str] = Field(
-        None,
-        description="Temporary file path to OC response document"
+        None, description="Temporary file path to OC response document"
     )
     rtp_document_id: Optional[str] = Field(
-        None,
-        description="UUID reference for RTP document"
+        None, description="UUID reference for RTP document"
     )
     oc_response_document_id: Optional[str] = Field(
-        None,
-        description="UUID reference for OC response document"
+        None, description="UUID reference for OC response document"
     )
 
 
@@ -89,12 +85,15 @@ class DiscoveryProcessingRequest(BaseModel):
     )
     box_folder_id: Optional[str] = Field(None, description="Box folder ID if using Box")
     rfp_file: Optional[str] = Field(None, description="Request for Production document")
-    
+
     # New optional fields for deficiency analysis
     rtp_file: Optional[str] = Field(None, description="Base64-encoded RTP document PDF")
-    oc_response_file: Optional[str] = Field(None, description="Base64-encoded OC response document PDF")
+    oc_response_file: Optional[str] = Field(
+        None, description="Base64-encoded OC response document PDF"
+    )
     enable_deficiency_analysis: bool = Field(
-        default=False, description="Enable deficiency analysis when RTP/OC files provided"
+        default=False,
+        description="Enable deficiency analysis when RTP/OC files provided",
     )
 
     # Processing options
@@ -112,51 +111,52 @@ class DiscoveryProcessWithDeficiencyRequest(BaseModel):
     Request model for discovery processing with deficiency analysis support.
     Extends base discovery processing with RTP and OC response document support.
     """
-    
+
     # Main discovery file (required)
     pdf_file: str = Field(..., description="Base64-encoded discovery production PDF")
-    
+
     # Case name from context
-    case_name: Optional[str] = Field(None, description="Case name (usually from context)")
-    
+    case_name: Optional[str] = Field(
+        None, description="Case name (usually from context)"
+    )
+
     # Production metadata
     production_metadata: Optional[Dict[str, Any]] = Field(
         default_factory=dict,
-        description="Metadata about the production (batch, party, date, etc.)"
+        description="Metadata about the production (batch, party, date, etc.)",
     )
-    
+
     # Optional deficiency analysis files
     rtp_file: Optional[str] = Field(
-        None, 
-        description="Base64-encoded Request to Produce (RTP) document PDF"
+        None, description="Base64-encoded Request to Produce (RTP) document PDF"
     )
     oc_response_file: Optional[str] = Field(
-        None, 
-        description="Base64-encoded Opposing Counsel response document PDF"
+        None, description="Base64-encoded Opposing Counsel response document PDF"
     )
-    
+
     # Processing options
     enable_fact_extraction: bool = Field(
-        default=True, 
-        description="Enable fact extraction from discovery documents"
+        default=True, description="Enable fact extraction from discovery documents"
     )
     enable_deficiency_analysis: bool = Field(
-        default=False, 
-        description="Enable deficiency analysis (requires RTP and OC response files)"
+        default=False,
+        description="Enable deficiency analysis (requires RTP and OC response files)",
     )
-    
+
     # Validation
-    @field_validator('enable_deficiency_analysis')
+    @field_validator("enable_deficiency_analysis")
     @classmethod
     def validate_deficiency_analysis(cls, v: bool, info) -> bool:
         """Ensure deficiency analysis is only enabled when both RTP and OC files are provided"""
-        if v and (not info.data.get('rtp_file') or not info.data.get('oc_response_file')):
+        if v and (
+            not info.data.get("rtp_file") or not info.data.get("oc_response_file")
+        ):
             raise ValueError(
                 "Deficiency analysis requires both rtp_file and oc_response_file"
             )
         return v
-    
-    @field_validator('pdf_file', 'rtp_file', 'oc_response_file')
+
+    @field_validator("pdf_file", "rtp_file", "oc_response_file")
     @classmethod
     def validate_base64_pdf(cls, v: Optional[str], info) -> Optional[str]:
         """Validate that the value is a valid base64-encoded string"""

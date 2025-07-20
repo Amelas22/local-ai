@@ -126,14 +126,14 @@ class EnhancedRAGResearchAgent:
         self._fmcsr_loader = None
 
         logger.info("EnhancedRAGResearchAgent initialized")
-    
+
     @property
     def florida_statutes_loader(self):
         """Lazy load Florida statutes loader."""
         if self._florida_statutes_loader is None:
             self._florida_statutes_loader = FloridaStatutesLoader()
         return self._florida_statutes_loader
-    
+
     @property
     def fmcsr_loader(self):
         """Lazy load FMCSR loader."""
@@ -528,6 +528,7 @@ Create a concise summary that connects the evidence to answer the questions."""
 # Use lazy initialization to avoid connecting during import
 _enhanced_rag_agent = None
 
+
 def get_enhanced_rag_agent():
     """Get the singleton instance of EnhancedRAGResearchAgent."""
     global _enhanced_rag_agent
@@ -535,9 +536,11 @@ def get_enhanced_rag_agent():
         _enhanced_rag_agent = EnhancedRAGResearchAgent()
     return _enhanced_rag_agent
 
+
 # For backward compatibility, create a property-based access
 class _LazyRAGAgent:
     def __getattr__(self, name):
         return getattr(get_enhanced_rag_agent(), name)
+
 
 enhanced_rag_agent = _LazyRAGAgent()

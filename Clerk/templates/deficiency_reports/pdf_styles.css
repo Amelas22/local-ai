@@ -1,0 +1,150 @@
+/* PDF-specific styles for deficiency reports */
+@page {
+    size: letter;
+    margin: 1in;
+}
+
+body {
+    font-family: Georgia, 'Times New Roman', Times, serif;
+    font-size: 11pt;
+    line-height: 1.5;
+    color: #000;
+}
+
+.container {
+    width: 100%;
+    max-width: none;
+}
+
+h1 {
+    font-size: 18pt;
+    page-break-after: avoid;
+}
+
+h2 {
+    font-size: 14pt;
+    page-break-after: avoid;
+    margin-top: 18pt;
+}
+
+h3 {
+    font-size: 12pt;
+    page-break-after: avoid;
+}
+
+.metadata {
+    border: 1px solid #ccc;
+    page-break-inside: avoid;
+}
+
+.summary-stats {
+    page-break-inside: avoid;
+}
+
+.stat-card {
+    border: 1px solid #ccc;
+    page-break-inside: avoid;
+}
+
+.deficiency-item {
+    page-break-inside: avoid;
+    margin-bottom: 12pt;
+    border: 1px solid #ccc;
+}
+
+.evidence-toggle {
+    display: none;
+}
+
+.evidence-content {
+    display: block !important;
+}
+
+.evidence-item {
+    page-break-inside: avoid;
+    margin-bottom: 8pt;
+}
+
+/* Legal document formatting */
+.legal-header {
+    text-align: center;
+    margin-bottom: 24pt;
+}
+
+.legal-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 9pt;
+    color: #666;
+    border-top: 1px solid #ccc;
+    padding-top: 6pt;
+}
+
+/* Professional legal document appearance */
+.classification {
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.classification.fully-produced {
+    color: #006400;
+}
+
+.classification.partially-produced {
+    color: #FF8C00;
+}
+
+.classification.not-produced {
+    color: #8B0000;
+}
+
+.classification.no-responsive {
+    color: #696969;
+}
+
+/* Ensure proper page breaks */
+.page-break {
+    page-break-after: always;
+}
+
+.avoid-break {
+    page-break-inside: avoid;
+}
+
+/* Table formatting for summary data */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 12pt;
+}
+
+table th, table td {
+    border: 1px solid #ccc;
+    padding: 6pt;
+    text-align: left;
+}
+
+table th {
+    background-color: #f0f0f0;
+    font-weight: bold;
+}
+
+/* Numbered lists for legal documents */
+ol.legal-list {
+    counter-reset: item;
+    padding-left: 0;
+}
+
+ol.legal-list li {
+    display: block;
+    margin-bottom: 6pt;
+}
+
+ol.legal-list li:before {
+    content: counter(item) ". ";
+    counter-increment: item;
+    font-weight: bold;
+}

@@ -14,8 +14,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 **NEVER USE SUPABASE**: Supabase was utilized previously for our database storage and some legacy code still references it. However, everything has been migrated to postgres for databases and therefore code and tests should be testing against the postgres container and NOT supabase.
 
-## 🧱 Code Structure & Modularity
-- **Never create a file longer than 500 lines of code.** If a file approaches this limit, refactor by splitting it into modules or helper files.
+## 🧱 Code Goals & Modularity
+
+The following are goals for code generation. While these are not requirements, we should endeavor to follow them as much as possible:
+- **Try and limit files to under 500 lines of code.** If a file approaches this limit, refactor by splitting it into modules or helper files.
 - **Functions should be short and focused sub 50 lines of code** and have a single responsibility.
 - **Classes should be short and focused sub 50 lines of code** and have a single responsibility.
 - **Organize code into clearly separated modules**, grouped by feature or responsibility.

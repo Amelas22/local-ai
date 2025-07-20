@@ -511,7 +511,10 @@ class EnhancedChunker:
             texts = [chunk.chunk_text for chunk in chunk_metadata_list]
 
             # Generate embeddings in batch
-            embeddings, token_count = await self.embedding_generator.generate_embeddings_batch_async(texts)
+            (
+                embeddings,
+                token_count,
+            ) = await self.embedding_generator.generate_embeddings_batch_async(texts)
 
             # Assign embeddings to chunks
             for chunk, embedding in zip(chunk_metadata_list, embeddings):
@@ -527,7 +530,10 @@ class EnhancedChunker:
             # Fall back to individual generation
             for chunk in chunk_metadata_list:
                 try:
-                    embedding, token_count = await self.embedding_generator.generate_embedding_async(
+                    (
+                        embedding,
+                        token_count,
+                    ) = await self.embedding_generator.generate_embedding_async(
                         chunk.chunk_text
                     )
                     chunk.dense_vector = embedding

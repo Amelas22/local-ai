@@ -1,8 +1,23 @@
 # Coding Standards and Conventions
 
+## Core Principles
+
+- **KISS (Keep It Simple, Stupid)**: Simplicity should be a key goal in design. Choose straightforward solutions over complex ones whenever possible. Simple solutions are easier to understand, maintain, and debug.
+- **YAGNI (You Aren't Gonna Need It)**: Avoid building functionality on speculation. Implement features only when they are needed, not when you anticipate they might be useful in the future.
+- **Dependency Inversion**: High-level modules should not depend on low-level modules. Both should depend on abstractions. This principle enables flexibility and testability.
+- **Open/Closed Principle**: Software entities should be open for extension but closed for modification. Design your systems so that new functionality can be added with minimal changes to existing code.
+
+## 🧱 Code Goals & Modularity
+
+The following are goals for code generation. While these are not requirements, we should endeavor to follow them as much as possible:
+- **Try and limit files to under 500 lines of code.** If a file approaches this limit, refactor by splitting it into modules or helper files.
+- **Functions should be short and focused sub 50 lines of code** and have a single responsibility.
+- **Classes should be short and focused sub 50 lines of code** and have a single responsibility.
+- **Organize code into clearly separated modules**, grouped by feature or responsibility.
+
 ## Existing Standards Compliance
 - **Code Style:** PEP8 with type hints, formatted with ruff
-- **Linting Rules:** ruff check . (configured in project)
+- **Linting Rules:** ruff check installed globablly
 - **Testing Patterns:** pytest with co-located tests in tests/ subdirectories
 - **Documentation Style:** Google-style docstrings for all functions
 

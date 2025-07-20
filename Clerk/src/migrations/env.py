@@ -37,7 +37,7 @@ target_metadata = Base.metadata
 def get_database_url():
     """Get database URL from environment or use default."""
     url = os.getenv(
-        "DATABASE_URL", "postgresql://postgres:password@localhost:5432/postgres"
+        "DATABASE_URL", "postgresql://postgres:password@postgres:5432/postgres"
     )
     # For async migrations, ensure we're using asyncpg
     # For sync migrations (called from alembic directly), keep it as-is

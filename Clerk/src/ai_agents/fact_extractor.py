@@ -47,7 +47,9 @@ class FactExtractor:
         try:
             self.nlp = spacy.load("en_core_web_sm")
         except (OSError, ImportError) as e:
-            logger.warning(f"spaCy model not found: {str(e)}. Running without NER support.")
+            logger.warning(
+                f"spaCy model not found: {str(e)}. Running without NER support."
+            )
             self.nlp = None
 
         # Initialize OpenAI client
@@ -514,14 +516,16 @@ class FactExtractor:
             # Check if hybrid search is enabled
             if settings.legal.enable_hybrid_search:
                 # For hybrid collections, use named vectors
-                points.append({
-                    "id": fact.id, 
-                    "vector": {
-                        "semantic": embedding,
-                        "legal_concepts": embedding  # Using same embedding for both for now
-                    },
-                    "payload": metadata
-                })
+                points.append(
+                    {
+                        "id": fact.id,
+                        "vector": {
+                            "semantic": embedding,
+                            "legal_concepts": embedding,  # Using same embedding for both for now
+                        },
+                        "payload": metadata,
+                    }
+                )
             else:
                 # For standard collections, use single vector
                 points.append({"id": fact.id, "vector": embedding, "payload": metadata})

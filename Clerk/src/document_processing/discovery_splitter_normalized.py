@@ -291,7 +291,7 @@ class NormalizedDiscoveryProductionProcessor(DiscoveryProductionProcessor):
         self.document_processor = NormalizedDiscoveryDocumentProcessor(
             normalized_service=normalized_service,
             enhanced_chunker=EnhancedChunker(EmbeddingGenerator()),
-            case_name=case_name
+            case_name=case_name,
         )
 
     async def process_production_normalized(
@@ -315,7 +315,7 @@ class NormalizedDiscoveryProductionProcessor(DiscoveryProductionProcessor):
                 production_metadata={
                     "production_batch": discovery_request.production_batch,
                     "producing_party": discovery_request.producing_party,
-                }
+                },
             )
 
             # Process each segment with normalized system

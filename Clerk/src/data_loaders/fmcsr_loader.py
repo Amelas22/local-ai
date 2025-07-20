@@ -46,9 +46,10 @@ class FMCSRLoader:
     def _ensure_collection_exists(self):
         """Create FMCSR collection if it doesn't exist"""
         import time
+
         max_retries = 5
         retry_delay = 2
-        
+
         for attempt in range(max_retries):
             try:
                 self.vector_store.client.get_collection(self.collection_name)
@@ -56,10 +57,12 @@ class FMCSRLoader:
                 return
             except Exception as e:
                 if attempt < max_retries - 1:
-                    logger.warning(f"Failed to connect to Qdrant (attempt {attempt + 1}/{max_retries}): {e}")
+                    logger.warning(
+                        f"Failed to connect to Qdrant (attempt {attempt + 1}/{max_retries}): {e}"
+                    )
                     time.sleep(retry_delay)
                     continue
-                    
+
                 # Last attempt - try to create the collection
                 try:
                     self.vector_store.client.create_collection(
@@ -72,7 +75,9 @@ class FMCSRLoader:
                     logger.info(f"Created shared collection: {self.collection_name}")
                     return
                 except Exception as create_error:
-                    logger.error(f"Failed to create collection after {max_retries} attempts: {create_error}")
+                    logger.error(
+                        f"Failed to create collection after {max_retries} attempts: {create_error}"
+                    )
                     raise
 
     def _compile_regulation_patterns(self) -> Dict[str, re.Pattern]:

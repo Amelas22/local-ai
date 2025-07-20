@@ -165,10 +165,10 @@ class UnifiedDocumentManager:
 
     async def is_duplicate(self, document_hash: str) -> bool:
         """Check if a document with this hash already exists
-        
+
         Args:
             document_hash: SHA-256 hash of the document content
-            
+
         Returns:
             True if document exists, False otherwise
         """
@@ -306,20 +306,20 @@ class UnifiedDocumentManager:
 
     async def add_document(self, doc: UnifiedDocument) -> str:
         """Add a document to the storage
-        
+
         Args:
             doc: UnifiedDocument instance to store
-            
+
         Returns:
             Document ID
         """
         # Generate embedding for the document
         embedding_text = f"{doc.title}\n{doc.description}\n{doc.summary or ''}"
         embedding, _ = self.embedding_generator.generate_embedding(embedding_text)
-        
+
         # Store the document
         self._store_document(doc, embedding)
-        
+
         return doc.id
 
     def _update_document(self, doc: UnifiedDocument):

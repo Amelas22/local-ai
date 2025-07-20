@@ -9,8 +9,6 @@ from fastapi import (
     APIRouter,
     HTTPException,
     Depends,
-    File,
-    Form,
     BackgroundTasks,
     Request,
 )
@@ -35,7 +33,9 @@ from ..services.fact_manager import FactManager
 from ..document_processing.unified_document_manager import UnifiedDocumentManager
 from ..document_processing.enhanced_chunker import EnhancedChunker
 from ..vector_storage.embeddings import EmbeddingGenerator
-from ..models.unified_document_models import DocumentType, UnifiedDocument, DiscoveryProcessingRequest
+from ..models.unified_document_models import (
+    UnifiedDocument,
+)
 from ..ai_agents.fact_extractor import FactExtractor
 from ..websocket.socket_server import (
     sio,
@@ -45,7 +45,7 @@ from ..websocket.socket_server import (
     emit_embedding_progress,
     emit_document_stored,
     emit_processing_completed,
-    emit_processing_error
+    emit_processing_error,
 )
 
 # MVP Mode conditional imports
@@ -68,11 +68,10 @@ else:
     )
 
 from ..document_processing.box_client import BoxClient
-from ..document_processing.pdf_extractor import PDFExtractor
 from ..vector_storage.qdrant_store import QdrantVectorStore
 from ..utils.logger import setup_logger
 from ..utils.temp_file_manager import get_temp_file_manager
-from ..utils.pdf_validator import validate_pdf_content, PDFValidationError
+from ..utils.pdf_validator import validate_pdf_content
 
 logger = setup_logger(__name__)
 
@@ -99,11 +98,11 @@ async def process_discovery(
     - Optional RFP document for context
     """
     processing_id = str(uuid.uuid4())
-    
+
     # Check content type to handle different request formats
     content_type = request.headers.get("content-type", "")
     logger.info(f"Discovery request content-type: {content_type}")
-    
+
     # Initialize default values
     discovery_files = []
     box_folder_id = None
@@ -114,12 +113,12 @@ async def process_discovery(
     responsive_to_requests = []
     confidentiality_designation = None
     enable_fact_extraction = True
-    
+
     try:
         if "application/json" in content_type:
             # Handle JSON request with base64-encoded files
             request_data = await request.json()
-            
+
             # Extract fields from JSON request
             discovery_files = request_data.get("discovery_files", [])
             box_folder_id = request_data.get("box_folder_id")
@@ -128,7 +127,9 @@ async def process_discovery(
             producing_party = request_data.get("producing_party", "Opposing Counsel")
             production_date = request_data.get("production_date")
             responsive_to_requests = request_data.get("responsive_to_requests", [])
-            confidentiality_designation = request_data.get("confidentiality_designation")
+            confidentiality_designation = request_data.get(
+                "confidentiality_designation"
+            )
             enable_fact_extraction = request_data.get("enable_fact_extraction", True)
         else:
             # Handle multipart/form-data or raw binary upload
@@ -136,57 +137,69 @@ async def process_discovery(
             try:
                 form = await request.form()
                 logger.info(f"Form keys: {list(form.keys())}")
-                
+
                 # Get files from form
                 files = []
-                
+
                 # Get the discovery_files specifically
                 discovery_file = form.get("discovery_files")
-                logger.info(f"Got discovery_file directly: {type(discovery_file)}, is UploadFile: {isinstance(discovery_file, UploadFile)}")
+                logger.info(
+                    f"Got discovery_file directly: {type(discovery_file)}, is UploadFile: {isinstance(discovery_file, UploadFile)}"
+                )
                 if discovery_file and isinstance(discovery_file, UploadFile):
-                        logger.info(f"Found UploadFile: {discovery_file.filename}, size: {discovery_file.size}")
-                        # Read file content
-                        content = await discovery_file.read()
-                        logger.info(f"Read {len(content)} bytes from file")
-                        files.append({
+                    logger.info(
+                        f"Found UploadFile: {discovery_file.filename}, size: {discovery_file.size}"
+                    )
+                    # Read file content
+                    content = await discovery_file.read()
+                    logger.info(f"Read {len(content)} bytes from file")
+                    files.append(
+                        {
                             "filename": discovery_file.filename,
-                            "content": base64.b64encode(content).decode('utf-8'),
-                            "content_type": discovery_file.content_type
-                        })
-                        await discovery_file.close()
-                
+                            "content": base64.b64encode(content).decode("utf-8"),
+                            "content_type": discovery_file.content_type,
+                        }
+                    )
+                    await discovery_file.close()
+
                 logger.info(f"Total files found: {len(files)}")
                 if files:
                     discovery_files = files
                     logger.info(f"Set discovery_files to {len(discovery_files)} files")
-                
+
                 # Get other form fields
                 production_batch = form.get("production_batch", "Batch001")
                 producing_party = form.get("producing_party", "Opposing Counsel")
                 production_date = form.get("production_date")
                 responsive_to_requests = form.getlist("responsive_to_requests") or []
                 confidentiality_designation = form.get("confidentiality_designation")
-                enable_fact_extraction = form.get("enable_fact_extraction", "true").lower() == "true"
-                
+                enable_fact_extraction = (
+                    form.get("enable_fact_extraction", "true").lower() == "true"
+                )
+
             except Exception as form_error:
                 # If form parsing fails, treat as raw binary upload
-                logger.warning(f"Form parsing failed, attempting raw binary: {form_error}")
-                
+                logger.warning(
+                    f"Form parsing failed, attempting raw binary: {form_error}"
+                )
+
                 # Read raw body as binary
                 body = await request.body()
                 if body:
                     # Assume it's a PDF file
-                    discovery_files = [{
-                        "filename": "discovery_upload.pdf",
-                        "content": base64.b64encode(body).decode('utf-8'),
-                        "content_type": "application/pdf"
-                    }]
-                    
+                    discovery_files = [
+                        {
+                            "filename": "discovery_upload.pdf",
+                            "content": base64.b64encode(body).decode("utf-8"),
+                            "content_type": "application/pdf",
+                        }
+                    ]
+
     except Exception as e:
         logger.error(f"Error parsing request: {e}")
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid request format. Please send either JSON with base64-encoded files or multipart/form-data. Error: {str(e)}"
+            detail=f"Invalid request format. Please send either JSON with base64-encoded files or multipart/form-data. Error: {str(e)}",
         )
 
     # Initialize processing status
@@ -202,47 +215,60 @@ async def process_discovery(
     processing_status[processing_id] = status
 
     logger.info(f"Before background task - discovery_files: {len(discovery_files)}")
-    
+
     # Create a simple request object for the background task
     # We'll handle the file data manually to avoid encoding issues
-    discovery_request = type('DiscoveryRequest', (), {
-        'discovery_files': [f.get("filename", f"file_{i}.pdf") for i, f in enumerate(discovery_files)],
-        'box_folder_id': box_folder_id,
-        'rfp_file': None
-    })()
-    logger.info(f"Created discovery_request with files: {discovery_request.discovery_files}")
+    discovery_request = type(
+        "DiscoveryRequest",
+        (),
+        {
+            "discovery_files": [
+                f.get("filename", f"file_{i}.pdf")
+                for i, f in enumerate(discovery_files)
+            ],
+            "box_folder_id": box_folder_id,
+            "rfp_file": None,
+        },
+    )()
+    logger.info(
+        f"Created discovery_request with files: {discovery_request.discovery_files}"
+    )
 
     # Handle file uploads - files come as base64 encoded in JSON
     file_contents = []
     if discovery_files:
         logger.info(f"Processing {len(discovery_files)} discovery files")
         for idx, file_data in enumerate(discovery_files):
-            logger.info(f"File {idx}: type={type(file_data)}, keys={file_data.keys() if isinstance(file_data, dict) else 'not a dict'}")
+            logger.info(
+                f"File {idx}: type={type(file_data)}, keys={file_data.keys() if isinstance(file_data, dict) else 'not a dict'}"
+            )
             if isinstance(file_data, dict):
                 filename = file_data.get("filename", f"discovery_{idx}.pdf")
                 content_b64 = file_data.get("content", "")
-                
+
                 # Decode base64 content
                 try:
                     content = base64.b64decode(content_b64) if content_b64 else b""
                 except Exception as e:
                     logger.error(f"Failed to decode base64 content for {filename}: {e}")
                     content = b""
-                    
+
                 # Validate PDF content
                 is_valid, message = validate_pdf_content(content, filename)
                 if not is_valid:
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Invalid PDF file '{filename}': {message}"
+                        detail=f"Invalid PDF file '{filename}': {message}",
                     )
-                    
-                file_contents.append({
-                    "filename": filename,
-                    "content": content,
-                    "content_type": "application/pdf"
-                })
-    
+
+                file_contents.append(
+                    {
+                        "filename": filename,
+                        "content": content,
+                        "content_type": "application/pdf",
+                    }
+                )
+
     background_tasks.add_task(
         _process_discovery_async,
         processing_id,
@@ -260,10 +286,11 @@ async def process_discovery(
 
     # Emit WebSocket event to case room
     from src.websocket.socket_server import emit_discovery_started
+
     await emit_discovery_started(
         processing_id=processing_id,
         case_id=case_context.case_id,
-        total_files=len(discovery_files) if discovery_files else 0
+        total_files=len(discovery_files) if discovery_files else 0,
     )
 
     return DiscoveryProcessingResponse(
@@ -282,14 +309,14 @@ async def _process_discovery_core(
 ) -> Dict[str, Any]:
     """
     Core discovery processing logic used by all discovery endpoints.
-    
+
     Args:
         processing_id: Unique ID for the processing job
         case_name: Name of the case for isolation
         discovery_files: List of file data dicts with 'filename', 'content', 'content_type'
         production_metadata: Metadata about the production including batch, party, etc.
         enable_fact_extraction: Whether to extract facts from documents
-        
+
     Returns:
         Processing result dictionary
     """
@@ -297,27 +324,27 @@ async def _process_discovery_core(
     logger.info(f"📋 Case: {case_name}, Files: {len(discovery_files or [])}")
     logger.info(f"📋 Production metadata: {production_metadata}")
     logger.info(f"📋 Fact extraction enabled: {enable_fact_extraction}")
-    
+
     # Initialize processors
     vector_store = QdrantVectorStore()
     embedding_generator = EmbeddingGenerator()
-    
+
     # Use the basic discovery processor directly - no normalized wrapper
     from src.document_processing.discovery_splitter import DiscoveryProductionProcessor
-    
+
     # Document manager for deduplication
     document_manager = UnifiedDocumentManager(case_name)
-    
+
     # Fact extractor if enabled
-    fact_extractor = FactExtractor(case_name=case_name) if enable_fact_extraction else None
-    
+    fact_extractor = (
+        FactExtractor(case_name=case_name) if enable_fact_extraction else None
+    )
+
     # Enhanced chunker for creating chunks
     chunker = EnhancedChunker(
-        embedding_generator=embedding_generator,
-        chunk_size=1400,
-        chunk_overlap=200
+        embedding_generator=embedding_generator, chunk_size=1400, chunk_overlap=200
     )
-    
+
     # Track processing status
     processing_result = {
         "processing_id": processing_id,
@@ -328,35 +355,38 @@ async def _process_discovery_core(
         "facts_extracted": 0,
         "chunks_created": 0,
         "vectors_stored": 0,
-        "errors": []
+        "errors": [],
     }
-    
+
     try:
-        logger.info(f"Emitting discovery:started event")
+        logger.info("Emitting discovery:started event")
         # Emit start event
         await emit_discovery_started(
             processing_id=processing_id,
             case_id=case_name,
-            total_files=len(discovery_files or [])
+            total_files=len(discovery_files or []),
         )
         logger.info(f"Event emitted, processing {len(discovery_files or [])} files")
-        
+
         # Process each uploaded PDF
         for idx, file_data in enumerate(discovery_files or []):
             filename = file_data.get("filename", f"discovery_{idx}.pdf")
             content = file_data.get("content", b"")
-            
+
             # Save PDF temporarily
-            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_file:
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_file:
                 tmp_file.write(content)
                 temp_pdf_path = tmp_file.name
-            
+
             try:
-                
                 # Process with discovery splitter
-                logger.info(f"📄 [Discovery {processing_id}] Processing PDF: {filename}")
-                logger.info(f"📝 [Discovery {processing_id}] Production metadata: {production_metadata}")
-                
+                logger.info(
+                    f"📄 [Discovery {processing_id}] Processing PDF: {filename}"
+                )
+                logger.info(
+                    f"📝 [Discovery {processing_id}] Production metadata: {production_metadata}"
+                )
+
                 # Create progress callback to emit WebSocket events
                 async def emit_progress(event_type: str, data: dict):
                     """Emit progress events during discovery processing"""
@@ -366,9 +396,9 @@ async def _process_discovery_core(
                             {
                                 "processingId": processing_id,
                                 "message": data.get("message"),
-                                "totalPages": data.get("total_pages")
+                                "totalPages": data.get("total_pages"),
                             },
-                            room=f"case_{case_name}"
+                            room=f"case_{case_name}",
                         )
                     elif event_type == "boundary_detection_progress":
                         await sio.emit(
@@ -378,9 +408,9 @@ async def _process_discovery_core(
                                 "message": data.get("message"),
                                 "currentWindow": data.get("current_window"),
                                 "totalWindows": data.get("total_windows"),
-                                "progressPercent": data.get("progress_percent")
+                                "progressPercent": data.get("progress_percent"),
                             },
-                            room=f"case_{case_name}"
+                            room=f"case_{case_name}",
                         )
                     elif event_type == "boundary_detection_completed":
                         await sio.emit(
@@ -388,34 +418,49 @@ async def _process_discovery_core(
                             {
                                 "processingId": processing_id,
                                 "message": data.get("message"),
-                                "boundariesFound": data.get("boundaries_found")
+                                "boundariesFound": data.get("boundaries_found"),
                             },
-                            room=f"case_{case_name}"
+                            room=f"case_{case_name}",
                         )
-                
-                logger.info(f"🔍 [Discovery {processing_id}] Calling discovery processor for {filename}")
-                discovery_processor = DiscoveryProductionProcessor(case_name, progress_callback=emit_progress)
-                production_result = await discovery_processor.process_discovery_production(
-                    pdf_path=temp_pdf_path,
-                    production_metadata=production_metadata
+
+                logger.info(
+                    f"🔍 [Discovery {processing_id}] Calling discovery processor for {filename}"
                 )
-                
+                discovery_processor = DiscoveryProductionProcessor(
+                    case_name, progress_callback=emit_progress
+                )
+                production_result = (
+                    await discovery_processor.process_discovery_production(
+                        pdf_path=temp_pdf_path, production_metadata=production_metadata
+                    )
+                )
+
                 # Log discovery results
-                logger.info(f"✅ [Discovery {processing_id}] Found {len(production_result.segments_found)} segments")
-                logger.info(f"📊 [Discovery {processing_id}] Average confidence: {production_result.average_confidence}")
+                logger.info(
+                    f"✅ [Discovery {processing_id}] Found {len(production_result.segments_found)} segments"
+                )
+                logger.info(
+                    f"📊 [Discovery {processing_id}] Average confidence: {production_result.average_confidence}"
+                )
                 for idx, seg in enumerate(production_result.segments_found):
-                    logger.info(f"  📑 Segment {idx}: {seg.document_type.value} '{seg.title}' pages {seg.start_page}-{seg.end_page}")
-                
+                    logger.info(
+                        f"  📑 Segment {idx}: {seg.document_type.value} '{seg.title}' pages {seg.start_page}-{seg.end_page}"
+                    )
+
                 # Update total documents found
-                processing_result["total_documents_found"] += len(production_result.segments_found)
-                
+                processing_result["total_documents_found"] += len(
+                    production_result.segments_found
+                )
+
                 # Process each segment as a separate document
                 for segment_idx, segment in enumerate(production_result.segments_found):
                     try:
                         # Emit document found event
                         doc_id = f"{processing_id}_seg_{segment_idx}"
                         page_count = segment.end_page - segment.start_page + 1
-                        logger.info(f"📤 [Discovery {processing_id}] Emitting discovery:document_found for segment {segment_idx}")
+                        logger.info(
+                            f"📤 [Discovery {processing_id}] Emitting discovery:document_found for segment {segment_idx}"
+                        )
                         logger.info(f"   - Document ID: {doc_id}")
                         logger.info(f"   - Title: {segment.title}")
                         logger.info(f"   - Type: {segment.document_type.value}")
@@ -428,40 +473,50 @@ async def _process_discovery_core(
                             doc_type=segment.document_type.value,
                             page_count=page_count,
                             bates_range=segment.bates_range,
-                            confidence=segment.confidence_score
+                            confidence=segment.confidence_score,
                         )
-                        
+
                         # Extract text for this segment in a thread to avoid blocking
                         loop = asyncio.get_event_loop()
                         segment_text = await loop.run_in_executor(
                             None,
                             extract_text_from_pages,
-                            temp_pdf_path, 
-                            segment.start_page, 
-                            segment.end_page
+                            temp_pdf_path,
+                            segment.start_page,
+                            segment.end_page,
                         )
-                        
+
                         # Check for duplicates
-                        logger.info(f"Checking for duplicates - manager type: {type(document_manager)}")
-                        logger.info(f"Has is_duplicate method: {hasattr(document_manager, 'is_duplicate')}")
-                        doc_hash = document_manager.calculate_document_hash(segment_text.encode('utf-8'))
+                        logger.info(
+                            f"Checking for duplicates - manager type: {type(document_manager)}"
+                        )
+                        logger.info(
+                            f"Has is_duplicate method: {hasattr(document_manager, 'is_duplicate')}"
+                        )
+                        doc_hash = document_manager.calculate_document_hash(
+                            segment_text.encode("utf-8")
+                        )
                         logger.info(f"Document hash calculated: {doc_hash}")
-                        
+
                         try:
                             is_dup = await document_manager.is_duplicate(doc_hash)
                             if is_dup:
-                                logger.info(f"Skipping duplicate document: {segment.title}")
+                                logger.info(
+                                    f"Skipping duplicate document: {segment.title}"
+                                )
                                 continue
                         except Exception as e:
-                            logger.error(f"Error checking duplicate: {type(e).__name__}: {str(e)}")
+                            logger.error(
+                                f"Error checking duplicate: {type(e).__name__}: {str(e)}"
+                            )
                             await emit_processing_error(
                                 processing_id=processing_id,
                                 case_id=case_name,
                                 error=f"Duplicate check failed: {str(e)}",
-                                stage="duplicate_check"
+                                stage="duplicate_check",
                             )
                             raise
-                        
+
                         # Create unified document with correct fields
                         unified_doc = UnifiedDocument(
                             # Required fields
@@ -469,7 +524,9 @@ async def _process_discovery_core(
                             document_hash=doc_hash,
                             file_name=f"{segment.title or 'document'}.pdf",
                             file_path=f"discovery/{production_metadata.get('production_batch', 'batch')}/{segment.title or 'document'}.pdf",
-                            file_size=len(segment_text.encode('utf-8')),  # Approximate size
+                            file_size=len(
+                                segment_text.encode("utf-8")
+                            ),  # Approximate size
                             document_type=segment.document_type,
                             title=segment.title or f"{segment.document_type} Document",
                             description=f"Discovery document: {segment.document_type.value} from {production_metadata.get('producing_party', 'Unknown')}",
@@ -479,36 +536,44 @@ async def _process_discovery_core(
                             search_text=segment_text,
                             # Optional fields with discovery metadata
                             metadata={
-                                "producing_party": production_metadata.get('producing_party', 'Unknown'),
-                                "production_batch": production_metadata.get('production_batch', 'batch'),
+                                "producing_party": production_metadata.get(
+                                    "producing_party", "Unknown"
+                                ),
+                                "production_batch": production_metadata.get(
+                                    "production_batch", "batch"
+                                ),
                                 "bates_range": segment.bates_range,
                                 "page_range": f"{segment.start_page}-{segment.end_page}",
                                 "confidence_score": segment.confidence_score,
                                 "processing_id": processing_id,
-                                **production_metadata  # Include all production metadata
-                            }
+                                **production_metadata,  # Include all production metadata
+                            },
                         )
-                        
+
                         # Store document metadata
                         stored_doc_id = await document_manager.add_document(unified_doc)
-                        
+
                         # Create chunks with context
-                        logger.info(f"🔪 [Discovery {processing_id}] Starting chunking for document {stored_doc_id}")
+                        logger.info(
+                            f"🔪 [Discovery {processing_id}] Starting chunking for document {stored_doc_id}"
+                        )
                         await emit_chunking_progress(
                             processing_id=processing_id,
                             case_id=case_name,
                             document_id=stored_doc_id,
                             progress=0.0,
-                            chunks_created=0
+                            chunks_created=0,
                         )
-                        
+
                         # Create document core for chunker
                         from src.models.normalized_document_models import DocumentCore
-                        
+
                         # Calculate metadata hash if needed
                         metadata_str = str(sorted(unified_doc.metadata.items()))
-                        metadata_hash = hashlib.sha256(metadata_str.encode()).hexdigest()
-                        
+                        metadata_hash = hashlib.sha256(
+                            metadata_str.encode()
+                        ).hexdigest()
+
                         doc_core = DocumentCore(
                             id=stored_doc_id,
                             document_hash=doc_hash,
@@ -519,83 +584,108 @@ async def _process_discovery_core(
                             mime_type="application/pdf",
                             total_pages=unified_doc.total_pages,
                             file_created_at=unified_doc.last_modified,
-                            file_modified_at=unified_doc.last_modified
+                            file_modified_at=unified_doc.last_modified,
                         )
-                        
+
                         try:
                             chunks = await chunker.create_chunks(
-                                document_core=doc_core,
-                                document_text=segment_text
+                                document_core=doc_core, document_text=segment_text
                             )
-                            logger.info(f"Created {len(chunks)} chunks for segment {segment_idx}")
+                            logger.info(
+                                f"Created {len(chunks)} chunks for segment {segment_idx}"
+                            )
                         except Exception as e:
-                            logger.error(f"Failed to create chunks for segment {segment_idx}: {str(e)}")
+                            logger.error(
+                                f"Failed to create chunks for segment {segment_idx}: {str(e)}"
+                            )
                             await emit_processing_error(
                                 processing_id=processing_id,
                                 case_id=case_name,
                                 error=f"Chunking failed for segment {segment_idx}: {str(e)}",
-                                stage="chunking"
+                                stage="chunking",
                             )
                             raise
-                        
+
                         # Generate embeddings and store chunks
-                        logger.info(f"🧮 [Discovery {processing_id}] Starting embedding generation for {len(chunks)} chunks")
+                        logger.info(
+                            f"🧮 [Discovery {processing_id}] Starting embedding generation for {len(chunks)} chunks"
+                        )
                         await emit_embedding_progress(
                             processing_id=processing_id,
                             case_id=case_name,
                             document_id=stored_doc_id,
                             chunk_id="all",
-                            progress=0.0
+                            progress=0.0,
                         )
-                        
+
                         # Prepare all chunks for batch storage
                         chunk_data = []
-                        logger.info(f"📦 [Discovery {processing_id}] Preparing {len(chunks)} chunks for batch storage")
-                        
+                        logger.info(
+                            f"📦 [Discovery {processing_id}] Preparing {len(chunks)} chunks for batch storage"
+                        )
+
                         for chunk_idx, chunk in enumerate(chunks):
                             # Generate embedding
                             try:
                                 # Get chunk text from ChunkMetadata object
                                 chunk_text = chunk.chunk_text
-                                logger.debug(f"Chunk {chunk_idx}: text length = {len(chunk_text)} chars")
-                                embedding, token_count = await embedding_generator.generate_embedding_async(chunk_text)
-                                logger.debug(f"Generated embedding for chunk {chunk_idx} with {token_count} tokens")
+                                logger.debug(
+                                    f"Chunk {chunk_idx}: text length = {len(chunk_text)} chars"
+                                )
+                                (
+                                    embedding,
+                                    token_count,
+                                ) = await embedding_generator.generate_embedding_async(
+                                    chunk_text
+                                )
+                                logger.debug(
+                                    f"Generated embedding for chunk {chunk_idx} with {token_count} tokens"
+                                )
                             except Exception as e:
-                                logger.error(f"Failed to generate embedding for chunk {chunk_idx}: {str(e)}")
+                                logger.error(
+                                    f"Failed to generate embedding for chunk {chunk_idx}: {str(e)}"
+                                )
                                 await emit_processing_error(
                                     processing_id=processing_id,
                                     case_id=case_name,
                                     error=f"Embedding generation failed for chunk {chunk_idx}: {str(e)}",
-                                    stage="embedding_generation"
+                                    stage="embedding_generation",
                                 )
                                 raise
-                            
+
                             # Use the actual chunk text field
                             chunk_content = chunk_text
-                            
+
                             # Build metadata from chunk attributes
                             chunk_metadata = {
                                 "chunk_index": chunk_idx,
                                 "total_chunks": len(chunks),
                                 "document_id": stored_doc_id,
-                                "document_name": segment.title or f"Document {segment.document_type}",
+                                "document_name": segment.title
+                                or f"Document {segment.document_type}",
                                 "document_type": segment.document_type.value,
                                 "document_path": f"discovery/{production_metadata.get('production_batch', 'batch')}/{segment.title or 'document'}.pdf",
                                 "bates_range": segment.bates_range,
-                                "producing_party": production_metadata.get('producing_party', 'Unknown'),
-                                "production_batch": production_metadata.get('production_batch', 'batch'),
+                                "producing_party": production_metadata.get(
+                                    "producing_party", "Unknown"
+                                ),
+                                "production_batch": production_metadata.get(
+                                    "production_batch", "batch"
+                                ),
                                 "section_title": chunk.section_title,
                                 "semantic_type": chunk.semantic_type,
                                 "start_page": chunk.start_page,
                                 "end_page": chunk.end_page,
                             }
-                            
-                            chunk_data.append({
-                                "content": chunk_content,
-                                "embedding": embedding,
-                                "metadata": chunk_metadata
-                            })
-                        
+
+                            chunk_data.append(
+                                {
+                                    "content": chunk_content,
+                                    "embedding": embedding,
+                                    "metadata": chunk_metadata,
+                                }
+                            )
+
                         # Store all chunks at once
                         if chunk_data:
                             try:
@@ -603,16 +693,18 @@ async def _process_discovery_core(
                                     case_name=case_name,
                                     document_id=stored_doc_id,
                                     chunks=chunk_data,
-                                    use_hybrid=True  # Store in hybrid collection for better search
+                                    use_hybrid=True,  # Store in hybrid collection for better search
                                 )
-                                logger.info(f"Stored {len(stored_ids)} chunks for document {stored_doc_id}")
-                                
+                                logger.info(
+                                    f"Stored {len(stored_ids)} chunks for document {stored_doc_id}"
+                                )
+
                                 # Emit stored event for frontend
                                 await emit_document_stored(
                                     processing_id=processing_id,
                                     case_id=case_name,
                                     document_id=stored_doc_id,
-                                    vectors_stored=len(stored_ids)
+                                    vectors_stored=len(stored_ids),
                                 )
                             except Exception as e:
                                 logger.error(f"Failed to store chunks: {e}")
@@ -620,96 +712,134 @@ async def _process_discovery_core(
                                     processing_id=processing_id,
                                     case_id=case_name,
                                     error=f"Vector storage failed: {str(e)}",
-                                    stage="vector_storage"
+                                    stage="vector_storage",
                                 )
                                 raise
-                        
+
                         # Extract facts if enabled
                         if enable_fact_extraction and fact_extractor:
-                            logger.info(f"🔍 [Discovery {processing_id}] Extracting facts from document {stored_doc_id}")
-                            facts_result = await fact_extractor.extract_facts_from_document(
-                                document_id=doc_id,
-                                document_content=segment_text,
-                                metadata={
-                                    "document_type": segment.document_type.value,
-                                    "bates_range": segment.bates_range,
-                                    "producing_party": production_metadata.get('producing_party', 'Unknown'),
-                                    "production_batch": production_metadata.get('production_batch', 'batch')
-                                }
+                            logger.info(
+                                f"🔍 [Discovery {processing_id}] Extracting facts from document {stored_doc_id}"
                             )
-                            
-                            logger.info(f"📊 [Discovery {processing_id}] Extracted {len(facts_result.facts)} facts")
-                            
+                            facts_result = (
+                                await fact_extractor.extract_facts_from_document(
+                                    document_id=doc_id,
+                                    document_content=segment_text,
+                                    metadata={
+                                        "document_type": segment.document_type.value,
+                                        "bates_range": segment.bates_range,
+                                        "producing_party": production_metadata.get(
+                                            "producing_party", "Unknown"
+                                        ),
+                                        "production_batch": production_metadata.get(
+                                            "production_batch", "batch"
+                                        ),
+                                    },
+                                )
+                            )
+
+                            logger.info(
+                                f"📊 [Discovery {processing_id}] Extracted {len(facts_result.facts)} facts"
+                            )
+
                             # Stream facts as they're extracted
                             for fact in facts_result.facts:
-                                logger.info(f"📤 [Discovery {processing_id}] Emitting discovery:fact_extracted")
+                                logger.info(
+                                    f"📤 [Discovery {processing_id}] Emitting discovery:fact_extracted"
+                                )
                                 logger.info(f"   - Fact ID: {fact.id}")
                                 logger.info(f"   - Category: {fact.category}")
                                 logger.info(f"   - Confidence: {fact.confidence_score}")
-                                await sio.emit("discovery:fact_extracted", {
-                                    "processing_id": processing_id,
-                                    "document_id": stored_doc_id,
-                                    "fact": {
-                                        "fact_id": fact.id,
-                                        "text": fact.content,
-                                        "category": fact.category,
-                                        "confidence": fact.confidence_score,
-                                        "entities": fact.entities,
-                                        "dates": [ref.date_text for ref in fact.date_references],
-                                        "source_metadata": {
-                                            "bates_range": segment.bates_range,
-                                            "page_range": f"{segment.start_page}-{segment.end_page}"
-                                        }
-                                    }
-                                }, room=f"case_{case_name}")
+                                await sio.emit(
+                                    "discovery:fact_extracted",
+                                    {
+                                        "processing_id": processing_id,
+                                        "document_id": stored_doc_id,
+                                        "fact": {
+                                            "fact_id": fact.id,
+                                            "text": fact.content,
+                                            "category": fact.category,
+                                            "confidence": fact.confidence_score,
+                                            "entities": fact.entities,
+                                            "dates": [
+                                                ref.date_text
+                                                for ref in fact.date_references
+                                            ],
+                                            "source_metadata": {
+                                                "bates_range": segment.bates_range,
+                                                "page_range": f"{segment.start_page}-{segment.end_page}",
+                                            },
+                                        },
+                                    },
+                                    room=f"case_{case_name}",
+                                )
                                 processing_result["facts_extracted"] += 1
-                        
+
                         # Update processed count
                         processing_result["documents_processed"] += 1
-                        logger.info(f"Successfully processed segment {segment_idx}. Total processed: {processing_result['documents_processed']}")
-                        
+                        logger.info(
+                            f"Successfully processed segment {segment_idx}. Total processed: {processing_result['documents_processed']}"
+                        )
+
                         # Emit document completed event
-                        facts_count = len(facts_result.facts) if enable_fact_extraction and facts_result else 0
-                        logger.info(f"✅ [Discovery {processing_id}] Document {stored_doc_id} completed")
+                        facts_count = (
+                            len(facts_result.facts)
+                            if enable_fact_extraction and facts_result
+                            else 0
+                        )
+                        logger.info(
+                            f"✅ [Discovery {processing_id}] Document {stored_doc_id} completed"
+                        )
                         logger.info(f"   - Segment index: {segment_idx}")
                         logger.info(f"   - Facts extracted: {facts_count}")
-                        await sio.emit("discovery:document_completed", {
-                            "processing_id": processing_id,
-                            "document_id": stored_doc_id,
-                            "segment_idx": segment_idx,
-                            "facts_extracted": facts_count
-                        }, room=f"case_{case_name}")
-                        
+                        await sio.emit(
+                            "discovery:document_completed",
+                            {
+                                "processing_id": processing_id,
+                                "document_id": stored_doc_id,
+                                "segment_idx": segment_idx,
+                                "facts_extracted": facts_count,
+                            },
+                            room=f"case_{case_name}",
+                        )
+
                     except Exception as segment_error:
-                        logger.error(f"Error processing segment {segment_idx}: {str(segment_error)}")
-                        processing_result["errors"].append({
-                            "segment": segment_idx,
-                            "error": str(segment_error)
-                        })
-                        
+                        logger.error(
+                            f"Error processing segment {segment_idx}: {str(segment_error)}"
+                        )
+                        processing_result["errors"].append(
+                            {"segment": segment_idx, "error": str(segment_error)}
+                        )
+
                         await emit_processing_error(
                             processing_id=processing_id,
                             case_id=case_name,
                             error=str(segment_error),
-                            stage="processing_segment"
+                            stage="processing_segment",
                         )
-                        
+
             finally:
                 # Clean up temp file
                 if os.path.exists(temp_pdf_path):
                     os.unlink(temp_pdf_path)
-        
+
         # Update final status
         processing_result["status"] = "completed"
         processing_result["completed_at"] = datetime.utcnow().isoformat()
-        
+
         # Update processing status
         processing_status[processing_id].status = "completed"
-        processing_status[processing_id].total_documents = processing_result["total_documents_found"]
-        processing_status[processing_id].processed_documents = processing_result["documents_processed"]
-        processing_status[processing_id].total_facts = processing_result["facts_extracted"]
+        processing_status[processing_id].total_documents = processing_result[
+            "total_documents_found"
+        ]
+        processing_status[processing_id].processed_documents = processing_result[
+            "documents_processed"
+        ]
+        processing_status[processing_id].total_facts = processing_result[
+            "facts_extracted"
+        ]
         processing_status[processing_id].completed_at = datetime.utcnow()
-        
+
         # Emit completion event
         summary = {
             "totalDocuments": processing_result.get("total_documents_found", 0),
@@ -718,7 +848,10 @@ async def _process_discovery_core(
             "totalVectors": processing_result.get("vectors_stored", 0),
             "totalErrors": len(processing_result.get("errors", [])),
             "totalFacts": processing_result.get("facts_extracted", 0),
-            "processingTime": (datetime.utcnow() - datetime.fromisoformat(processing_result["started_at"])).total_seconds()
+            "processingTime": (
+                datetime.utcnow()
+                - datetime.fromisoformat(processing_result["started_at"])
+            ).total_seconds(),
         }
         logger.info(f"🎉 [Discovery {processing_id}] Processing completed!")
         logger.info(f"   - Total documents found: {summary['totalDocuments']}")
@@ -726,29 +859,27 @@ async def _process_discovery_core(
         logger.info(f"   - Total facts extracted: {summary['totalFacts']}")
         logger.info(f"   - Processing time: {summary['processingTime']:.2f}s")
         await emit_processing_completed(
-            processing_id=processing_id,
-            case_id=case_name,
-            summary=summary
+            processing_id=processing_id, case_id=case_name, summary=summary
         )
-        
+
         # Store processing result
         await store_processing_result(processing_id, processing_result)
-        
+
     except Exception as e:
         logger.error(f"Error in discovery processing: {str(e)}", exc_info=True)
         processing_result["status"] = "failed"
         processing_result["error"] = str(e)
-        
+
         processing_status[processing_id].status = "error"
         processing_status[processing_id].error_message = str(e)
-        
+
         await emit_processing_error(
             processing_id=processing_id,
             case_id=case_name,
             error=str(e),
-            stage="discovery_processing"
+            stage="discovery_processing",
         )
-        
+
     return processing_result
 
 
@@ -777,14 +908,14 @@ async def _process_discovery_async(
         "responsive_to_requests": responsive_to_requests or [],
         "confidentiality_designation": confidentiality_designation,
     }
-    
+
     # Call core processing logic
     await _process_discovery_core(
         processing_id=processing_id,
         case_name=case_name,
         discovery_files=discovery_files,
         production_metadata=production_metadata,
-        enable_fact_extraction=enable_fact_extraction
+        enable_fact_extraction=enable_fact_extraction,
     )
 
 
@@ -794,11 +925,11 @@ async def _process_discovery_with_cleanup(
     discovery_files: List[Dict[str, Any]],
     production_metadata: Dict[str, Any],
     enable_fact_extraction: bool = True,
-    cleanup_on_complete: bool = False
+    cleanup_on_complete: bool = False,
 ):
     """
     Wrapper for discovery processing that ensures temp file cleanup.
-    
+
     Args:
         Same as _process_discovery_core plus:
         cleanup_on_complete: Whether to clean up temp files after processing
@@ -810,7 +941,7 @@ async def _process_discovery_with_cleanup(
             case_name=case_name,
             discovery_files=discovery_files,
             production_metadata=production_metadata,
-            enable_fact_extraction=enable_fact_extraction
+            enable_fact_extraction=enable_fact_extraction,
         )
         return result
     finally:
@@ -818,8 +949,12 @@ async def _process_discovery_with_cleanup(
         if cleanup_on_complete:
             try:
                 temp_file_manager = get_temp_file_manager()
-                cleaned = await temp_file_manager.cleanup_temp_files(processing_id=processing_id)
-                logger.info(f"Cleaned up {cleaned} temp files for processing {processing_id}")
+                cleaned = await temp_file_manager.cleanup_temp_files(
+                    processing_id=processing_id
+                )
+                logger.info(
+                    f"Cleaned up {cleaned} temp files for processing {processing_id}"
+                )
             except Exception as e:
                 logger.error(f"Error during temp file cleanup: {e}")
 
@@ -832,18 +967,18 @@ async def process_discovery_with_deficiency(
 ) -> DiscoveryProcessingResponse:
     """
     Process discovery documents with optional RTP and OC response documents for deficiency analysis.
-    
+
     Supports multiple input formats:
     - JSON with base64 encoded files (discovery PDF, RTP PDF, OC response PDF)
     - multipart/form-data uploads
     - Optional deficiency analysis triggering
     """
     processing_id = str(uuid.uuid4())
-    
+
     # Check content type
     content_type = request.headers.get("content-type", "")
     logger.info(f"Discovery with deficiency request content-type: {content_type}")
-    
+
     # Initialize default values
     discovery_files = []
     rtp_file = None
@@ -855,67 +990,79 @@ async def process_discovery_with_deficiency(
     confidentiality_designation = None
     enable_fact_extraction = True
     enable_deficiency_analysis = False
-    
+
     try:
         if "application/json" in content_type:
             # Handle JSON request with base64-encoded files
             request_data = await request.json()
-            
+
             # Get main discovery file (required)
             pdf_file = request_data.get("pdf_file")
             if pdf_file:
-                discovery_files = [{
-                    "filename": "discovery_production.pdf",
-                    "content": base64.b64decode(pdf_file),
-                    "content_type": "application/pdf"
-                }]
-            
+                discovery_files = [
+                    {
+                        "filename": "discovery_production.pdf",
+                        "content": base64.b64decode(pdf_file),
+                        "content_type": "application/pdf",
+                    }
+                ]
+
             # Get optional RTP and OC response files
             rtp_file_b64 = request_data.get("rtp_file")
             oc_response_file_b64 = request_data.get("oc_response_file")
-            
+
             if rtp_file_b64:
                 rtp_file = {
                     "filename": "rtp_document.pdf",
                     "content": base64.b64decode(rtp_file_b64),
-                    "content_type": "application/pdf"
+                    "content_type": "application/pdf",
                 }
-            
+
             if oc_response_file_b64:
                 oc_response_file = {
                     "filename": "oc_response_document.pdf",
                     "content": base64.b64decode(oc_response_file_b64),
-                    "content_type": "application/pdf"
+                    "content_type": "application/pdf",
                 }
-            
+
             # Extract production metadata
             production_metadata = request_data.get("production_metadata", {})
             production_batch = production_metadata.get("production_batch", "Batch001")
-            producing_party = production_metadata.get("producing_party", "Opposing Counsel")
+            producing_party = production_metadata.get(
+                "producing_party", "Opposing Counsel"
+            )
             production_date = production_metadata.get("production_date")
-            responsive_to_requests = production_metadata.get("responsive_to_requests", [])
-            confidentiality_designation = production_metadata.get("confidentiality_designation")
-            
+            responsive_to_requests = production_metadata.get(
+                "responsive_to_requests", []
+            )
+            confidentiality_designation = production_metadata.get(
+                "confidentiality_designation"
+            )
+
             # Get processing options
             enable_fact_extraction = request_data.get("enable_fact_extraction", True)
-            enable_deficiency_analysis = request_data.get("enable_deficiency_analysis", False)
-            
+            enable_deficiency_analysis = request_data.get(
+                "enable_deficiency_analysis", False
+            )
+
         else:
             # Handle multipart/form-data
             try:
                 form = await request.form()
-                
+
                 # Get discovery file
                 discovery_file = form.get("pdf_file")
                 if discovery_file and isinstance(discovery_file, UploadFile):
                     content = await discovery_file.read()
-                    discovery_files = [{
-                        "filename": discovery_file.filename,
-                        "content": content,
-                        "content_type": discovery_file.content_type
-                    }]
+                    discovery_files = [
+                        {
+                            "filename": discovery_file.filename,
+                            "content": content,
+                            "content_type": discovery_file.content_type,
+                        }
+                    ]
                     await discovery_file.close()
-                
+
                 # Get optional RTP file
                 rtp_upload = form.get("rtp_file")
                 if rtp_upload and isinstance(rtp_upload, UploadFile):
@@ -923,10 +1070,10 @@ async def process_discovery_with_deficiency(
                     rtp_file = {
                         "filename": rtp_upload.filename,
                         "content": content,
-                        "content_type": rtp_upload.content_type
+                        "content_type": rtp_upload.content_type,
                     }
                     await rtp_upload.close()
-                
+
                 # Get optional OC response file
                 oc_upload = form.get("oc_response_file")
                 if oc_upload and isinstance(oc_upload, UploadFile):
@@ -934,72 +1081,60 @@ async def process_discovery_with_deficiency(
                     oc_response_file = {
                         "filename": oc_upload.filename,
                         "content": content,
-                        "content_type": oc_upload.content_type
+                        "content_type": oc_upload.content_type,
                     }
                     await oc_upload.close()
-                
+
                 # Get other form fields
                 production_batch = form.get("production_batch", "Batch001")
                 producing_party = form.get("producing_party", "Opposing Counsel")
-                enable_deficiency_analysis = form.get("enable_deficiency_analysis", "false").lower() == "true"
-                
+                enable_deficiency_analysis = (
+                    form.get("enable_deficiency_analysis", "false").lower() == "true"
+                )
+
             except Exception as form_error:
                 logger.error(f"Form parsing failed: {form_error}")
                 raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid form data: {str(form_error)}"
+                    status_code=400, detail=f"Invalid form data: {str(form_error)}"
                 )
-                
+
     except Exception as e:
         logger.error(f"Error parsing request: {e}")
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid request format: {str(e)}"
-        )
-    
+        raise HTTPException(status_code=400, detail=f"Invalid request format: {str(e)}")
+
     # Validate required fields
     if not discovery_files:
-        raise HTTPException(
-            status_code=400,
-            detail="Discovery PDF file is required"
-        )
-    
+        raise HTTPException(status_code=400, detail="Discovery PDF file is required")
+
     # Validate PDF files
     for file_data in discovery_files:
         is_valid, message = validate_pdf_content(
-            file_data['content'], 
-            file_data.get('filename', 'discovery.pdf')
+            file_data["content"], file_data.get("filename", "discovery.pdf")
         )
         if not is_valid:
             raise HTTPException(
-                status_code=400,
-                detail=f"Invalid discovery PDF: {message}"
+                status_code=400, detail=f"Invalid discovery PDF: {message}"
             )
-    
+
     # Validate RTP file if provided
     if rtp_file:
         is_valid, message = validate_pdf_content(
-            rtp_file['content'],
-            rtp_file.get('filename', 'rtp.pdf')
+            rtp_file["content"], rtp_file.get("filename", "rtp.pdf")
         )
         if not is_valid:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid RTP PDF: {message}"
-            )
-    
+            raise HTTPException(status_code=400, detail=f"Invalid RTP PDF: {message}")
+
     # Validate OC response file if provided
     if oc_response_file:
         is_valid, message = validate_pdf_content(
-            oc_response_file['content'],
-            oc_response_file.get('filename', 'oc_response.pdf')
+            oc_response_file["content"],
+            oc_response_file.get("filename", "oc_response.pdf"),
         )
         if not is_valid:
             raise HTTPException(
-                status_code=400,
-                detail=f"Invalid OC response PDF: {message}"
+                status_code=400, detail=f"Invalid OC response PDF: {message}"
             )
-    
+
     # Initialize processing status
     status = DiscoveryProcessingStatus(
         processing_id=processing_id,
@@ -1011,7 +1146,7 @@ async def process_discovery_with_deficiency(
         status="processing",
     )
     processing_status[processing_id] = status
-    
+
     # Build production metadata with optional document references
     production_metadata = {
         "production_batch": production_batch,
@@ -1019,26 +1154,28 @@ async def process_discovery_with_deficiency(
         "production_date": production_date,
         "responsive_to_requests": responsive_to_requests,
         "confidentiality_designation": confidentiality_designation,
-        "has_deficiency_analysis": bool(rtp_file and oc_response_file and enable_deficiency_analysis),
+        "has_deficiency_analysis": bool(
+            rtp_file and oc_response_file and enable_deficiency_analysis
+        ),
     }
-    
+
     # Process RTP and OC response files if provided
     temp_file_manager = get_temp_file_manager()
-    
+
     if rtp_file or oc_response_file:
         # Store temp files without context manager since we're using background tasks
         try:
             if rtp_file:
                 logger.info(f"Storing RTP file: {rtp_file['filename']}")
                 rtp_id, rtp_path = await temp_file_manager.save_temp_file(
-                    content=rtp_file['content'],
-                    filename=rtp_file['filename'],
+                    content=rtp_file["content"],
+                    filename=rtp_file["filename"],
                     processing_id=processing_id,
-                    file_type="rtp"
+                    file_type="rtp",
                 )
                 production_metadata["rtp_document_id"] = rtp_id
                 production_metadata["rtp_document_path"] = rtp_path
-                
+
                 # Emit WebSocket event for RTP upload
                 await sio.emit(
                     "discovery:rtp_upload",
@@ -1048,26 +1185,26 @@ async def process_discovery_with_deficiency(
                         "case_name": case_context.case_name,
                         "document_info": {
                             "document_id": rtp_id,
-                            "filename": rtp_file['filename'],
-                            "size_bytes": len(rtp_file['content']),
+                            "filename": rtp_file["filename"],
+                            "size_bytes": len(rtp_file["content"]),
                             "upload_timestamp": datetime.utcnow().isoformat() + "Z",
-                            "status": "uploaded"
-                        }
+                            "status": "uploaded",
+                        },
                     },
-                    room=f"case_{case_context.case_id}"
+                    room=f"case_{case_context.case_id}",
                 )
-                
+
             if oc_response_file:
                 logger.info(f"Storing OC response file: {oc_response_file['filename']}")
                 oc_id, oc_path = await temp_file_manager.save_temp_file(
-                    content=oc_response_file['content'],
-                    filename=oc_response_file['filename'],
+                    content=oc_response_file["content"],
+                    filename=oc_response_file["filename"],
                     processing_id=processing_id,
-                    file_type="oc_response"
+                    file_type="oc_response",
                 )
                 production_metadata["oc_response_document_id"] = oc_id
                 production_metadata["oc_response_document_path"] = oc_path
-                
+
                 # Emit WebSocket event for OC response upload
                 await sio.emit(
                     "discovery:oc_response_upload",
@@ -1077,21 +1214,20 @@ async def process_discovery_with_deficiency(
                         "case_name": case_context.case_name,
                         "document_info": {
                             "document_id": oc_id,
-                            "filename": oc_response_file['filename'],
-                            "size_bytes": len(oc_response_file['content']),
+                            "filename": oc_response_file["filename"],
+                            "size_bytes": len(oc_response_file["content"]),
                             "upload_timestamp": datetime.utcnow().isoformat() + "Z",
-                            "status": "uploaded"
-                        }
+                            "status": "uploaded",
+                        },
                     },
-                    room=f"case_{case_context.case_id}"
+                    room=f"case_{case_context.case_id}",
                 )
         except Exception as e:
             logger.error(f"Failed to store temporary files: {e}")
             raise HTTPException(
-                status_code=500,
-                detail=f"Failed to store temporary files: {str(e)}"
+                status_code=500, detail=f"Failed to store temporary files: {str(e)}"
             )
-    
+
     # Launch background processing with core logic
     background_tasks.add_task(
         _process_discovery_with_cleanup,
@@ -1100,16 +1236,16 @@ async def process_discovery_with_deficiency(
         discovery_files,
         production_metadata,
         enable_fact_extraction,
-        cleanup_on_complete=bool(rtp_file or oc_response_file)
+        cleanup_on_complete=bool(rtp_file or oc_response_file),
     )
-    
+
     # Emit WebSocket event
     await emit_discovery_started(
         processing_id=processing_id,
         case_id=case_context.case_id,
-        total_files=len(discovery_files)
+        total_files=len(discovery_files),
     )
-    
+
     return DiscoveryProcessingResponse(
         processing_id=processing_id,
         status="started",
@@ -1308,32 +1444,28 @@ async def list_box_files(
 async def get_websocket_status() -> Dict[str, Any]:
     """Get current WebSocket connection status"""
     from src.websocket.socket_server import sio, active_connections
-    
-    status = {
-        "connected_clients": len(active_connections),
-        "clients": [],
-        "rooms": {}
-    }
-    
+
+    status = {"connected_clients": len(active_connections), "clients": [], "rooms": {}}
+
     for sid, info in active_connections.items():
         client_info = {
             "sid": sid,
             "case_id": info.get("case_id"),
             "connected_at": str(info.get("connected_at")),
-            "rooms": list(sio.rooms(sid)) if hasattr(sio, 'rooms') else []
+            "rooms": list(sio.rooms(sid)) if hasattr(sio, "rooms") else [],
         }
         status["clients"].append(client_info)
-    
+
     # Get all rooms
     try:
-        for sid, rooms in sio.manager.rooms.get('/', {}).items():
+        for sid, rooms in sio.manager.rooms.get("/", {}).items():
             for room in rooms:
                 if room not in status["rooms"]:
                     status["rooms"][room] = []
                 status["rooms"][room].append(sid)
     except:
         pass
-    
+
     return status
 
 
@@ -1343,21 +1475,21 @@ async def test_discovery_events(
 ) -> Dict[str, Any]:
     """Test WebSocket event emission with proper snake_case naming"""
     import asyncio
-    
+
     test_id = str(uuid.uuid4())
     logger.info(f"🧪 Starting WebSocket event test: {test_id}")
-    
+
     try:
         # Emit test events with correct snake_case naming
         await emit_discovery_started(
             processing_id=test_id,
             case_id=case_context.case_id if case_context else "test_case",
-            total_files=1
+            total_files=1,
         )
         logger.info(f"✅ Emitted discovery:started for test {test_id}")
-        
+
         await asyncio.sleep(1)
-        
+
         # Emit document found event
         doc_id = f"test_doc_{uuid.uuid4()}"
         await emit_document_found(
@@ -1368,24 +1500,24 @@ async def test_discovery_events(
             doc_type="motion",
             page_count=10,
             bates_range={"start": "001", "end": "010"},
-            confidence=0.95
+            confidence=0.95,
         )
         logger.info(f"✅ Emitted discovery:document_found for document {doc_id}")
-        
+
         await asyncio.sleep(1)
-        
+
         # Emit chunking progress
         await emit_chunking_progress(
             processing_id=test_id,
             case_id=case_context.case_id if case_context else "test_case",
             document_id=doc_id,
             progress=0.5,
-            chunks_created=5
+            chunks_created=5,
         )
         logger.info(f"✅ Emitted discovery:chunking for document {doc_id}")
-        
+
         await asyncio.sleep(1)
-        
+
         # Emit fact extracted
         fact_data = {
             "processing_id": test_id,
@@ -1401,25 +1533,29 @@ async def test_discovery_events(
                     "document_title": "Test Document",
                     "page": 5,
                     "bbox": [100, 200, 300, 400],
-                    "text_snippet": "This is a test fact..."
-                }
-            }
+                    "text_snippet": "This is a test fact...",
+                },
+            },
         }
-        await sio.emit("discovery:fact_extracted", fact_data, room=f"case_{case_context.case_id if case_context else 'test_case'}")
-        logger.info(f"✅ Emitted discovery:fact_extracted")
-        
+        await sio.emit(
+            "discovery:fact_extracted",
+            fact_data,
+            room=f"case_{case_context.case_id if case_context else 'test_case'}",
+        )
+        logger.info("✅ Emitted discovery:fact_extracted")
+
         await asyncio.sleep(1)
-        
+
         # Emit document completed
-        await sio.emit("discovery:document_completed", {
-            "processing_id": test_id,
-            "document_id": doc_id,
-            "facts_extracted": 1
-        }, room=f"case_{case_context.case_id if case_context else 'test_case'}")
-        logger.info(f"✅ Emitted discovery:document_completed")
-        
+        await sio.emit(
+            "discovery:document_completed",
+            {"processing_id": test_id, "document_id": doc_id, "facts_extracted": 1},
+            room=f"case_{case_context.case_id if case_context else 'test_case'}",
+        )
+        logger.info("✅ Emitted discovery:document_completed")
+
         await asyncio.sleep(1)
-        
+
         # Emit processing completed
         await emit_processing_completed(
             processing_id=test_id,
@@ -1431,11 +1567,11 @@ async def test_discovery_events(
                 "totalVectors": 5,
                 "totalErrors": 0,
                 "totalFacts": 1,
-                "processingTime": 5.0
-            }
+                "processingTime": 5.0,
+            },
         )
-        logger.info(f"✅ Emitted discovery:completed")
-        
+        logger.info("✅ Emitted discovery:completed")
+
         return {
             "message": "Test events emitted successfully",
             "processing_id": test_id,
@@ -1446,11 +1582,11 @@ async def test_discovery_events(
                 "discovery:chunking",
                 "discovery:fact_extracted",
                 "discovery:document_completed",
-                "discovery:completed"
+                "discovery:completed",
             ],
-            "note": "Check browser console for WebSocket events"
+            "note": "Check browser console for WebSocket events",
         }
-        
+
     except Exception as e:
         logger.error(f"Error emitting test events: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Test failed: {str(e)}")
@@ -1460,12 +1596,12 @@ async def test_discovery_events(
 def extract_text_from_pages(pdf_path: str, start_page: int, end_page: int) -> str:
     """
     Extract text from specific page range in PDF.
-    
+
     Args:
         pdf_path: Path to the PDF file
         start_page: Starting page number (1-indexed)
         end_page: Ending page number (inclusive)
-    
+
     Returns:
         Extracted text from the specified page range
     """
@@ -1485,7 +1621,7 @@ def extract_text_from_pages(pdf_path: str, start_page: int, end_page: int) -> st
 async def store_processing_result(processing_id: str, result: Dict[str, Any]):
     """
     Store processing result for retrieval.
-    
+
     Args:
         processing_id: Unique ID for the processing job
         result: Processing result data
@@ -1494,12 +1630,17 @@ async def store_processing_result(processing_id: str, result: Dict[str, Any]):
     # In production, this could be stored in Redis, database, or cache
     if processing_id in processing_status:
         processing_status[processing_id].documents = result.get("documents", {})
-        processing_status[processing_id].total_documents = result.get("total_documents_found", 0)
-        processing_status[processing_id].processed_documents = result.get("documents_processed", 0)
+        processing_status[processing_id].total_documents = result.get(
+            "total_documents_found", 0
+        )
+        processing_status[processing_id].processed_documents = result.get(
+            "documents_processed", 0
+        )
         processing_status[processing_id].total_facts = result.get("facts_extracted", 0)
         processing_status[processing_id].status = result.get("status", "completed")
         if result.get("completed_at"):
-            processing_status[processing_id].completed_at = datetime.fromisoformat(result["completed_at"])
+            processing_status[processing_id].completed_at = datetime.fromisoformat(
+                result["completed_at"]
+            )
         if result.get("error"):
             processing_status[processing_id].error_message = result["error"]
-

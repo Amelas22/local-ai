@@ -65,15 +65,19 @@ class CaseContextMiddleware(BaseHTTPMiddleware):
         # Check if path requires case context
         if not self._requires_case_context(request.url.path):
             return await call_next(request)
-        
+
         # MVP Mode: Skip all case validation
         import os
+
         if os.getenv("MVP_MODE", "false").lower() == "true":
             # In MVP mode, inject mock case context if case ID is provided
-            case_id = request.headers.get("X-Case-ID") or request.query_params.get("case_id")
+            case_id = request.headers.get("X-Case-ID") or request.query_params.get(
+                "case_id"
+            )
             if case_id:
                 # Create a simple mock case context
                 from types import SimpleNamespace
+
                 mock_context = SimpleNamespace(
                     case_id=case_id,
                     case_name=case_id,
@@ -81,7 +85,7 @@ class CaseContextMiddleware(BaseHTTPMiddleware):
                     law_firm_id=getattr(request.state, "law_firm_id", "mvp-firm"),
                     permissions={"read": True, "write": True, "admin": True},
                     is_admin=True,
-                    has_permission=lambda perm: True
+                    has_permission=lambda perm: True,
                 )
                 request.state.case_context = mock_context
                 request.state.case_id = case_id

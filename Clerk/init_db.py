@@ -48,7 +48,7 @@ def run_migrations():
 
         # Override database URL from environment
         db_url = os.getenv(
-            "DATABASE_URL", "postgresql://postgres:password@localhost:5432/postgres"
+            "DATABASE_URL", "postgresql://postgres:password@postgres:5432/postgres"
         )
         # Convert to sync URL for Alembic (remove asyncpg)
         if "+asyncpg" in db_url:

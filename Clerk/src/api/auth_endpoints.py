@@ -110,7 +110,7 @@ async def get_current_user(
     # Check if user was already authenticated by middleware
     if hasattr(request.state, "user") and request.state.user:
         return request.state.user
-    
+
     # No token provided
     if not token:
         raise HTTPException(

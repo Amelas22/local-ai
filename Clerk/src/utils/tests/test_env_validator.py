@@ -116,9 +116,7 @@ class TestEnvironmentInfo:
 
     def test_get_environment_info_short_values(self):
         """Test masking of short values"""
-        with patch.dict(
-            os.environ, {"BOX_CLIENT_ID": "tiny"}
-        ):
+        with patch.dict(os.environ, {"BOX_CLIENT_ID": "tiny"}):
             info = get_environment_info()
 
             assert info["box"]["client_id"] == "***"  # Short value masked
@@ -142,7 +140,6 @@ class TestValidateAll:
             # Should not raise any exception
             validate_all()
 
-
     def test_validate_all_services_failure(self):
         """Test validation fails when required services are missing"""
         with patch.dict(
@@ -157,7 +154,9 @@ class TestValidateAll:
 
     def test_validate_all_handles_unexpected_error(self):
         """Test validation handles unexpected errors gracefully"""
-        with patch("src.utils.env_validator.validate_required_services") as mock_validate:
+        with patch(
+            "src.utils.env_validator.validate_required_services"
+        ) as mock_validate:
             mock_validate.side_effect = ValueError("Unexpected error")
 
             with pytest.raises(EnvironmentError) as exc_info:

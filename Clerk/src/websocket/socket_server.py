@@ -109,13 +109,13 @@ async def subscribe_case(sid, data):
             prev_case = active_connections[sid]["case_id"]
             await sio.leave_room(sid, f"case_{prev_case}")
             logger.info(f"Client {sid} left room case_{prev_case}")
-        
+
         # Join new case room
         active_connections[sid]["case_id"] = case_id
         room_name = f"case_{case_id}"
         await sio.enter_room(sid, room_name)
         logger.info(f"Client {sid} joined room {room_name}")
-        
+
         await sio.emit("subscribed", {"case_id": case_id}, room=sid)
 
 
@@ -139,13 +139,17 @@ async def emit_discovery_started(processing_id: str, case_id: str, total_files: 
         "total_files": total_files,
     }
     room = f"case_{case_id}"
-    logger.info(f"About to emit discovery:started to room '{room}' with data: {event_data}")
-    
+    logger.info(
+        f"About to emit discovery:started to room '{room}' with data: {event_data}"
+    )
+
     # Debug: Log emission details
     logger.debug(f"Emitting to room: {room}")
-    
+
     await sio.emit("discovery:started", event_data, room=room)
-    logger.info(f"Emitted discovery:started for processing {processing_id} to room {room}")
+    logger.info(
+        f"Emitted discovery:started for processing {processing_id} to room {room}"
+    )
 
 
 async def emit_document_found(
@@ -169,13 +173,21 @@ async def emit_document_found(
         "confidence": confidence,
     }
     room = f"case_{case_id}"
-    logger.debug(f"Emitting discovery:document_found to room {room} with data: {event_data}")
+    logger.debug(
+        f"Emitting discovery:document_found to room {room} with data: {event_data}"
+    )
     await sio.emit("discovery:document_found", event_data, room=room)
-    logger.debug(f"Emitted discovery:document_found for document {document_id} to room {room}")
+    logger.debug(
+        f"Emitted discovery:document_found for document {document_id} to room {room}"
+    )
 
 
 async def emit_chunking_progress(
-    processing_id: str, case_id: str, document_id: str, progress: float, chunks_created: int
+    processing_id: str,
+    case_id: str,
+    document_id: str,
+    progress: float,
+    chunks_created: int,
 ):
     """Emit document chunking progress"""
     event_data = {
@@ -218,17 +230,25 @@ async def emit_document_stored(
     await sio.emit("discovery:stored", event_data, room=room)
 
 
-async def emit_processing_completed(processing_id: str, case_id: str, summary: Dict[str, Any]):
+async def emit_processing_completed(
+    processing_id: str, case_id: str, summary: Dict[str, Any]
+):
     """Emit when processing is completed"""
     event_data = {"processing_id": processing_id, "summary": summary}
     room = f"case_{case_id}"
     logger.debug(f"Emitting discovery:completed to room {room} with data: {event_data}")
     await sio.emit("discovery:completed", event_data, room=room)
-    logger.info(f"Emitted discovery:completed for processing {processing_id} to room {room}")
+    logger.info(
+        f"Emitted discovery:completed for processing {processing_id} to room {room}"
+    )
 
 
 async def emit_processing_error(
-    processing_id: str, case_id: str, error: str, stage: str, document_id: Optional[str] = None
+    processing_id: str,
+    case_id: str,
+    error: str,
+    stage: str,
+    document_id: Optional[str] = None,
 ):
     """Emit when an error occurs during processing"""
     event_data = {
@@ -240,7 +260,9 @@ async def emit_processing_error(
     room = f"case_{case_id}"
     logger.debug(f"Emitting discovery:error to room {room} with data: {event_data}")
     await sio.emit("discovery:error", event_data, room=room)
-    logger.error(f"Emitted discovery:error for processing {processing_id} to room {room}: {error}")
+    logger.error(
+        f"Emitted discovery:error for processing {processing_id} to room {room}: {error}"
+    )
 
 
 # Motion drafting event emitters (for future use)
@@ -281,7 +303,7 @@ async def emit_case_event(event_type: str, case_id: str, data: dict):
         "timestamp": datetime.utcnow().isoformat(),
         **data,
     }
-    
+
     logger.debug(f"Emitting case:{event_type} with data: {event_data}")
     await sio.emit(f"case:{event_type}", event_data)
     logger.info(f"Emitted case event: case:{event_type} for case {case_id}")

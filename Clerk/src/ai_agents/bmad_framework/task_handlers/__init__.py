@@ -8,12 +8,12 @@ from .deficiency_analyzer_handlers import (
     handle_analyze_rtp,
     handle_search_production,
     handle_categorize_compliance,
-    handle_full_analysis
+    handle_full_analysis,
 )
 
 __all__ = [
     "handle_analyze_rtp",
-    "handle_search_production", 
+    "handle_search_production",
     "handle_categorize_compliance",
-    "handle_full_analysis"
+    "handle_full_analysis",
 ]

@@ -1,5 +1,5 @@
-version: 4.30.4
-installed_at: '2025-07-19T15:19:51.820Z'
+version: 4.31.0
+installed_at: '2025-07-20T21:27:14.065Z'
 install_type: full
 agent: null
 ides_setup:
@@ -7,26 +7,23 @@ ides_setup:
   - windsurf
 expansion_packs: []
 files:
+  - path: .bmad-core\working-in-the-brownfield.md
+    hash: 467f6b560ab170ef
+    modified: false
+  - path: .bmad-core\user-guide.md
+    hash: a50ffc3de4034175
+    modified: false
+  - path: .bmad-core\install-manifest.yaml.bak
+    hash: cad7a213b4defb20
+    modified: false
   - path: .bmad-core\install-manifest.yaml
-    hash: 87636a345f55e131
+    hash: cad7a213b4defb20
     modified: false
   - path: .bmad-core\core-config.yaml.bak
     hash: 7e337436f0bc56f6
     modified: false
   - path: .bmad-core\core-config.yaml
     hash: a7d1007020c0702f
-    modified: false
-  - path: .bmad-core\utils\workflow-management.md.bak
-    hash: f31556b5cb74e9a7
-    modified: false
-  - path: .bmad-core\utils\workflow-management.md
-    hash: b148df3ebb1f9c61
-    modified: false
-  - path: .bmad-core\utils\bmad-doc-template.md.bak
-    hash: a1514ec3d5729788
-    modified: false
-  - path: .bmad-core\utils\bmad-doc-template.md
-    hash: 4b2f7c4408835b9e
     modified: false
   - path: .bmad-core\workflows\greenfield-ui.yaml.bak
     hash: d1ccf9e174d7871b
@@ -63,6 +60,18 @@ files:
     modified: false
   - path: .bmad-core\workflows\brownfield-fullstack.yaml
     hash: 43aee996cfa1f75a
+    modified: false
+  - path: .bmad-core\utils\workflow-management.md.bak
+    hash: f31556b5cb74e9a7
+    modified: false
+  - path: .bmad-core\utils\workflow-management.md
+    hash: b148df3ebb1f9c61
+    modified: false
+  - path: .bmad-core\utils\bmad-doc-template.md.bak
+    hash: a1514ec3d5729788
+    modified: false
+  - path: .bmad-core\utils\bmad-doc-template.md
+    hash: 4b2f7c4408835b9e
     modified: false
   - path: .bmad-core\templates\story-tmpl.yaml.bak
     hash: a6ef8be63c64d43d

@@ -316,7 +316,7 @@ class UnifiedDocument(BaseModel):
 
         # Note: duplicate_locations would need separate handling
         data.pop("duplicate_locations", None)
-        
+
         # Ensure required fields have defaults if missing
         if "search_text" not in data:
             data["search_text"] = data.get("summary", "")

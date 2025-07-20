@@ -14,9 +14,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Database URL from environment, with fallback to local PostgreSQL
+# Database URL from environment, with fallback to Docker PostgreSQL container
 DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql+asyncpg://postgres:password@localhost:5432/postgres"
+    "DATABASE_URL", "postgresql+asyncpg://postgres:password@postgres:5432/postgres"
 )
 
 # Convert postgresql:// to postgresql+asyncpg:// for async support

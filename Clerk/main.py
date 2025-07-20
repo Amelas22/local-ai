@@ -59,6 +59,7 @@ from src.api.auth_endpoints import router as auth_router
 from src.api.case_endpoints import router as case_router
 from src.api.discovery_endpoints import router as discovery_router
 from src.api.agent_endpoints import router as agent_router
+from src.api.deficiency_endpoints import router as deficiency_router
 
 # Setup logging
 logger = setup_logging("clerk_api", "INFO")
@@ -190,6 +191,7 @@ app.include_router(auth_router)
 app.include_router(case_router)
 app.include_router(discovery_router)
 app.include_router(agent_router)
+app.include_router(deficiency_router)
 
 
 # Pydantic models for API
