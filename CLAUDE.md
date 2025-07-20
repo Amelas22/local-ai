@@ -180,6 +180,7 @@ DISCOVERY_WINDOW_SIZE=5                     # Pages per analysis window
 DISCOVERY_WINDOW_OVERLAP=1                  # Page overlap between windows
 DISCOVERY_CONFIDENCE_THRESHOLD=0.7          # Minimum confidence for boundaries
 DISCOVERY_CLASSIFICATION_MODEL=gpt-4.1-mini # Model for document classification
+DISCOVERY_ENABLE_DEFICIENCY_ANALYSIS=false  # Enable automatic deficiency analysis after discovery
 ```
 
 ### Installation
@@ -402,6 +403,19 @@ motion: DraftedMotion = await drafter.draft_motion_from_outline(
 
 ### Deficiency Analysis Pattern
 Analyze RTP requests against discovery productions:
+
+#### Automatic Trigger Pattern (NEW)
+Discovery processing can automatically trigger deficiency analysis when enabled:
+```python
+# In discovery_endpoints.py after fact extraction completes
+if settings.discovery.enable_deficiency_analysis:
+    # Trigger runs as background task if RTP/OC documents provided
+    asyncio.create_task(
+        _trigger_deficiency_analysis(processing_id, case_name, request)
+    )
+```
+
+#### Manual Analysis Pattern
 ```python
 from src.services.deficiency_service import DeficiencyService
 from src.models.deficiency_models import DeficiencyReport, DeficiencyItem

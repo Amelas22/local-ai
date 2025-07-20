@@ -91,6 +91,12 @@ class DiscoveryProcessingRequest(BaseModel):
     oc_response_file: Optional[str] = Field(
         None, description="Base64-encoded OC response document PDF"
     )
+    rtp_document_id: Optional[str] = Field(
+        None, description="Document ID reference for RTP document"
+    )
+    oc_response_document_id: Optional[str] = Field(
+        None, description="Document ID reference for OC response document"
+    )
     enable_deficiency_analysis: bool = Field(
         default=False,
         description="Enable deficiency analysis when RTP/OC files provided",
@@ -164,7 +170,7 @@ class DiscoveryProcessWithDeficiencyRequest(BaseModel):
             return v
         try:
             # Try to decode to verify it's valid base64
-            decoded = base64.b64decode(v, validate=True)
+            base64.b64decode(v, validate=True)
             # Could add PDF magic number check here if needed
             return v
         except Exception:
@@ -192,6 +198,12 @@ class DiscoveryProcessingStatus(BaseModel):
     # Document tracking
     documents: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     # Format: {doc_id: {"title": str, "pages": int, "facts": int, "status": str}}
+
+    # Deficiency analysis tracking
+    deficiency_analysis_status: Optional[str] = Field(
+        None,
+        description="Status of deficiency analysis: 'triggered', 'skipped', 'failed', 'completed'",
+    )
 
 
 class FactDeleteRequest(BaseModel):

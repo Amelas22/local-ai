@@ -91,6 +91,9 @@ SUPABASE_JWT_SECRET=your_jwt_secret  # Optional, for JWT verification
 # Optional Overrides
 CHUNK_SIZE=1400
 CHUNK_OVERLAP=200
+
+# Discovery Processing Configuration
+DISCOVERY_ENABLE_DEFICIENCY_ANALYSIS=false  # Enable automatic deficiency analysis after discovery
 ```
 
 ### 2. Install Dependencies
@@ -421,6 +424,7 @@ docker run -d \
 - ✅ Three specialized AI agents
 - ✅ Comprehensive cost tracking
 - ✅ Real-time document processing
+- ✅ Automatic deficiency analysis trigger (optional)
 
 ### Planned Features 🚧
 - 📅 **Deadline Tracking**: Calendar integration and notifications

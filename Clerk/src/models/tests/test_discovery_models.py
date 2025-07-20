@@ -142,6 +142,43 @@ class TestDiscoveryProcessingRequest:
         with pytest.raises(ValidationError):
             DiscoveryProcessingRequest(confidence_threshold=-0.1)
 
+    def test_deficiency_analysis_fields(self):
+        """Test new deficiency analysis fields"""
+        request = DiscoveryProcessingRequest(
+            rtp_document_id="doc-rtp-123", oc_response_document_id="doc-oc-456"
+        )
+
+        assert request.rtp_document_id == "doc-rtp-123"
+        assert request.oc_response_document_id == "doc-oc-456"
+        assert request.enable_deficiency_analysis is False  # Default value
+
+    def test_deficiency_analysis_with_files(self):
+        """Test deficiency analysis with both file types"""
+        request = DiscoveryProcessingRequest(
+            rtp_file="base64encodedcontent",
+            oc_response_file="base64encodedcontent",
+            rtp_document_id="doc-rtp-789",
+            oc_response_document_id="doc-oc-012",
+            enable_deficiency_analysis=True,
+        )
+
+        assert request.rtp_file is not None
+        assert request.oc_response_file is not None
+        assert request.rtp_document_id == "doc-rtp-789"
+        assert request.oc_response_document_id == "doc-oc-012"
+        assert request.enable_deficiency_analysis is True
+
+    def test_optional_deficiency_fields(self):
+        """Test that deficiency analysis fields are optional"""
+        # Request without any deficiency fields should work
+        request = DiscoveryProcessingRequest(discovery_files=["test.pdf"])
+
+        assert request.rtp_document_id is None
+        assert request.oc_response_document_id is None
+        assert request.rtp_file is None
+        assert request.oc_response_file is None
+        assert request.enable_deficiency_analysis is False
+
 
 class TestDiscoveryProcessingStatus:
     """Test DiscoveryProcessingStatus model"""

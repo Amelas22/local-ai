@@ -234,6 +234,11 @@ class DiscoveryProcessingSettings(BaseSettings):
         description="File size threshold for multi-doc detection",
     )
     enable_multi_doc_detection: bool = Field(True, env="ENABLE_MULTI_DOC_DETECTION")
+    enable_deficiency_analysis: bool = Field(
+        False,
+        env="ENABLE_DEFICIENCY_ANALYSIS",
+        description="Enable automatic deficiency analysis after discovery",
+    )
 
     class Config:
         env_prefix = "DISCOVERY_"
@@ -420,6 +425,7 @@ class Settings(BaseSettings):
             "database_configured": bool(self.database.url),
             "cache_enabled": self.cache.enable_cache,
             "cors_origins": self.cors_origins_list,
+            "deficiency_analysis_enabled": self.discovery.enable_deficiency_analysis,
         }
 
 

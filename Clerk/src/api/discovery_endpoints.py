@@ -72,6 +72,8 @@ from ..vector_storage.qdrant_store import QdrantVectorStore
 from ..utils.logger import setup_logger
 from ..utils.temp_file_manager import get_temp_file_manager
 from ..utils.pdf_validator import validate_pdf_content
+from ..services.deficiency_service import DeficiencyService
+from config.settings import settings
 
 logger = setup_logger(__name__)
 
@@ -865,6 +867,10 @@ async def _process_discovery_core(
         # Store processing result
         await store_processing_result(processing_id, processing_result)
 
+        # Trigger deficiency analysis if enabled (runs as background task)
+        # Note: This needs request object which is not available in this core function
+        # The trigger will be added in the calling functions instead
+
     except Exception as e:
         logger.error(f"Error in discovery processing: {str(e)}", exc_info=True)
         processing_result["status"] = "failed"
@@ -917,6 +923,9 @@ async def _process_discovery_async(
         production_metadata=production_metadata,
         enable_fact_extraction=enable_fact_extraction,
     )
+
+    # Trigger deficiency analysis as background task if conditions are met
+    asyncio.create_task(_trigger_deficiency_analysis(processing_id, case_name, request))
 
 
 async def _process_discovery_with_cleanup(
@@ -1644,3 +1653,83 @@ async def store_processing_result(processing_id: str, result: Dict[str, Any]):
             )
         if result.get("error"):
             processing_status[processing_id].error_message = result["error"]
+
+
+async def _trigger_deficiency_analysis(
+    processing_id: str, case_name: str, request: EndpointDiscoveryRequest
+) -> None:
+    """
+    Trigger deficiency analysis after fact extraction if conditions are met.
+
+    Args:
+        processing_id (str): Discovery processing ID.
+        case_name (str): Case name for isolation.
+        request (EndpointDiscoveryRequest): Original discovery request.
+    """
+    try:
+        # Check if feature flag is enabled
+        if not settings.discovery.enable_deficiency_analysis:
+            logger.info(
+                f"[Discovery {processing_id}] Deficiency analysis disabled by feature flag"
+            )
+            if processing_id in processing_status:
+                processing_status[processing_id].deficiency_analysis_status = "skipped"
+            return
+
+        # Check if RTP and OC documents are provided
+        if not request.rtp_document_id or not request.oc_response_document_id:
+            logger.info(
+                f"[Discovery {processing_id}] Skipping deficiency analysis - "
+                f"missing RTP/OC documents (RTP: {bool(request.rtp_document_id)}, "
+                f"OC: {bool(request.oc_response_document_id)})"
+            )
+            if processing_id in processing_status:
+                processing_status[processing_id].deficiency_analysis_status = "skipped"
+            await sio.emit(
+                "deficiency:analysis_skipped",
+                {
+                    "processing_id": processing_id,
+                    "case_id": case_name,
+                    "reason": "Missing RTP or OC response documents",
+                },
+                room=f"case_{case_name}",
+            )
+            return
+
+        # Trigger deficiency analysis
+        logger.info(f"[Discovery {processing_id}] Triggering deficiency analysis")
+        if processing_id in processing_status:
+            processing_status[processing_id].deficiency_analysis_status = "triggered"
+        await sio.emit(
+            "deficiency:analysis_triggered",
+            {
+                "processing_id": processing_id,
+                "case_id": case_name,
+                "rtp_document_id": request.rtp_document_id,
+                "oc_response_document_id": request.oc_response_document_id,
+            },
+            room=f"case_{case_name}",
+        )
+
+        # Create deficiency service and process analysis
+        deficiency_service = DeficiencyService()
+        await deficiency_service.process_deficiency_analysis(
+            production_id=processing_id, case_name=case_name
+        )
+
+        # Mark as completed if we get here without exception
+        if processing_id in processing_status:
+            processing_status[processing_id].deficiency_analysis_status = "completed"
+
+    except Exception as e:
+        logger.error(
+            f"[Discovery {processing_id}] Error triggering deficiency analysis: {str(e)}",
+            exc_info=True,
+        )
+        if processing_id in processing_status:
+            processing_status[processing_id].deficiency_analysis_status = "failed"
+        await sio.emit(
+            "deficiency:analysis_failed",
+            {"processing_id": processing_id, "case_id": case_name, "error": str(e)},
+            room=f"case_{case_name}",
+        )
