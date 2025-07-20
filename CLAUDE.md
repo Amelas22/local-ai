@@ -503,3 +503,274 @@ async def process_folder(request: ProcessingRequest):
 - `/generate-motion-draft` - Full motion drafting
 - `/websocket/status` - WebSocket connection status
 - `/ws/socket.io` - WebSocket endpoint for real-time updates
+
+## LEGAL AI AGENT FRAMEWORK
+
+The BMad framework provides a YAML-based system for creating and executing legal AI agents with full case isolation and API integration.
+
+### Agent Definition Structure
+
+Agents are defined using YAML files in `Clerk/src/ai_agents/bmad-framework/agents/`:
+
+```yaml
+activation-instructions:
+  - STEP 1: Read THIS ENTIRE FILE - contains complete persona
+  - STEP 2: Adopt persona defined in agent and persona sections
+  - STEP 3: Greet user with name/role and available commands
+  - STAY IN CHARACTER throughout interaction
+
+agent:
+  name: Agent Name
+  id: unique-agent-id
+  title: Professional Title
+  icon: 🎯
+  whenToUse: When to use this agent
+  customization: Additional customization
+
+persona:
+  role: Role description
+  style: Communication style
+  identity: Agent identity
+  focus: Primary focus areas
+  core_principles:
+    - Principle 1
+    - Principle 2
+
+commands:
+  - help: Show available commands
+  - analyze: Analyze documents
+  - search: Search case documents
+  - generate: Generate legal documents
+
+dependencies:
+  tasks:
+    - analyze-rtp.md
+    - search-production.md
+  templates:
+    - motion-tmpl.yaml
+  checklists:
+    - validation-checklist.md
+```
+
+### Agent Creation Workflow
+
+1. **Create Agent Definition**: Write YAML file following the structure above
+2. **Define Commands**: Map agent capabilities to specific commands
+3. **Create Tasks**: Write task files in `tasks/` directory for each command
+4. **Add Templates**: Create document templates in `templates/` directory
+5. **Test Agent**: Load and execute agent commands with test data
+
+### Agent Activation Mechanism
+
+```python
+from ai_agents.bmad_framework import AgentLoader, AgentExecutor
+from ai_agents.bmad_framework.security import get_agent_security_context
+
+# Load agent
+loader = AgentLoader()
+agent_def = await loader.load_agent("discovery-analyzer")
+
+# Get security context
+security_context = get_agent_security_context(
+    agent_id="discovery-analyzer",
+    required_permission="read"
+)
+
+# Execute command
+executor = AgentExecutor()
+result = await executor.execute_command(
+    agent_def=agent_def,
+    command="analyze",
+    case_name="Smith_v_Jones_2024",
+    security_context=security_context,
+    parameters={"rtp_id": "123"}
+)
+```
+
+### Agent Utilization Patterns
+
+#### Command Execution Flow
+1. User issues command (e.g., `*analyze`)
+2. Framework validates permissions and case access
+3. Command mapped to task file or handler
+4. Task executed with progress tracking
+5. Results returned with WebSocket updates
+
+#### Progress Tracking
+```python
+from ai_agents.bmad_framework.websocket_progress import track_progress
+
+async with track_progress(
+    case_id="case-123",
+    agent_id="discovery-analyzer",
+    task_name="analyze_rtp",
+    total_steps=5
+) as tracker:
+    await tracker.emit_progress(message="Parsing document...")
+    # Task execution
+    await tracker.emit_completion(result=analysis_result)
+```
+
+### Task Structure Requirements
+
+Tasks are Markdown files in `tasks/` directory with this structure:
+
+```markdown
+# Task Name
+
+## Purpose
+Brief description of what the task accomplishes
+
+## Task Execution
+1. Step-by-step instructions
+2. Integration with existing services
+3. Case isolation enforcement
+4. Progress tracking points
+
+## Elicitation Required
+elicit: true/false
+
+## WebSocket Events
+- agent:task_started
+- agent:task_progress
+- agent:task_completed
+```
+
+### Template Format Guidelines
+
+Legal document templates use YAML format:
+
+```yaml
+metadata:
+  type: motion
+  subtype: summary_judgment
+  jurisdiction: federal
+  title: Motion for Summary Judgment
+
+sections:
+  - name: caption
+    required: true
+    template: |
+      IN THE [COURT_NAME]
+      [JURISDICTION]
+      
+      [PLAINTIFF_NAME],
+                        Plaintiff,
+      v.                            Case No. [CASE_NUMBER]
+      [DEFENDANT_NAME],
+                        Defendant.
+    variables:
+      - COURT_NAME
+      - JURISDICTION
+      - PLAINTIFF_NAME
+      - DEFENDANT_NAME
+      - CASE_NUMBER
+```
+
+### API Mapping Conventions
+
+Commands are automatically mapped to API endpoints:
+
+```python
+from ai_agents.bmad_framework import APIMapper
+
+mapper = APIMapper()
+
+# Default mappings
+# *analyze -> POST /api/agents/{agent_id}/analyze
+# *search -> POST /api/agents/{agent_id}/search
+# *list -> GET /api/agents/{agent_id}/resources
+
+# Register agent-specific mappings
+mapper.register_agent_mappings(agent_def)
+```
+
+### Testing Patterns for Agents
+
+Test files follow the same directory structure in `tests/`:
+
+```python
+import pytest
+from ai_agents.bmad_framework import AgentLoader, AgentExecutor
+
+@pytest.mark.asyncio
+async def test_agent_command():
+    loader = AgentLoader()
+    agent_def = await loader.load_agent("test-agent")
+    
+    executor = AgentExecutor()
+    result = await executor.execute_command(
+        agent_def=agent_def,
+        command="test",
+        case_name="Test_Case",
+        security_context=mock_security_context
+    )
+    
+    assert result.success is True
+```
+
+### Framework Integration
+
+The BMad framework integrates with existing Clerk systems:
+
+```python
+from ai_agents.bmad_framework.integration import clerk_integration
+
+# Validate case access
+valid = await clerk_integration.validate_case_access(
+    case_name="Smith_v_Jones_2024",
+    user_id="user-123",
+    required_permission="read"
+)
+
+# Use existing services
+pdf_data = await clerk_integration.process_pdf_document(
+    file_path="/path/to/doc.pdf",
+    case_name="Smith_v_Jones_2024"
+)
+
+# Search vector store
+results = await clerk_integration.search_vector_store(
+    case_name="Smith_v_Jones_2024",
+    query="contract negotiations",
+    limit=50
+)
+```
+
+### Security and Case Isolation
+
+All agent operations enforce case isolation:
+
+```python
+# Security context wraps case context
+security_context = AgentSecurityContext(case_context, agent_id)
+
+# Decorator ensures case name matches context
+@validate_case_isolation
+async def process_case_data(case_name: str, security_context: AgentSecurityContext):
+    # Validated that case_name matches security_context.case_name
+    pass
+
+# Permission checker maps commands to permissions
+checker = AgentPermissionChecker()
+required_perm = checker.get_required_permission("delete")  # Returns "admin"
+```
+
+### Error Handling Patterns
+
+Framework-specific exceptions:
+
+```python
+from ai_agents.bmad_framework.exceptions import (
+    AgentLoadError,      # Agent definition loading failures
+    TaskExecutionError,  # Task execution failures
+    APIMappingError,     # API mapping failures
+    DependencyNotFoundError,  # Missing dependencies
+    ValidationError      # Validation failures
+)
+
+try:
+    agent_def = await loader.load_agent("invalid-agent")
+except AgentLoadError as e:
+    logger.error(f"Failed to load agent: {e.agent_id}")
+```

@@ -1,0 +1,155 @@
+metadata:
+  type: citation
+  subtype: evidence_citation
+  title: Legal Evidence Citation Template
+  version: "1.0"
+
+citation_formats:
+  - name: federal_standard
+    pattern: |
+      [DOCUMENT_NAME], [DOCUMENT_DATE] ([BATES_RANGE]) at [PAGE_NUMBERS]
+    example: |
+      Smith Employment Agreement, June 15, 2022 (SMITH_001234-001245) at pages 12-13
+
+  - name: federal_with_excerpt
+    pattern: |
+      [DOCUMENT_NAME], [DOCUMENT_DATE] ([BATES_RANGE]) at [PAGE_NUMBERS]: "[EXCERPT]"
+    example: |
+      Email from John Smith to Jane Doe, March 10, 2022 (SMITH_002345) at page 1: "I agree to the revised contract terms..."
+
+  - name: state_standard
+    pattern: |
+      [DOCUMENT_TYPE]: [DOCUMENT_NAME] dated [DOCUMENT_DATE], Bates Nos. [BATES_RANGE], p. [PAGE_NUMBERS]
+    example: |
+      Contract: Purchase Agreement dated January 5, 2023, Bates Nos. JONES_000123-000145, p. 22-23
+
+  - name: deposition_citation
+    pattern: |
+      [DEPONENT_NAME] Dep. [DEPOSITION_DATE] at [PAGE_LINE_RANGE] ([BATES_RANGE])
+    example: |
+      Smith Dep. Oct. 15, 2023 at 45:12-46:3 (SMITH_DEP_000045-46)
+
+  - name: electronic_discovery
+    pattern: |
+      [DOCUMENT_TYPE]: [DOCUMENT_NAME], [METADATA_INFO], Production ID: [PRODUCTION_ID], [BATES_RANGE]
+    example: |
+      Email: "Re: Contract Negotiations", sent 03/15/2022 14:32 EST, Production ID: PROD_001, SMITH_EMAIL_001234
+
+fields:
+  - name: document_name
+    type: string
+    required: true
+    description: "Full name or title of the document"
+    max_length: 200
+
+  - name: document_type
+    type: enum
+    required: true
+    values:
+      - contract
+      - email
+      - letter
+      - memo
+      - report
+      - deposition
+      - interrogatory
+      - admission
+      - financial_record
+      - medical_record
+      - other
+    description: "Category of document for proper citation format"
+
+  - name: document_date
+    type: date
+    required: false
+    format: "MMMM D, YYYY"
+    description: "Date of document creation or execution"
+
+  - name: bates_range
+    type: object
+    required: true
+    properties:
+      start:
+        type: string
+        pattern: "^[A-Z]+_[0-9]{6,}$"
+      end:
+        type: string
+        pattern: "^[A-Z]+_[0-9]{6,}$"
+    description: "Bates stamp number range"
+
+  - name: page_numbers
+    type: array
+    items:
+      type: integer
+    required: true
+    description: "Page numbers within the document"
+
+  - name: excerpt
+    type: string
+    required: false
+    max_length: 500
+    description: "Relevant text excerpt from document"
+
+  - name: production_id
+    type: string
+    required: false
+    description: "Production batch identifier"
+
+  - name: metadata
+    type: object
+    required: false
+    properties:
+      file_type:
+        type: string
+      file_size:
+        type: string
+      hash:
+        type: string
+      custodian:
+        type: string
+    description: "Electronic document metadata"
+
+formatting_rules:
+  - abbreviations:
+      page: "p."
+      pages: "pp."
+      line: "l."
+      lines: "ll."
+      deposition: "Dep."
+      interrogatory: "Interrog."
+      admission: "Adm."
+      
+  - date_formats:
+      standard: "MMMM D, YYYY"
+      abbreviated: "MMM. D, YYYY"
+      numeric: "MM/DD/YYYY"
+      
+  - bates_formatting:
+      - "Always use underscore between prefix and number"
+      - "Pad numbers with leading zeros to 6 digits minimum"
+      - "Use hyphen for ranges (SMITH_000001-000010)"
+      
+  - page_formatting:
+      - "Single page: 'at page X'"
+      - "Multiple consecutive: 'at pages X-Y'"
+      - "Multiple non-consecutive: 'at pages X, Y, Z'"
+      - "With lines: 'at X:Y-Z'"
+
+citation_examples:
+  - type: contract
+    full: "Purchase Agreement between Smith Corp. and Jones LLC, January 15, 2023 (SMITH_000123-000145) at pages 12-14"
+    short: "Purchase Agreement (SMITH_000123-145) at 12-14"
+    
+  - type: email
+    full: "Email from John Smith to Jane Doe re: 'Contract Terms', March 10, 2023 (SMITH_002345) at page 1"
+    short: "Smith Email 3/10/23 (SMITH_002345)"
+    
+  - type: deposition
+    full: "Deposition of John Smith taken October 15, 2023 at 45:12-46:3 (SMITH_DEP_000045-46)"
+    short: "Smith Dep. 45:12-46:3"
+
+validation_rules:
+  - bates_sequence: "End number must be greater than or equal to start number"
+  - page_order: "Page numbers must be in ascending order"
+  - date_logic: "Document date cannot be in the future"
+  - excerpt_context: "Excerpts must include sufficient context"

@@ -1,0 +1,242 @@
+{
+  "rtp_patterns": {
+    "request_identifiers": [
+      "Request for Production No.",
+      "RFP No.",
+      "Request No.",
+      "Production Request",
+      "Document Request No.",
+      "Interrogatory No.",
+      "RFA No.",
+      "Request for Admission No."
+    ],
+    "common_request_phrases": [
+      "All documents relating to",
+      "All documents concerning",
+      "All documents regarding",
+      "All documents evidencing",
+      "All documents reflecting",
+      "All documents referring to",
+      "All documents pertaining to",
+      "All documents that support",
+      "All documents that contradict",
+      "All documents that discuss",
+      "All communications regarding",
+      "Any and all documents"
+    ],
+    "document_types": {
+      "communications": [
+        "emails",
+        "email messages",
+        "electronic mail",
+        "letters",
+        "correspondence",
+        "memoranda",
+        "memos",
+        "text messages",
+        "instant messages",
+        "chat messages",
+        "voicemails",
+        "phone records"
+      ],
+      "business_records": [
+        "contracts",
+        "agreements",
+        "invoices",
+        "receipts",
+        "purchase orders",
+        "statements",
+        "reports",
+        "spreadsheets",
+        "presentations",
+        "meeting minutes",
+        "agendas",
+        "policies",
+        "procedures"
+      ],
+      "financial_documents": [
+        "financial statements",
+        "bank statements",
+        "tax returns",
+        "accounting records",
+        "general ledgers",
+        "balance sheets",
+        "income statements",
+        "profit and loss statements",
+        "budgets",
+        "forecasts"
+      ],
+      "legal_documents": [
+        "pleadings",
+        "motions",
+        "briefs",
+        "discovery responses",
+        "deposition transcripts",
+        "affidavits",
+        "declarations",
+        "expert reports",
+        "settlement agreements"
+      ],
+      "technical_documents": [
+        "specifications",
+        "drawings",
+        "blueprints",
+        "schematics",
+        "manuals",
+        "guides",
+        "instructions",
+        "patents",
+        "technical reports"
+      ]
+    },
+    "temporal_phrases": [
+      "during the period",
+      "between [date] and [date]",
+      "from [date] to [date]",
+      "on or about",
+      "prior to",
+      "subsequent to",
+      "following",
+      "before",
+      "after",
+      "during",
+      "since",
+      "until"
+    ],
+    "scope_limiters": [
+      "including but not limited to",
+      "without limitation",
+      "whether in draft or final form",
+      "in any format",
+      "regardless of format",
+      "in your possession, custody, or control",
+      "including all attachments",
+      "including all exhibits",
+      "including all enclosures"
+    ]
+  },
+  "oc_response_patterns": {
+    "production_statements": {
+      "full_production": [
+        "Responsive documents have been produced",
+        "All responsive documents produced",
+        "Documents produced as",
+        "See production",
+        "Produced herewith",
+        "Previously produced"
+      ],
+      "partial_production": [
+        "Responsive documents, if any, have been produced",
+        "To the extent responsive documents exist",
+        "Partial production",
+        "Some documents produced",
+        "Additional documents may be produced"
+      ],
+      "non_production": [
+        "No documents produced",
+        "Nothing to produce",
+        "No production",
+        "Will not produce",
+        "Refuses to produce"
+      ],
+      "no_responsive": [
+        "No responsive documents exist",
+        "No documents found",
+        "After reasonable search, no documents",
+        "Diligent search revealed no documents",
+        "No such documents"
+      ]
+    },
+    "objection_language": [
+      "Objects to this request",
+      "Objection",
+      "Objects on the grounds",
+      "Vague and ambiguous",
+      "Overly broad",
+      "Unduly burdensome",
+      "Not reasonably calculated",
+      "Seeks privileged information",
+      "Attorney-client privilege",
+      "Work product doctrine",
+      "Trade secret",
+      "Confidential",
+      "Proprietary"
+    ],
+    "conditional_language": [
+      "Subject to and without waiving",
+      "To the extent",
+      "If any exist",
+      "May produce",
+      "Reserves the right",
+      "Will supplement",
+      "Ongoing collection"
+    ]
+  },
+  "search_optimization": {
+    "synonyms": {
+      "contract": ["agreement", "deal", "arrangement", "understanding"],
+      "email": ["e-mail", "electronic mail", "message", "correspondence"],
+      "meeting": ["conference", "discussion", "call", "session"],
+      "payment": ["remittance", "disbursement", "transfer", "transaction"],
+      "employee": ["worker", "staff", "personnel", "associate"],
+      "customer": ["client", "patron", "consumer", "buyer"],
+      "vendor": ["supplier", "provider", "contractor", "seller"],
+      "invoice": ["bill", "statement", "receipt", "charge"]
+    },
+    "legal_acronyms": {
+      "RFP": "Request for Production",
+      "RFA": "Request for Admission",
+      "ROG": "Request for Interrogatory",
+      "MSJ": "Motion for Summary Judgment",
+      "MTD": "Motion to Dismiss",
+      "MTC": "Motion to Compel",
+      "MIL": "Motion in Limine",
+      "ESI": "Electronically Stored Information",
+      "OC": "Opposing Counsel",
+      "P&A": "Points and Authorities"
+    },
+    "boolean_operators": {
+      "AND": "Both terms must be present",
+      "OR": "Either term may be present",
+      "NOT": "Exclude documents with term",
+      "NEAR": "Terms within N words of each other",
+      "W/N": "Within N words",
+      "ADJ": "Adjacent terms"
+    }
+  },
+  "citation_formats": {
+    "federal": {
+      "pattern": "[Party] v. [Party], [Volume] F.[Series] [Page] ([Court] [Year])",
+      "example": "Smith v. Jones, 123 F.3d 456 (9th Cir. 2023)"
+    },
+    "state": {
+      "pattern": "[Party] v. [Party], [Volume] [Reporter] [Page] ([Court] [Year])",
+      "example": "Doe v. Roe, 456 Cal.App.4th 789 (Cal. Ct. App. 2023)"
+    },
+    "rules": {
+      "federal_civil": "Fed. R. Civ. P.",
+      "federal_evidence": "Fed. R. Evid.",
+      "federal_appellate": "Fed. R. App. P."
+    }
+  },
+  "deficiency_language": {
+    "good_faith_phrases": [
+      "meet and confer",
+      "good faith effort",
+      "reasonable efforts",
+      "diligent search",
+      "substantially compliant",
+      "deficient production",
+      "incomplete response",
+      "supplemental production required"
+    ],
+    "court_language": [
+      "motion to compel",
+      "sanctions",
+      "court intervention",
+      "judicial notice",
+      "protective order",
+      "in camera review"
+    ]
+  }
+}

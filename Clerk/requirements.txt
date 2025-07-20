@@ -85,3 +85,6 @@ fastapi>=0.115.0
 uvicorn>=0.30.0
 httpx>=0.25.0
 gunicorn>=21.2.0
+
+# Rate limiting for API endpoints
+slowapi>=0.1.9

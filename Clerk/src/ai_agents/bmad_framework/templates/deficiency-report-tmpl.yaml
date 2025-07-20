@@ -1,0 +1,213 @@
+metadata:
+  type: report
+  subtype: deficiency_analysis
+  jurisdiction: federal
+  title: Discovery Deficiency Analysis Report
+  version: "1.0"
+
+sections:
+  - name: header
+    required: true
+    template: |
+      DISCOVERY DEFICIENCY ANALYSIS REPORT
+      
+      Case: [CASE_NAME]
+      Report Date: [REPORT_DATE]
+      Production ID: [PRODUCTION_ID]
+      Analysis ID: [ANALYSIS_ID]
+      
+      Prepared by: Clerk Legal AI System
+      Deficiency Analyzer Agent v1.0
+    variables:
+      - CASE_NAME
+      - REPORT_DATE
+      - PRODUCTION_ID
+      - ANALYSIS_ID
+
+  - name: executive_summary
+    required: true
+    template: |
+      ## Executive Summary
+      
+      Total RTP Requests Analyzed: [TOTAL_REQUESTS]
+      
+      ### Compliance Summary:
+      - Fully Produced: [FULLY_PRODUCED] ([FULLY_PRODUCED_PCT]%)
+      - Partially Produced: [PARTIALLY_PRODUCED] ([PARTIALLY_PRODUCED_PCT]%)
+      - Not Produced: [NOT_PRODUCED] ([NOT_PRODUCED_PCT]%)
+      - No Responsive Documents: [NO_RESPONSIVE] ([NO_RESPONSIVE_PCT]%)
+      
+      ### Key Findings:
+      - High Priority Deficiencies: [HIGH_PRIORITY_COUNT]
+      - Medium Priority Deficiencies: [MEDIUM_PRIORITY_COUNT]
+      - Low Priority Deficiencies: [LOW_PRIORITY_COUNT]
+      
+      ### Recommended Actions:
+      [RECOMMENDED_ACTIONS]
+    variables:
+      - TOTAL_REQUESTS
+      - FULLY_PRODUCED
+      - FULLY_PRODUCED_PCT
+      - PARTIALLY_PRODUCED
+      - PARTIALLY_PRODUCED_PCT
+      - NOT_PRODUCED
+      - NOT_PRODUCED_PCT
+      - NO_RESPONSIVE
+      - NO_RESPONSIVE_PCT
+      - HIGH_PRIORITY_COUNT
+      - MEDIUM_PRIORITY_COUNT
+      - LOW_PRIORITY_COUNT
+      - RECOMMENDED_ACTIONS
+
+  - name: methodology
+    required: false
+    template: |
+      ## Analysis Methodology
+      
+      This analysis was conducted using:
+      - AI-powered document search with semantic and keyword matching
+      - Pattern recognition for RTP request parsing
+      - Automated categorization with confidence scoring
+      - Evidence extraction with citation tracking
+      
+      Confidence Threshold: [CONFIDENCE_THRESHOLD]
+      Search Parameters: Vector Weight [VECTOR_WEIGHT], Text Weight [TEXT_WEIGHT]
+    variables:
+      - CONFIDENCE_THRESHOLD
+      - VECTOR_WEIGHT
+      - TEXT_WEIGHT
+
+  - name: request_analysis
+    required: true
+    repeatable: true
+    template: |
+      ## Request [REQUEST_NUMBER]: [REQUEST_SUMMARY]
+      
+      **Classification:** [CLASSIFICATION]
+      **Confidence Score:** [CONFIDENCE_SCORE]
+      **Priority:** [PRIORITY]
+      
+      ### Request Text:
+      [REQUEST_FULL_TEXT]
+      
+      ### Opposing Counsel Response:
+      [OC_RESPONSE]
+      
+      ### Analysis:
+      [ANALYSIS_NARRATIVE]
+      
+      ### Evidence:
+      [EVIDENCE_CITATIONS]
+      
+      ### Deficiency Details:
+      [DEFICIENCY_DETAILS]
+      
+      ---
+    variables:
+      - REQUEST_NUMBER
+      - REQUEST_SUMMARY
+      - CLASSIFICATION
+      - CONFIDENCE_SCORE
+      - PRIORITY
+      - REQUEST_FULL_TEXT
+      - OC_RESPONSE
+      - ANALYSIS_NARRATIVE
+      - EVIDENCE_CITATIONS
+      - DEFICIENCY_DETAILS
+
+  - name: evidence_summary
+    required: true
+    template: |
+      ## Evidence Summary
+      
+      ### Documents Reviewed:
+      Total Documents Searched: [TOTAL_DOCUMENTS]
+      Relevant Documents Found: [RELEVANT_DOCUMENTS]
+      
+      ### Document Types:
+      [DOCUMENT_TYPE_BREAKDOWN]
+      
+      ### Date Range Coverage:
+      Request Period: [REQUEST_DATE_RANGE]
+      Production Coverage: [PRODUCTION_DATE_RANGE]
+      Gaps Identified: [DATE_GAPS]
+    variables:
+      - TOTAL_DOCUMENTS
+      - RELEVANT_DOCUMENTS
+      - DOCUMENT_TYPE_BREAKDOWN
+      - REQUEST_DATE_RANGE
+      - PRODUCTION_DATE_RANGE
+      - DATE_GAPS
+
+  - name: compliance_table
+    required: true
+    template: |
+      ## Compliance Summary Table
+      
+      | Request # | Category | Confidence | Priority | Key Deficiency |
+      |-----------|----------|------------|----------|----------------|
+      [COMPLIANCE_TABLE_ROWS]
+    variables:
+      - COMPLIANCE_TABLE_ROWS
+
+  - name: recommendations
+    required: true
+    template: |
+      ## Recommendations
+      
+      ### Immediate Actions:
+      [IMMEDIATE_ACTIONS]
+      
+      ### Follow-up Required:
+      [FOLLOWUP_ACTIONS]
+      
+      ### Additional Discovery Needed:
+      [ADDITIONAL_DISCOVERY]
+      
+      ### Good Faith Meet and Confer Topics:
+      [MEET_CONFER_TOPICS]
+    variables:
+      - IMMEDIATE_ACTIONS
+      - FOLLOWUP_ACTIONS
+      - ADDITIONAL_DISCOVERY
+      - MEET_CONFER_TOPICS
+
+  - name: appendices
+    required: false
+    template: |
+      ## Appendices
+      
+      ### Appendix A: Full Evidence Citations
+      [FULL_CITATIONS]
+      
+      ### Appendix B: Search Queries Used
+      [SEARCH_QUERIES]
+      
+      ### Appendix C: Confidence Score Methodology
+      [CONFIDENCE_METHODOLOGY]
+    variables:
+      - FULL_CITATIONS
+      - SEARCH_QUERIES
+      - CONFIDENCE_METHODOLOGY
+
+output_formats:
+  - json:
+      description: "Structured JSON for API consumption"
+      content_type: "application/json"
+  - html:
+      description: "HTML report for web viewing"
+      content_type: "text/html"
+      styling: "tailwind"
+  - pdf:
+      description: "PDF for court filing"
+      content_type: "application/pdf"
+      formatting: "legal_brief"
+  - markdown:
+      description: "Markdown for documentation"
+      content_type: "text/markdown"
+
+validation_rules:
+  - all_requests_analyzed: "Every RTP request must have an analysis"
+  - classification_required: "Each request must have a valid classification"
+  - evidence_support: "Deficiencies must be supported by evidence"
+  - confidence_threshold: "Confidence scores must be between 0 and 1"

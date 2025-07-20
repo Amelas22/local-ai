@@ -1,0 +1,203 @@
+{
+  "categories": {
+    "fully_produced": {
+      "name": "Fully Produced",
+      "description": "All requested documents have been produced",
+      "criteria": {
+        "relevance_threshold": 0.8,
+        "date_coverage": 1.0,
+        "document_type_coverage": 1.0,
+        "minimum_documents": 1
+      },
+      "indicators": [
+        "High relevance scores across multiple documents",
+        "Complete date range coverage",
+        "All mentioned document types present",
+        "No gaps in communication chains",
+        "OC response confirms full production"
+      ]
+    },
+    "partially_produced": {
+      "name": "Partially Produced",
+      "description": "Some but not all requested documents have been produced",
+      "criteria": {
+        "relevance_threshold": 0.5,
+        "date_coverage": 0.25,
+        "document_type_coverage": 0.5,
+        "minimum_documents": 1
+      },
+      "indicators": [
+        "Moderate relevance scores",
+        "Gaps in date range coverage",
+        "Missing specific document types",
+        "Incomplete communication chains",
+        "OC response admits partial production"
+      ]
+    },
+    "not_produced": {
+      "name": "Not Produced",
+      "description": "No responsive documents have been produced",
+      "criteria": {
+        "relevance_threshold": 0.3,
+        "date_coverage": 0.0,
+        "document_type_coverage": 0.0,
+        "maximum_documents": 0
+      },
+      "indicators": [
+        "No documents found in search",
+        "OC response indicates non-production",
+        "No privilege claims",
+        "Request clearly seeks existing documents",
+        "Similar requests show production"
+      ]
+    },
+    "no_responsive_docs": {
+      "name": "No Responsive Documents",
+      "description": "Legitimate absence of responsive documents",
+      "criteria": {
+        "explicit_statement": true,
+        "search_confirms": true,
+        "reasonable_explanation": true
+      },
+      "indicators": [
+        "OC explicitly states no documents exist",
+        "Search confirms absence",
+        "Reasonable and specific explanation",
+        "No contradicting evidence",
+        "Timeframe or scope makes absence plausible"
+      ]
+    },
+    "privileged": {
+      "name": "Privileged",
+      "description": "Documents withheld on privilege grounds",
+      "criteria": {
+        "privilege_log_entry": true,
+        "valid_privilege_claim": true
+      },
+      "indicators": [
+        "Privilege log provided",
+        "Specific privilege identified",
+        "Document descriptions match request",
+        "Valid legal basis for privilege"
+      ]
+    },
+    "objected": {
+      "name": "Objected To",
+      "description": "Production refused with stated objections",
+      "criteria": {
+        "formal_objection": true,
+        "legal_basis_stated": true
+      },
+      "indicators": [
+        "Formal objection language used",
+        "Legal grounds specified",
+        "Scope of objection defined",
+        "No production despite objection"
+      ]
+    }
+  },
+  "confidence_thresholds": {
+    "high": {
+      "min": 0.8,
+      "max": 1.0,
+      "description": "Clear evidence supporting categorization"
+    },
+    "medium": {
+      "min": 0.6,
+      "max": 0.79,
+      "description": "Good evidence with some ambiguity"
+    },
+    "low": {
+      "min": 0.4,
+      "max": 0.59,
+      "description": "Limited evidence, notable conflicts"
+    },
+    "very_low": {
+      "min": 0.0,
+      "max": 0.39,
+      "description": "Insufficient evidence, requires manual review"
+    }
+  },
+  "priority_rules": {
+    "high_priority": {
+      "conditions": [
+        "category == 'not_produced' AND confidence >= 0.7",
+        "category == 'partially_produced' AND missing_critical_documents",
+        "large_date_gaps AND high_relevance_documents_exist"
+      ],
+      "description": "Deficiencies requiring immediate attention"
+    },
+    "medium_priority": {
+      "conditions": [
+        "category == 'partially_produced' AND confidence >= 0.6",
+        "category == 'not_produced' AND confidence < 0.7",
+        "missing_document_types AND moderate_importance"
+      ],
+      "description": "Deficiencies requiring follow-up"
+    },
+    "low_priority": {
+      "conditions": [
+        "category == 'partially_produced' AND confidence < 0.6",
+        "minor_date_gaps",
+        "non_critical_document_types"
+      ],
+      "description": "Minor deficiencies for consideration"
+    }
+  },
+  "edge_cases": {
+    "split_production": {
+      "description": "Documents from multiple custodians or phases",
+      "handling": "Aggregate all sources before categorizing"
+    },
+    "ambiguous_responses": {
+      "description": "Vague or non-specific OC responses",
+      "handling": "Default to lower confidence score"
+    },
+    "technical_issues": {
+      "description": "Corrupted or inaccessible documents",
+      "handling": "Note in report but don't count as deficiency"
+    },
+    "sampling": {
+      "description": "Only exemplars or samples provided",
+      "handling": "Categorize as partially_produced with note"
+    }
+  },
+  "patterns": {
+    "common_deficiency_patterns": [
+      {
+        "pattern": "emails_missing_attachments",
+        "description": "Emails produced without referenced attachments",
+        "category_tendency": "partially_produced"
+      },
+      {
+        "pattern": "date_range_cutoff",
+        "description": "Documents stop abruptly at specific date",
+        "category_tendency": "partially_produced"
+      },
+      {
+        "pattern": "custodian_gaps",
+        "description": "Missing documents from specific individuals",
+        "category_tendency": "partially_produced"
+      },
+      {
+        "pattern": "format_filtering",
+        "description": "Only certain file types produced",
+        "category_tendency": "partially_produced"
+      }
+    ],
+    "red_flags": [
+      {
+        "flag": "inconsistent_privilege_claims",
+        "description": "Privilege claimed inconsistently for similar documents"
+      },
+      {
+        "flag": "selective_production",
+        "description": "Cherry-picked favorable documents only"
+      },
+      {
+        "flag": "missing_metadata",
+        "description": "Documents produced without required metadata"
+      }
+    ]
+  }
+}
