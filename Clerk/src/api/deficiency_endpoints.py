@@ -6,7 +6,7 @@ deficiency analysis reports with case isolation.
 """
 
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -19,6 +19,7 @@ from src.middleware.case_context import require_case_context
 from src.models.deficiency_models import DeficiencyItem, DeficiencyReport
 from src.services.report_generator import ReportGenerator
 from src.services.report_storage import ReportStorage
+from src.services.letter_template_service import LetterTemplateService
 from src.utils.logger import get_logger
 from src.websocket.socket_server import sio
 
@@ -52,6 +53,52 @@ class ReportGenerationResponse(BaseModel):
     message: str = Field(..., description="Status message")
     processing_id: Optional[UUID] = Field(
         None, description="ID for tracking async processing"
+    )
+
+
+class TemplateInfo(BaseModel):
+    """Template information model."""
+
+    jurisdiction: str = Field(..., description="Template jurisdiction")
+    title: str = Field(..., description="Template title")
+    version: str = Field(..., description="Template version")
+    description: str = Field(..., description="Template description")
+    compliance_rules: list[str] = Field(
+        default_factory=list, description="Compliance rules"
+    )
+
+
+class TemplateRequirements(BaseModel):
+    """Template requirements model."""
+
+    jurisdiction: str = Field(..., description="Template jurisdiction")
+    template_version: str = Field(..., description="Template version")
+    required_variables: list[str] = Field(
+        ..., description="Required template variables"
+    )
+    all_variables: list[str] = Field(..., description="All template variables")
+    sections: list[Dict[str, Any]] = Field(..., description="Template sections")
+    compliance_requirements: Dict[str, Any] = Field(
+        ..., description="Compliance requirements"
+    )
+
+
+class CreateTemplateRequest(BaseModel):
+    """Request model for creating custom template."""
+
+    jurisdiction: str = Field(..., description="Jurisdiction name")
+    template_yaml: str = Field(..., description="Template content in YAML format")
+    override_existing: bool = Field(default=False, description="Override if exists")
+
+
+class UpdateTemplateRequest(BaseModel):
+    """Request model for updating template."""
+
+    template_yaml: str = Field(
+        ..., description="Updated template content in YAML format"
+    )
+    increment_version: bool = Field(
+        default=True, description="Increment version number"
     )
 
 
@@ -312,3 +359,160 @@ def _get_file_extension(format: str) -> str:
         "pdf": "html",  # PDF prep
     }
     return extensions.get(format, "txt")
+
+
+# Template Management Endpoints
+
+
+@router.get(
+    "/templates/good-faith-letters",
+    response_model=list[TemplateInfo],
+    summary="List available Good Faith letter templates",
+    description="Get list of all available Good Faith letter templates",
+)
+async def list_good_faith_templates(
+    case_context=Depends(require_case_context("read")),
+) -> list[TemplateInfo]:
+    """
+    List all available Good Faith letter templates.
+
+    Returns template metadata for all jurisdictions.
+
+    Args:
+        case_context: Validated case context.
+
+    Returns:
+        List of template information.
+    """
+    try:
+        service = LetterTemplateService()
+        templates = await service.list_available_templates()
+
+        return [
+            TemplateInfo(
+                jurisdiction=t["jurisdiction"],
+                title=t["title"],
+                version=t["version"],
+                description=t["description"],
+                compliance_rules=t["compliance_rules"],
+            )
+            for t in templates
+        ]
+
+    except Exception as e:
+        logger.error(f"Failed to list templates: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list templates: {str(e)}",
+        )
+
+
+@router.get(
+    "/templates/good-faith-letters/{template_id}",
+    response_model=TemplateRequirements,
+    summary="Get specific Good Faith letter template requirements",
+    description="Get requirements and variables for a specific template",
+)
+async def get_template_requirements(
+    template_id: str,
+    case_context=Depends(require_case_context("read")),
+) -> TemplateRequirements:
+    """
+    Get requirements for a specific Good Faith letter template.
+
+    The template_id should be a jurisdiction name (e.g., 'federal', 'california').
+
+    Args:
+        template_id: Template identifier (jurisdiction).
+        case_context: Validated case context.
+
+    Returns:
+        Template requirements including variables and sections.
+    """
+    try:
+        service = LetterTemplateService()
+        requirements = await service.get_template_requirements(template_id)
+
+        return TemplateRequirements(
+            jurisdiction=requirements["jurisdiction"],
+            template_version=requirements["template_version"],
+            required_variables=requirements["required_variables"],
+            all_variables=requirements["all_variables"],
+            sections=requirements["sections"],
+            compliance_requirements=requirements["compliance_requirements"],
+        )
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Template not found: {str(e)}",
+        )
+    except Exception as e:
+        logger.error(f"Failed to get template requirements: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get template requirements: {str(e)}",
+        )
+
+
+@router.post(
+    "/templates/good-faith-letters",
+    status_code=status.HTTP_201_CREATED,
+    summary="Create custom Good Faith letter template",
+    description="Create a new custom Good Faith letter template (admin only)",
+)
+async def create_custom_template(
+    request: CreateTemplateRequest,
+    case_context=Depends(require_case_context("admin")),
+) -> Dict[str, str]:
+    """
+    Create a custom Good Faith letter template.
+
+    Requires admin permissions. The template must be valid YAML
+    and pass compliance validation.
+
+    Args:
+        request: Template creation request.
+        case_context: Validated case context with admin permission.
+
+    Returns:
+        Success message with template jurisdiction.
+    """
+    # Note: This endpoint is stubbed for future implementation
+    # when custom template storage is added
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="Custom template creation will be implemented in a future story",
+    )
+
+
+@router.put(
+    "/templates/good-faith-letters/{template_id}",
+    summary="Update Good Faith letter template",
+    description="Update an existing Good Faith letter template (admin only)",
+)
+async def update_template(
+    template_id: str,
+    request: UpdateTemplateRequest,
+    case_context=Depends(require_case_context("admin")),
+) -> Dict[str, str]:
+    """
+    Update an existing Good Faith letter template.
+
+    Requires admin permissions. The updated template must pass
+    compliance validation.
+
+    Args:
+        template_id: Template identifier (jurisdiction).
+        request: Template update request.
+        case_context: Validated case context with admin permission.
+
+    Returns:
+        Success message with new version number.
+    """
+    # Note: This endpoint is stubbed for future implementation
+    # when template versioning and storage is enhanced
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="Template updates will be implemented in a future story",
+    )

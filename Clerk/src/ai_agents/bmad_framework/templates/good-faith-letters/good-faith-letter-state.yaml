@@ -1,0 +1,169 @@
+metadata:
+  type: legal_document
+  subtype: good_faith_letter
+  jurisdiction: state
+  version: "1.0"
+  title: Good Faith Letter - State
+  description: State court good faith letter template for discovery deficiencies
+  author: Clerk Legal AI System
+  
+document_settings:
+  font: Times New Roman
+  font_size: 12
+  margins: standard_letter
+  line_spacing: single
+  
+sections:
+  - name: header
+    required: true
+    order: 1
+    template: |
+      Reply to: {{SENDER_EMAIL}}
+    variables:
+      - SENDER_EMAIL
+      
+  - name: date_line
+    required: true
+    order: 2
+    template: |
+      {{LETTER_DATE}}
+    variables:
+      - LETTER_DATE
+      
+  - name: recipient_info
+    required: true
+    order: 3
+    template: |
+      VIA EMAIL
+      {{OPPOSING_COUNSEL_NAME}}
+      {{ADDITIONAL_COUNSEL_NAMES}}
+      {{OPPOSING_LAW_FIRM}}
+      {{ADDRESS_LINE1}}
+      {{ADDRESS_LINE2}}
+      {{CITY}}, {{STATE}} {{ZIP}}
+    variables:
+      - OPPOSING_COUNSEL_NAME
+      - ADDITIONAL_COUNSEL_NAMES
+      - OPPOSING_LAW_FIRM
+      - ADDRESS_LINE1
+      - ADDRESS_LINE2
+      - CITY
+      - STATE
+      - ZIP
+      
+  - name: re_line
+    required: true
+    order: 4
+    template: |
+      RE: {{CASE_NAME}}
+    variables:
+      - CASE_NAME
+      
+  - name: salutation
+    required: true
+    order: 5
+    template: |
+      Dear {{SALUTATION}}:
+    variables:
+      - SALUTATION
+      
+  - name: opening_paragraph
+    required: true
+    order: 6
+    template: |
+      I am writing to follow up on your {{CLIENT_REFERENCE}} objections and deficiencies to {{REQUESTING_PARTY}}'s discovery requests in the above referenced matter, specifically with regards to {{SPECIFIC_DISCOVERY_REFERENCES}}. {{WAIVER_LANGUAGE}}
+    variables:
+      - CLIENT_REFERENCE
+      - REQUESTING_PARTY
+      - SPECIFIC_DISCOVERY_REFERENCES
+      - WAIVER_LANGUAGE
+      
+  - name: interrogatory_deficiencies
+    required: false
+    order: 7
+    condition: "HAS_INTERROGATORY_DEFICIENCIES == true"
+    template: |
+      {{PARTY_NAME}}'s Answers to {{REQUESTING_PARTY}}'s {{INTERROGATORY_SET}}
+    variables:
+      - PARTY_NAME
+      - REQUESTING_PARTY
+      - INTERROGATORY_SET
+      
+  - name: interrogatory_items
+    required: false
+    order: 8
+    repeatable: true
+    condition: "HAS_INTERROGATORY_DEFICIENCIES == true"
+    template: |
+      Interrogatory No. {{INTERROGATORY_NUMBER}} – {{DEFICIENCY_TYPE}}. {{DEFICIENCY_DESCRIPTION}}
+    variables:
+      - INTERROGATORY_NUMBER
+      - DEFICIENCY_TYPE
+      - DEFICIENCY_DESCRIPTION
+      
+  - name: rtp_deficiencies
+    required: true
+    order: 9
+    template: |
+      {{PARTY_NAME}}'s Response to {{REQUESTING_PARTY}}'s {{RTP_SET}}
+    variables:
+      - PARTY_NAME
+      - REQUESTING_PARTY
+      - RTP_SET
+      
+  - name: rtp_items
+    required: true
+    order: 10
+    repeatable: true
+    template: |
+      Request No. {{REQUEST_NUMBER}} – {{DEFICIENCY_TYPE}}. {{DEFICIENCY_DESCRIPTION}}
+    variables:
+      - REQUEST_NUMBER
+      - DEFICIENCY_TYPE
+      - DEFICIENCY_DESCRIPTION
+      
+  - name: closing_paragraph
+    required: true
+    order: 11
+    template: |
+      Please review all of the above at your earliest convenience. My office will be contacting you to schedule a Meet and Confer Conference in an effort to discuss and hopefully resolve these discovery issues, so as to avoid a Motion to Compel and involving the Court.
+    variables: []
+    
+  - name: signature_block
+    required: true
+    order: 12
+    template: |
+      
+      Sincerely,
+      
+      
+      {{ATTORNEY_NAME}}
+    variables:
+      - ATTORNEY_NAME
+      
+validation_rules:
+  required_variables:
+    - SENDER_EMAIL
+    - LETTER_DATE
+    - OPPOSING_COUNSEL_NAME
+    - CASE_NAME
+    - SALUTATION
+    - REQUESTING_PARTY
+    - ATTORNEY_NAME
+  formatting:
+    - variable_pattern: "^[A-Z][A-Z0-9_]*$"
+    - template_syntax: "{{VARIABLE_NAME}}"
+    
+output_options:
+  formats:
+    - pdf:
+        page_size: letter
+        margins:
+          top: 1.0
+          bottom: 1.0
+          left: 1.0
+          right: 1.0
+    - docx:
+        template_style: business_letter
+    - markdown:
+        include_metadata: false

@@ -95,7 +95,11 @@
       "Bash(cd:*)",
       "Bash(npx eslint:*)",
       "Bash(npm test:*)",
-      "mcp__sequential-thinking__sequentialthinking"
+      "mcp__sequential-thinking__sequentialthinking",
+      "Bash(pdftotext:*)",
+      "Bash(/usr/bin/python3.12:*)",
+      "Bash(cd:*)",
+      "Bash(cd:*)"
     ],
     "deny": []
   }

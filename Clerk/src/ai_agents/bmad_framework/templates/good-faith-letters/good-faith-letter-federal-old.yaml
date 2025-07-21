@@ -1,0 +1,258 @@
+metadata:
+  type: legal_document
+  subtype: good_faith_letter
+  jurisdiction: federal
+  version: "2.0"
+  title: Good Faith Letter - Federal
+  description: Federal court good faith letter template for discovery deficiencies
+  author: Clerk Legal AI System
+  
+document_settings:
+  font: Times New Roman
+  font_size: 12
+  margins: standard_legal
+  line_spacing: double
+  page_numbers: true
+  
+sections:
+  - name: caption
+    required: true
+    order: 1
+    template: |
+      UNITED STATES DISTRICT COURT
+      {{DISTRICT}}
+      
+      {{PLAINTIFF_NAME}},
+                        Plaintiff,
+      v.                            Case No. {{CASE_NUMBER}}
+      {{DEFENDANT_NAME}},
+                        Defendant.
+    variables:
+      - DISTRICT
+      - PLAINTIFF_NAME
+      - DEFENDANT_NAME
+      - CASE_NUMBER
+      
+  - name: recipient_info
+    required: true
+    order: 2
+    template: |
+      {{RECIPIENT_DATE}}
+      
+      {{OPPOSING_COUNSEL_NAME}}
+      {{OPPOSING_LAW_FIRM}}
+      {{OPPOSING_ADDRESS_LINE1}}
+      {{OPPOSING_ADDRESS_LINE2}}
+      {{OPPOSING_CITY}}, {{OPPOSING_STATE}} {{OPPOSING_ZIP}}
+      
+      Via {{DELIVERY_METHOD}}
+    variables:
+      - RECIPIENT_DATE
+      - OPPOSING_COUNSEL_NAME
+      - OPPOSING_LAW_FIRM
+      - OPPOSING_ADDRESS_LINE1
+      - OPPOSING_ADDRESS_LINE2
+      - OPPOSING_CITY
+      - OPPOSING_STATE
+      - OPPOSING_ZIP
+      - DELIVERY_METHOD
+      
+  - name: salutation
+    required: true
+    order: 3
+    template: |
+      Re: {{CASE_CAPTION}} - Good Faith Letter Regarding Discovery Deficiencies
+      
+      Dear {{OPPOSING_COUNSEL_SALUTATION}}:
+    variables:
+      - CASE_CAPTION
+      - OPPOSING_COUNSEL_SALUTATION
+      
+  - name: deficiency_summary
+    required: true
+    order: 4
+    template: |
+      I write to meet and confer in good faith regarding deficiencies in {{PRODUCING_PARTY}}'s 
+      discovery production dated {{PRODUCTION_DATE}} in response to {{REQUESTING_PARTY}}'s 
+      {{REQUEST_TYPE}} dated {{REQUEST_DATE}}.
+      
+      As detailed below, the production fails to comply with Federal Rule of Civil Procedure 34 
+      and this Court's discovery obligations. Specifically:
+      
+      - {{DEFICIENCY_COUNT}} requests were not fully satisfied
+      - {{DOCUMENTS_MISSING}} responsive documents appear to be missing or improperly withheld
+      - {{PRIVILEGE_ISSUES}} privilege log deficiencies require correction
+    variables:
+      - PRODUCING_PARTY
+      - PRODUCTION_DATE
+      - REQUESTING_PARTY
+      - REQUEST_TYPE
+      - REQUEST_DATE
+      - DEFICIENCY_COUNT
+      - DOCUMENTS_MISSING
+      - PRIVILEGE_ISSUES
+      
+  - name: legal_basis
+    required: true
+    order: 5
+    template: |
+      Under Federal Rule of Civil Procedure 34(b)(2)(C), a party must produce documents as they 
+      are kept in the usual course of business and must produce all responsive documents in the 
+      party's possession, custody, or control. Rule 26(g) requires that discovery responses be 
+      complete and correct as of the time they are made.
+      
+      The production falls short of these obligations for the reasons detailed below.
+    variables: []
+    
+  - name: detailed_deficiencies
+    required: true
+    order: 6
+    repeatable: true
+    template: |
+      Request No. {{REQUEST_NUMBER}}: {{REQUEST_TEXT}}
+      
+      Your Response: {{OC_RESPONSE_TEXT}}
+      
+      Deficiency: {{DEFICIENCY_DESCRIPTION}}
+      
+      Required Action: {{REQUIRED_ACTION}}
+    variables:
+      - REQUEST_NUMBER
+      - REQUEST_TEXT
+      - OC_RESPONSE_TEXT
+      - DEFICIENCY_DESCRIPTION
+      - REQUIRED_ACTION
+      
+  - name: privilege_log_deficiencies
+    required: false
+    order: 7
+    condition: "PRIVILEGE_ISSUES > 0"
+    template: |
+      Additionally, the privilege log fails to comply with Federal Rule of Civil Procedure 
+      26(b)(5)(A), which requires that a party withholding information on privilege grounds 
+      must:
+      
+      (i) expressly make the claim; and
+      (ii) describe the nature of the documents, communications, or tangible things not 
+      produced or disclosed--and do so in a manner that, without revealing information 
+      itself privileged or protected, will enable other parties to assess the claim.
+      
+      Specific privilege log deficiencies include:
+      {{PRIVILEGE_LOG_ISSUES}}
+    variables:
+      - PRIVILEGE_LOG_ISSUES
+      
+  - name: meet_and_confer
+    required: true
+    order: 8
+    template: |
+      Federal Rule of Civil Procedure 37 and this Court's Local Rules require parties to 
+      meet and confer in good faith before filing discovery motions. I am therefore writing 
+      to attempt to resolve these issues without court intervention.
+      
+      I am available to meet and confer on {{AVAILABLE_DATES}} to discuss these deficiencies 
+      and work toward their resolution.
+    variables:
+      - AVAILABLE_DATES
+      
+  - name: request_for_action
+    required: true
+    order: 9
+    template: |
+      To avoid motion practice, we request that you:
+      
+      1. Supplement your production with all responsive documents within {{RESPONSE_DEADLINE}} days;
+      2. Provide amended responses that fully address each request for production;
+      3. Serve a compliant privilege log that satisfies Rule 26(b)(5)(A); and
+      4. Certify that your supplemental production is complete.
+      
+      Please contact me at {{CONTACT_INFO}} by {{RESPONSE_DATE}} to confirm receipt of this 
+      letter and to schedule our meet and confer session.
+    variables:
+      - RESPONSE_DEADLINE
+      - CONTACT_INFO
+      - RESPONSE_DATE
+      
+  - name: preservation_notice
+    required: true
+    order: 10
+    template: |
+      This letter also serves as a reminder of your client's continuing duty to preserve all 
+      potentially relevant evidence. See Fed. R. Civ. P. 37(e). Please ensure that all 
+      responsive materials are preserved and produced.
+    variables: []
+    
+  - name: conclusion
+    required: true
+    order: 11
+    template: |
+      We hope to resolve these issues cooperatively. However, if we cannot reach resolution, 
+      {{REQUESTING_PARTY}} reserves the right to file a motion to compel and to seek its 
+      reasonable expenses, including attorney's fees, under Federal Rule of Civil Procedure 
+      37(a)(5).
+    variables:
+      - REQUESTING_PARTY
+      
+  - name: signature_block
+    required: true
+    order: 12
+    template: |
+      Respectfully,
+      
+      
+      {{ATTORNEY_NAME}}
+      {{ATTORNEY_TITLE}}
+      {{LAW_FIRM}}
+      {{ADDRESS_LINE1}}
+      {{ADDRESS_LINE2}}
+      {{CITY}}, {{STATE}} {{ZIP}}
+      {{PHONE}}
+      {{EMAIL}}
+      
+      Attorneys for {{CLIENT_DESIGNATION}}
+    variables:
+      - ATTORNEY_NAME
+      - ATTORNEY_TITLE
+      - LAW_FIRM
+      - ADDRESS_LINE1
+      - ADDRESS_LINE2
+      - CITY
+      - STATE
+      - ZIP
+      - PHONE
+      - EMAIL
+      - CLIENT_DESIGNATION
+      
+validation_rules:
+  required_variables:
+    - DISTRICT
+    - CASE_NUMBER
+    - PLAINTIFF_NAME
+    - DEFENDANT_NAME
+    - PRODUCING_PARTY
+    - REQUESTING_PARTY
+    - PRODUCTION_DATE
+    - REQUEST_DATE
+    - DEFICIENCY_COUNT
+    - RESPONSE_DEADLINE
+  conditional_sections:
+    - name: privilege_log_deficiencies
+      condition: "PRIVILEGE_ISSUES > 0"
+  formatting:
+    - variable_pattern: "^[A-Z][A-Z0-9_]*$"
+    - template_syntax: "{{VARIABLE_NAME}}"
+    - no_template_text_outside_sections: true
+    
+output_options:
+  formats:
+    - pdf:
+        page_size: letter
+        margins:
+          top: 1.0
+          bottom: 1.0
+          left: 1.25
+          right: 1.0
+    - docx:
+        template_style: federal_court_pleading
+    - markdown:
+        include_metadata: false

@@ -401,6 +401,37 @@ motion: DraftedMotion = await drafter.draft_motion_from_outline(
 )
 ```
 
+### Good Faith Letter Template Pattern
+Generate jurisdiction-compliant Good Faith letters using BMad templates:
+```python
+from src.services.letter_template_service import LetterTemplateService
+from src.models.deficiency_models import DeficiencyReport, DeficiencyItem
+
+# Initialize service
+service = LetterTemplateService()
+
+# Render letter from deficiency data
+letter_content = await service.render_letter_from_deficiency_report(
+    deficiency_report=report,
+    deficiency_items=items,
+    jurisdiction="federal",  # or state
+    additional_variables={
+        "SENDER_EMAIL": "team@lawfirm.com",
+        "LETTER_DATE": "October 4, 2024",
+        "OPPOSING_COUNSEL_NAME": "John Doe, Esq.",
+        "CASE_NAME": "Smith v. Jones",
+        "SALUTATION": "Counselor",
+        "REQUESTING_PARTY": "Plaintiff",
+        "ATTORNEY_NAME": "Jane Smith, Esq.",
+        # ... other required variables
+    }
+)
+
+# Get template requirements
+requirements = await service.get_template_requirements("federal")
+print(f"Required variables: {requirements['required_variables']}")
+```
+
 ### Deficiency Analysis Pattern
 Analyze RTP requests against discovery productions:
 
@@ -506,6 +537,7 @@ async def process_folder(request: ProcessingRequest):
 - ruff (linting)
 - Supabase (case management and authentication)
 - pydantic v2 (data validation)
+- PyYAML (template parsing)
 
 ### API Endpoints
 - `/health` - System health checks
@@ -517,6 +549,8 @@ async def process_folder(request: ProcessingRequest):
 - `/search` - Hybrid search across case documents (requires X-Case-ID header)
 - `/generate-motion-outline` - Create motion outlines
 - `/generate-motion-draft` - Full motion drafting
+- `/api/deficiency/templates/good-faith-letters` - GET: List Good Faith letter templates
+- `/api/deficiency/templates/good-faith-letters/{jurisdiction}` - GET: Get template requirements
 - `/websocket/status` - WebSocket connection status
 - `/ws/socket.io` - WebSocket endpoint for real-time updates
 
