@@ -5,6 +5,7 @@ import discoveryReducer from './slices/discoverySlice';
 import uiReducer from './slices/uiSlice';
 import authReducer from './slices/authSlice';
 import websocketReducer from './slices/websocketSlice';
+import deficiencyUIReducer from '../features/deficiency/stores/deficiencyUIStore';
 
 export const store = configureStore({
   reducer: {
@@ -13,6 +14,7 @@ export const store = configureStore({
     ui: uiReducer,
     auth: authReducer,
     websocket: websocketReducer,
+    deficiencyUI: deficiencyUIReducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

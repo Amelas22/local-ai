@@ -1,0 +1,47 @@
+@media print {
+  /* Hide non-essential elements */
+  .MuiIconButton-root,
+  .MuiButton-root,
+  .MuiCheckbox-root,
+  .MuiMenu-root {
+    display: none !important;
+  }
+
+  /* Reset colors for print */
+  * {
+    color: black !important;
+    background: white !important;
+  }
+
+  /* Page break controls */
+  .deficiency-item {
+    page-break-inside: avoid;
+  }
+
+  .deficiency-report-header {
+    page-break-after: avoid;
+  }
+
+  /* Ensure evidence chunks are visible */
+  .MuiCollapse-root {
+    height: auto !important;
+    visibility: visible !important;
+  }
+
+  /* Format headers for print */
+  h1, h2, h3, h4, h5, h6 {
+    font-weight: bold !important;
+    margin-top: 1em !important;
+  }
+
+  /* Ensure proper margins */
+  @page {
+    margin: 1in;
+  }
+
+  /* Make classification badges print-friendly */
+  .MuiChip-root {
+    border: 1px solid black !important;
+    padding: 2px 8px !important;
+  }
+}

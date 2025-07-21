@@ -92,7 +92,9 @@
       "Bash(git add:*)",
       "Bash(git restore:*)",
       "Bash(cd:*)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(npx eslint:*)",
+      "Bash(npm test:*)"
     ],
     "deny": []
   }
