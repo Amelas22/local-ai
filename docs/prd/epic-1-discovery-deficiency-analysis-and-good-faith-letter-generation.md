@@ -211,14 +211,10 @@ so that I can quickly communicate deficiencies following BMad's create-doc patte
 2: Create required BMad-style tasks:
    - select-letter-template.md: Choose jurisdiction-appropriate template
    - populate-deficiency-findings.md: Insert analysis results
-   - format-legal-citations.md: Ensure proper legal formatting
-   - calculate-deadlines.md: Compute response deadlines
    - generate-signature-block.md: Create appropriate signature
 3: Create letter templates using BMad template format:
    - good-faith-letter-federal.yaml: Federal court template
-   - good-faith-letter-california.yaml: California state template
-   - good-faith-letter-florida.yaml: Florida state template
-   - good-faith-letter-texas.yaml: Texas state template
+   - good-faith-letter-state.yaml: State court template
 4: Create compliance checklists:
    - letter-requirements-federal.md: Federal requirements
    - letter-requirements-state.md: State-specific requirements

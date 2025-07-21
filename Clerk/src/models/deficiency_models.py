@@ -7,7 +7,8 @@ validation and case isolation support.
 """
 
 from datetime import datetime
-from typing import Dict, List, Optional
+from enum import Enum
+from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator
@@ -267,5 +268,87 @@ class GeneratedReport(BaseModel):
                 "generation_options": {"include_evidence": True},
                 "created_at": "2024-01-15T10:45:00Z",
                 "expires_at": "2024-02-15T10:45:00Z",
+            }
+        }
+
+
+class LetterStatus(str, Enum):
+    """Enum for letter workflow states."""
+    DRAFT = "draft"
+    REVIEW = "review"
+    APPROVED = "approved"
+    FINALIZED = "finalized"
+
+
+class LetterEdit(BaseModel):
+    """
+    Represents an edit to a generated letter.
+    
+    Tracks changes made during customization process.
+    """
+    id: UUID = Field(default_factory=uuid4, description="Unique identifier")
+    section_name: str = Field(..., description="Section that was edited")
+    original_content: str = Field(..., description="Original section content")
+    new_content: str = Field(..., description="Updated section content")
+    editor_id: str = Field(..., description="User who made the edit")
+    editor_notes: Optional[str] = Field(None, description="Notes about the edit")
+    edited_at: datetime = Field(default_factory=datetime.utcnow, description="Edit timestamp")
+
+
+class GeneratedLetter(BaseModel):
+    """
+    Represents a generated Good Faith letter with BMad agent tracking.
+    
+    Stores letter content, metadata, and edit history.
+    """
+    id: UUID = Field(default_factory=uuid4, description="Unique identifier")
+    report_id: UUID = Field(..., description="Source DeficiencyReport ID")
+    case_name: str = Field(..., description="Case identifier for isolation")
+    jurisdiction: str = Field(..., description="Letter jurisdiction (federal/state)")
+    content: str = Field(..., description="Full letter content")
+    status: LetterStatus = Field(default=LetterStatus.DRAFT, description="Workflow status")
+    version: int = Field(default=1, ge=1, description="Letter version number")
+    agent_execution_id: str = Field(..., description="BMad agent execution tracking ID")
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
+    updated_at: Optional[datetime] = Field(None, description="Last update timestamp")
+    approved_by: Optional[str] = Field(None, description="User who approved the letter")
+    approved_at: Optional[datetime] = Field(None, description="Approval timestamp")
+    edit_history: List[LetterEdit] = Field(default_factory=list, description="Edit history")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v: str) -> str:
+        """Validate status is one of allowed values."""
+        allowed_values = {LetterStatus.DRAFT, LetterStatus.REVIEW, 
+                         LetterStatus.APPROVED, LetterStatus.FINALIZED}
+        if v not in allowed_values:
+            raise ValueError(f"Status must be one of: {allowed_values}")
+        return v
+    
+    @field_validator("jurisdiction")
+    @classmethod
+    def validate_jurisdiction(cls, v: str) -> str:
+        """Validate jurisdiction."""
+        if v not in ["federal", "state"]:
+            raise ValueError("Jurisdiction must be 'federal' or 'state'")
+        return v
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "id": "letter-123e4567-e89b-12d3-a456-426614174000",
+                "report_id": "789e0123-e89b-12d3-a456-426614174000",
+                "case_name": "Smith_v_Jones_2024",
+                "jurisdiction": "federal",
+                "content": "Dear Counsel:\n\nI am writing regarding...",
+                "status": "draft",
+                "version": 1,
+                "agent_execution_id": "exec-456789",
+                "created_at": "2024-01-20T14:00:00Z",
+                "metadata": {
+                    "template_id": "good-faith-letter-federal",
+                    "deficiency_count": 15
+                }
             }
         }

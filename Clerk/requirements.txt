@@ -29,6 +29,10 @@ alembic>=1.13.0
 # PDF generation for testing
 fpdf2>=2.7.0
 
+# Letter export dependencies
+reportlab>=4.0.0
+markdown>=3.4.0
+
 # JWT Authentication
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4

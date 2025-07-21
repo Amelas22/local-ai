@@ -824,3 +824,96 @@ try:
 except AgentLoadError as e:
     logger.error(f"Failed to load agent: {e.agent_id}")
 ```
+
+### Good Faith Letter Agent Pattern
+
+The Good Faith Letter agent demonstrates BMad framework patterns for API-driven document generation:
+
+```python
+# Agent service usage pattern
+from src.services.good_faith_letter_agent_service import GoodFaithLetterAgentService
+from ai_agents.bmad_framework.security import get_agent_security_context
+
+# Generate letter via agent
+service = GoodFaithLetterAgentService()
+letter = await service.generate_letter(
+    parameters={
+        "report_id": str(report_id),
+        "jurisdiction": "federal",
+        "include_evidence": True,
+        "attorney_info": {
+            "name": "Jane Smith, Esq.",
+            "firm": "Smith & Associates",
+            "bar_number": "12345"
+        }
+    },
+    security_context=security_context
+)
+
+# Letter customization workflow
+from src.services.letter_customization_service import LetterCustomizationService
+
+customization_service = LetterCustomizationService()
+updated_letter = await customization_service.apply_edits(
+    letter_id=letter.id,
+    section_edits=[
+        {"section": "opening", "content": "Updated opening paragraph"},
+        {"section": "deficiencies", "content": "Revised deficiency list"}
+    ],
+    editor_id=user_id,
+    editor_notes="Made tone more formal"
+)
+
+# Approve and finalize
+approved_letter = await customization_service.approve_letter(
+    letter_id=letter.id,
+    approver_id=senior_attorney_id
+)
+
+# Export letter
+export_result = await service.export_letter(
+    letter_id=letter.id,
+    format="pdf",
+    security_context=security_context
+)
+```
+
+#### API Endpoints for Letter Generation
+```python
+# Generate letter from deficiency report
+POST /api/agents/good-faith-letter/generate-letter
+{
+    "report_id": "uuid",
+    "jurisdiction": "federal",
+    "include_evidence": true,
+    "attorney_info": {...}
+}
+
+# Preview and customize
+GET /api/agents/good-faith-letter/preview/{letter_id}
+PUT /api/agents/good-faith-letter/customize/{letter_id}
+
+# Finalize and export
+POST /api/agents/good-faith-letter/finalize/{letter_id}
+GET /api/agents/good-faith-letter/export/{letter_id}/{format}
+```
+
+#### Letter Status Workflow
+```
+DRAFT → REVIEW → APPROVED → FINALIZED
+         ↑_____↓
+      (edits)
+```
+
+#### BMad Task Integration
+The Good Faith Letter agent uses these BMad tasks:
+- `select-letter-template.md` - Choose jurisdiction-appropriate template
+- `populate-deficiency-findings.md` - Map DeficiencyReport to template variables
+- `generate-signature-block.md` - Create professional signature
+- `export-letter.md` - Export to PDF/DOCX/HTML formats
+
+#### Template and Data Files
+- Templates: `templates/good-faith-letters/good-faith-letter-{jurisdiction}.yaml`
+- Jurisdiction data: `data/jurisdiction-requirements.json`
+- Legal phrases: `data/standard-legal-phrases.json`
+- Compliance checklists: `checklists/letter-requirements-{jurisdiction}.md`

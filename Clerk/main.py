@@ -60,6 +60,7 @@ from src.api.case_endpoints import router as case_router
 from src.api.discovery_endpoints import router as discovery_router
 from src.api.agent_endpoints import router as agent_router
 from src.api.deficiency_endpoints import router as deficiency_router
+from src.api.agents.good_faith_letter_endpoints import router as good_faith_letter_router
 
 # Setup logging
 logger = setup_logging("clerk_api", "INFO")
@@ -83,6 +84,10 @@ async def lifespan(app: FastAPI):
     # Initialize temp file cleanup
     from src.utils.temp_file_manager import startup_cleanup, shutdown_cleanup
     await startup_cleanup()
+    
+    # Initialize rate limiters
+    from src.middleware.rate_limiter import init_rate_limiters
+    await init_rate_limiters()
 
     # MVP Mode Warning
     if os.getenv("MVP_MODE", "false").lower() == "true":
@@ -144,6 +149,10 @@ async def lifespan(app: FastAPI):
     # Stop temp file cleanup
     await shutdown_cleanup()
     
+    # Shutdown rate limiters
+    from src.middleware.rate_limiter import shutdown_rate_limiters
+    await shutdown_rate_limiters()
+    
     if vector_store:
         vector_store.close()
 
@@ -192,6 +201,7 @@ app.include_router(case_router)
 app.include_router(discovery_router)
 app.include_router(agent_router)
 app.include_router(deficiency_router)
+app.include_router(good_faith_letter_router)
 
 
 # Pydantic models for API

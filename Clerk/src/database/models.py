@@ -22,6 +22,9 @@ import uuid
 import enum
 from src.database.connection import Base
 
+# Import letter models to ensure they're registered with SQLAlchemy
+from src.database.letter_models import GeneratedLetterDB, LetterEditDB  # noqa: F401
+
 
 class PermissionLevel(str, enum.Enum):
     """Permission levels for case access."""

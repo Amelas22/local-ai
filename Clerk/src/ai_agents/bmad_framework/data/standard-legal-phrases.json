@@ -1,0 +1,192 @@
+{
+  "salutations": {
+    "formal": [
+      "Dear Counsel",
+      "Dear Counselor",
+      "Dear Mr./Ms. [LASTNAME]"
+    ],
+    "when_multiple": "Dear Counsel",
+    "avoid": [
+      "To Whom It May Concern",
+      "Dear Sir/Madam"
+    ]
+  },
+  
+  "opening_phrases": {
+    "standard": [
+      "I am writing to address discovery deficiencies in the above-referenced matter",
+      "This letter concerns outstanding discovery issues in the above-captioned case",
+      "I write regarding your client's responses to [PARTY]'s discovery requests"
+    ],
+    "follow_up": [
+      "I am following up on our previous correspondence regarding",
+      "This letter is a follow-up to our [DATE] discussion concerning",
+      "As discussed in our conference on [DATE], I am writing to memorialize"
+    ],
+    "urgent": [
+      "Time is of the essence regarding the discovery deficiencies outlined below",
+      "Due to approaching deadlines, we must address the following discovery issues"
+    ]
+  },
+  
+  "deficiency_introductions": {
+    "general": [
+      "The following discovery responses are deficient",
+      "We have identified deficiencies in your responses to the following",
+      "Your client's responses to the following requests are inadequate"
+    ],
+    "specific_types": {
+      "objection_only": "Your client has asserted objections without providing any responsive documents",
+      "incomplete": "The production appears to be incomplete with respect to",
+      "no_response": "We have not received any response to",
+      "evasive": "The response provided does not address the substance of the request"
+    }
+  },
+  
+  "evidence_references": {
+    "contradictory": [
+      "This response appears inconsistent with documents already produced",
+      "We have identified documents that contradict this assertion",
+      "The produced documents indicate that responsive materials exist"
+    ],
+    "missing": [
+      "Notably absent from the production are",
+      "We have not received any documents relating to",
+      "The production lacks any documents concerning"
+    ],
+    "partial": [
+      "While some documents were produced, the response appears incomplete",
+      "The limited production suggests additional responsive documents exist",
+      "Only partial documentation was provided for"
+    ]
+  },
+  
+  "meet_and_confer": {
+    "certification": {
+      "federal": "I hereby certify that I have conferred or attempted to confer with opposing counsel in a good faith effort to resolve the issues raised in this letter without court action.",
+      "general": "The parties have met and conferred in good faith regarding these issues."
+    },
+    "proposals": [
+      "I am available to meet and confer at your earliest convenience",
+      "Please contact me to schedule a conference to discuss these matters",
+      "I propose we schedule a call this week to address these issues"
+    ],
+    "availability": [
+      "I am available for a conference call at your convenience",
+      "Please let me know your availability for a meet and confer",
+      "My office will contact yours to schedule a conference"
+    ]
+  },
+  
+  "deadline_language": {
+    "standard": [
+      "Please provide supplemental responses within [NUMBER] days of this letter",
+      "We request a response by [DATE]",
+      "Please supplement your responses no later than [DATE]"
+    ],
+    "firm": [
+      "We must receive your supplemental responses by [DATE]",
+      "Time is of the essence, and we require a response by [DATE]",
+      "Given the case schedule, responses are needed by [DATE]"
+    ],
+    "flexible": [
+      "We would appreciate a response within [NUMBER] days",
+      "Please advise when you can provide supplemental responses",
+      "We are willing to discuss a reasonable timeline for production"
+    ]
+  },
+  
+  "motion_warnings": {
+    "standard": "Should we not receive adequate responses by [DATE], we will have no alternative but to seek relief from the Court through a Motion to Compel.",
+    "diplomatic": "We hope to resolve these matters without court intervention, but will seek judicial relief if necessary.",
+    "firm": "Failure to provide adequate responses will necessitate a Motion to Compel, including a request for fees and costs.",
+    "collaborative": "We remain hopeful these issues can be resolved without involving the Court."
+  },
+  
+  "closing_phrases": {
+    "standard": [
+      "We look forward to your prompt response",
+      "Thank you for your attention to this matter",
+      "We await your response"
+    ],
+    "collaborative": [
+      "We look forward to resolving these matters cooperatively",
+      "Thank you for your anticipated cooperation",
+      "We appreciate your attention to these issues"
+    ],
+    "urgent": [
+      "Given the time constraints, we await your immediate response",
+      "Your prompt attention to this matter is appreciated",
+      "Time is of the essence in resolving these issues"
+    ]
+  },
+  
+  "professional_transitions": {
+    "addition": [
+      "Additionally",
+      "Furthermore",
+      "Moreover"
+    ],
+    "contrast": [
+      "However",
+      "Nevertheless",
+      "Notwithstanding"
+    ],
+    "sequence": [
+      "First",
+      "Second",
+      "Finally"
+    ],
+    "clarification": [
+      "Specifically",
+      "In particular",
+      "Namely"
+    ]
+  },
+  
+  "objection_responses": {
+    "boilerplate": "The objections appear to be boilerplate and do not address the specific requests",
+    "privilege": "If documents are being withheld on privilege grounds, please provide a privilege log",
+    "relevance": "The relevance objection is without merit given [REASON]",
+    "burden": "The burden objection is not supported by any specific showing",
+    "overbroad": "The request is narrowly tailored to [SPECIFIC SCOPE]"
+  },
+  
+  "professional_tone": {
+    "avoid_phrases": [
+      "You failed to",
+      "Your refusal",
+      "Obviously",
+      "Clearly hiding",
+      "Bad faith",
+      "Frivolous objections"
+    ],
+    "preferred_alternatives": {
+      "you_failed": "The response does not include",
+      "your_refusal": "The decision not to produce",
+      "obviously": "It appears that",
+      "clearly_hiding": "Documents appear to be missing",
+      "bad_faith": "These issues require resolution",
+      "frivolous": "The objections lack specificity"
+    }
+  },
+  
+  "case_references": {
+    "formal": "In the above-captioned matter",
+    "inline": "in the [CASE_NAME] matter",
+    "shorthand": "in this case"
+  },
+  
+  "signature_blocks": {
+    "standard_closing": [
+      "Respectfully submitted",
+      "Sincerely",
+      "Very truly yours"
+    ],
+    "avoid": [
+      "Regards",
+      "Best",
+      "Cheers"
+    ]
+  }
+}

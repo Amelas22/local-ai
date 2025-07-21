@@ -1,0 +1,164 @@
+{
+  "federal": {
+    "name": "Federal Courts",
+    "discovery_rules": {
+      "primary": "Federal Rules of Civil Procedure (FRCP)",
+      "rule_37": {
+        "title": "Rule 37. Failure to Make Disclosures or to Cooperate in Discovery; Sanctions",
+        "meet_and_confer_required": true,
+        "certification_language": "The movant must certify that the movant has in good faith conferred or attempted to confer with the person or party failing to make disclosure or discovery in an effort to obtain it without court action.",
+        "motion_requirements": [
+          "Specific identification of discovery request",
+          "Description of opposing party's response or objection",
+          "Good faith meet and confer certification",
+          "Relief sought"
+        ]
+      }
+    },
+    "response_deadlines": {
+      "standard_days": 14,
+      "range": "10-14 days",
+      "notes": "Reasonable time for response, typically 10-14 days"
+    },
+    "required_elements": [
+      "Case caption with federal court designation",
+      "Specific discovery request references",
+      "Meet and confer certification",
+      "Reasonable deadline for response",
+      "Mention of potential Motion to Compel"
+    ],
+    "citation_format": "Fed. R. Civ. P. 37"
+  },
+  "states": {
+    "FL": {
+      "name": "Florida",
+      "discovery_rules": {
+        "primary": "Florida Rules of Civil Procedure",
+        "rule_1_380": {
+          "title": "Rule 1.380. Failure to Make Discovery; Sanctions",
+          "meet_and_confer_required": true,
+          "good_faith_conference": "Required before filing motion",
+          "certificate_of_conferral": true
+        }
+      },
+      "response_deadlines": {
+        "standard_days": 10,
+        "statutory": "10 days",
+        "notes": "Florida typically requires 10-day response period"
+      },
+      "required_elements": [
+        "Certificate of good faith conference",
+        "Specific deficiencies identified",
+        "10-day response deadline",
+        "Reference to Fla. R. Civ. P. 1.380"
+      ],
+      "citation_format": "Fla. R. Civ. P. 1.380",
+      "local_requirements": {
+        "certificate_format": "Must include certificate stating good faith attempt to resolve"
+      }
+    },
+    "TX": {
+      "name": "Texas",
+      "discovery_rules": {
+        "primary": "Texas Rules of Civil Procedure",
+        "rule_215": {
+          "title": "Rule 215. Abuse of Discovery; Sanctions",
+          "meet_and_confer_required": true,
+          "proportionality_required": true
+        }
+      },
+      "response_deadlines": {
+        "standard_days": 30,
+        "range": "21-30 days",
+        "notes": "Texas allows longer response periods"
+      },
+      "required_elements": [
+        "Good faith attempt to resolve",
+        "Proportionality considerations",
+        "Discovery control plan compliance",
+        "Reference to Tex. R. Civ. P. 215"
+      ],
+      "citation_format": "Tex. R. Civ. P. 215",
+      "special_considerations": [
+        "Must address proportionality under Rule 192.4",
+        "Consider discovery control plan level"
+      ]
+    },
+    "CA": {
+      "name": "California",
+      "discovery_rules": {
+        "primary": "California Code of Civil Procedure",
+        "section_2031_310": {
+          "title": "CCP § 2031.310. Motion to Compel Further Responses",
+          "meet_and_confer_required": true,
+          "declaration_required": true,
+          "informal_discovery_conference": "May be required in some counties"
+        }
+      },
+      "response_deadlines": {
+        "standard_days": 15,
+        "range": "10-15 days",
+        "notes": "Varies by local rules"
+      },
+      "required_elements": [
+        "Meet and confer declaration",
+        "Separate statement may be required",
+        "Reasonable time to respond",
+        "Reference to CCP § 2031.310"
+      ],
+      "citation_format": "Cal. Code Civ. Proc. § 2031.310",
+      "local_variations": {
+        "los_angeles": "May require IDC (Informal Discovery Conference)",
+        "san_francisco": "Electronic filing requirements"
+      }
+    },
+    "NY": {
+      "name": "New York",
+      "discovery_rules": {
+        "primary": "Civil Practice Law and Rules (CPLR)",
+        "uniform_rules": {
+          "title": "22 NYCRR 202.7",
+          "good_faith_affirmation": true,
+          "conference_required": "Prior to motion"
+        }
+      },
+      "response_deadlines": {
+        "standard_days": 20,
+        "range": "14-30 days",
+        "notes": "Depends on court and discovery type"
+      },
+      "required_elements": [
+        "Good faith affirmation per 22 NYCRR 202.7",
+        "Specific identification of deficiencies",
+        "Reasonable response time",
+        "Commercial Division rules if applicable"
+      ],
+      "citation_format": "22 NYCRR 202.7",
+      "court_specific": {
+        "commercial_division": {
+          "special_rules": true,
+          "page_limits": "Letter briefs often limited to 3 pages"
+        }
+      }
+    }
+  },
+  "general_requirements": {
+    "all_jurisdictions": [
+      "Professional tone and courtesy",
+      "Specific identification of discovery requests",
+      "Clear description of deficiencies",
+      "Reasonable deadline for response",
+      "Willingness to meet and confer"
+    ],
+    "formatting": {
+      "standard": "Business letter format",
+      "font": "Times New Roman 12pt or similar",
+      "spacing": "Single spaced with paragraph breaks",
+      "margins": "1 inch standard"
+    }
+  },
+  "motion_to_compel_references": {
+    "standard_language": "If we do not receive a satisfactory response within [DEADLINE], we will have no choice but to seek judicial intervention through a Motion to Compel.",
+    "softer_alternative": "We hope to resolve these issues without court intervention and remain available to discuss these matters at your convenience."
+  }
+}
