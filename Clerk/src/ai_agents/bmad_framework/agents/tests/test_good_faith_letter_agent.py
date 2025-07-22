@@ -5,8 +5,8 @@ import pytest
 from pathlib import Path
 import yaml
 
-from ai_agents.bmad_framework.agent_loader import AgentLoader
-from ai_agents.bmad_framework.exceptions import AgentLoadError
+from src.ai_agents.bmad_framework.agent_loader import AgentLoader
+from src.ai_agents.bmad_framework.exceptions import AgentLoadError
 
 
 class TestGoodFaithLetterAgent:
@@ -53,10 +53,10 @@ class TestGoodFaithLetterAgent:
         # Load agent
         agent_def = await loader.load_agent("good-faith-letter")
         
-        # Verify loaded correctly
+        # Verify loaded correctly - AgentDefinition stores attributes directly
         assert agent_def is not None
-        assert agent_def.agent.id == "good-faith-letter"
-        assert agent_def.agent.name == "Good Faith Letter Generator"
+        assert agent_def.id == "good-faith-letter"
+        assert agent_def.name == "Good Faith Letter Generator"
         assert len(agent_def.commands) == 5
         
     @pytest.mark.asyncio
@@ -65,12 +65,11 @@ class TestGoodFaithLetterAgent:
         loader = AgentLoader()
         agent_def = await loader.load_agent("good-faith-letter")
         
-        # Check dependencies structure
-        deps = agent_def.dependencies
-        assert 'tasks' in deps
-        assert 'templates' in deps
-        assert 'checklists' in deps
-        assert 'data' in deps
+        # Check dependencies - stored directly as attributes
+        assert agent_def.tasks is not None
+        assert agent_def.templates is not None
+        assert agent_def.checklists is not None
+        assert agent_def.data is not None
         
         # Verify task dependencies
         expected_tasks = [
@@ -79,7 +78,7 @@ class TestGoodFaithLetterAgent:
             'generate-signature-block.md'
         ]
         for task in expected_tasks:
-            assert task in deps['tasks']
+            assert task in agent_def.tasks
             
         # Verify template dependencies
         expected_templates = [
@@ -87,7 +86,7 @@ class TestGoodFaithLetterAgent:
             'good-faith-letter-state.yaml'
         ]
         for template in expected_templates:
-            assert template in deps['templates']
+            assert template in agent_def.templates
     
     def test_agent_persona_configuration(self):
         """Test agent persona is properly configured."""

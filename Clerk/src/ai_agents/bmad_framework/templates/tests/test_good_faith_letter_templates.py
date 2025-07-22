@@ -5,7 +5,7 @@ import pytest
 from pathlib import Path
 import yaml
 
-from ai_agents.bmad_framework.template_loader import TemplateLoader
+from src.ai_agents.bmad_framework.template_loader import TemplateLoader
 
 
 class TestGoodFaithLetterTemplates:
@@ -68,20 +68,19 @@ class TestGoodFaithLetterTemplates:
                         assert var.isupper()
                         assert all(c.isalnum() or c == '_' for c in var)
     
-    @pytest.mark.asyncio
-    async def test_template_loader_can_load(self):
+    def test_template_loader_can_load(self):
         """Test TemplateLoader can load Good Faith templates."""
         loader = TemplateLoader()
         
         # Load federal template
-        federal_template = await loader.load_template("good-faith-letters/good-faith-letter-federal.yaml")
+        federal_template = loader.load_template("good-faith-letters/good-faith-letter-federal.yaml")
         assert federal_template is not None
-        assert federal_template.metadata['jurisdiction'] == 'federal'
+        assert federal_template.jurisdiction == 'federal'
         
         # Load state template
-        state_template = await loader.load_template("good-faith-letters/good-faith-letter-state.yaml")
+        state_template = loader.load_template("good-faith-letters/good-faith-letter-state.yaml")
         assert state_template is not None
-        assert state_template.metadata['jurisdiction'] == 'state'
+        assert state_template.jurisdiction == 'state'
     
     def test_frcp_rule_37_requirements(self):
         """Test federal template includes FRCP Rule 37 requirements."""

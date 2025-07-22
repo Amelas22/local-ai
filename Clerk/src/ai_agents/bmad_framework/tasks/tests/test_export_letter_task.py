@@ -6,7 +6,7 @@ from unittest.mock import Mock, AsyncMock, patch
 from uuid import uuid4
 from datetime import datetime
 
-from ai_agents.bmad_framework.security import AgentSecurityContext
+from src.ai_agents.bmad_framework.security import AgentSecurityContext
 from src.models.deficiency_models import GeneratedLetter, LetterStatus
 
 
@@ -16,7 +16,7 @@ class TestExportLetterTask:
     @pytest.mark.asyncio
     async def test_export_pdf_success(self):
         """Test successful PDF export."""
-        from ai_agents.bmad_framework.task_handlers import execute_task
+        from src.ai_agents.bmad_framework.task_handlers import execute_task
         
         # Mock security context
         security_context = Mock(spec=AgentSecurityContext)
@@ -62,7 +62,7 @@ class TestExportLetterTask:
     @pytest.mark.asyncio
     async def test_export_docx_success(self):
         """Test successful DOCX export."""
-        from ai_agents.bmad_framework.task_handlers import execute_task
+        from src.ai_agents.bmad_framework.task_handlers import execute_task
         
         security_context = Mock(spec=AgentSecurityContext)
         security_context.case_id = "test-case-123"
@@ -101,7 +101,7 @@ class TestExportLetterTask:
     @pytest.mark.asyncio
     async def test_export_not_finalized_fails(self):
         """Test export fails if letter not finalized."""
-        from ai_agents.bmad_framework.task_handlers import execute_task
+        from src.ai_agents.bmad_framework.task_handlers import execute_task
         
         security_context = Mock(spec=AgentSecurityContext)
         letter_id = str(uuid4())
@@ -133,7 +133,7 @@ class TestExportLetterTask:
     @pytest.mark.asyncio
     async def test_export_invalid_format(self):
         """Test export with invalid format."""
-        from ai_agents.bmad_framework.task_handlers import execute_task
+        from src.ai_agents.bmad_framework.task_handlers import execute_task
         
         security_context = Mock(spec=AgentSecurityContext)
         letter_id = str(uuid4())
@@ -165,7 +165,7 @@ class TestExportLetterTask:
     @pytest.mark.asyncio
     async def test_export_with_metadata(self):
         """Test export includes metadata when requested."""
-        from ai_agents.bmad_framework.task_handlers import execute_task
+        from src.ai_agents.bmad_framework.task_handlers import execute_task
         
         security_context = Mock(spec=AgentSecurityContext)
         letter_id = str(uuid4())
@@ -213,7 +213,7 @@ class TestExportLetterTask:
     
     def test_content_type_mapping(self):
         """Test content type mapping for formats."""
-        from ai_agents.bmad_framework.tasks.export_letter import _get_content_type
+        from src.ai_agents.bmad_framework.tasks.export_letter import _get_content_type
         
         assert _get_content_type("pdf") == "application/pdf"
         assert _get_content_type("docx") == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

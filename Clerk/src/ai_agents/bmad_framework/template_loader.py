@@ -155,18 +155,20 @@ class TemplateLoader:
 
     def _parse_template(self, data: Dict[str, Any]) -> DocumentTemplate:
         """Parse template from YAML data."""
-        template = DocumentTemplate(raw_yaml=data)
-
-        # Parse metadata
-        if "metadata" in data:
-            meta = data["metadata"]
-            template.type = meta.get("type", "")
-            template.subtype = meta.get("subtype", "")
-            template.version = meta.get("version", "1.0")
-            template.title = meta.get("title", "")
-            template.description = meta.get("description", "")
-            template.jurisdiction = meta.get("jurisdiction", "general")
-            template.author = meta.get("author", "")
+        # Extract metadata first
+        meta = data.get("metadata", {})
+        
+        # Create template with required fields
+        template = DocumentTemplate(
+            type=meta.get("type", "document"),
+            subtype=meta.get("subtype", "general"),
+            version=meta.get("version", "1.0"),
+            title=meta.get("title", "Untitled"),
+            description=meta.get("description", ""),
+            jurisdiction=meta.get("jurisdiction", "general"),
+            author=meta.get("author", ""),
+            raw_yaml=data
+        )
 
         # Parse document settings
         if "document_settings" in data:

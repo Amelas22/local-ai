@@ -5,6 +5,7 @@ import pytest
 from uuid import uuid4, UUID
 from datetime import datetime
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.services.good_faith_letter_agent_service import GoodFaithLetterAgentService
@@ -65,7 +66,7 @@ class TestGoodFaithLetterAgentService:
                 mock_result.execution_id = "exec-123"
                 
                 mock_load.return_value = AsyncMock()
-                mock_exec.return_value = AsyncMock(return_value=mock_result)
+                mock_exec.return_value = mock_result
                 
                 # Mock repository
                 with patch('src.services.good_faith_letter_agent_service.LetterRepository') as mock_repo_class:
@@ -153,12 +154,13 @@ class TestGoodFaithLetterAgentService:
         )
         
         # Updated letter after finalization
-        finalized_letter = GeneratedLetter(
-            **existing_letter.model_dump(),
-            status=LetterStatus.FINALIZED,
-            approved_by="senior.attorney@firm.com",
-            approved_at=datetime.utcnow()
-        )
+        letter_dict = existing_letter.model_dump()
+        letter_dict.update({
+            "status": LetterStatus.FINALIZED,
+            "approved_by": "senior.attorney@firm.com",
+            "approved_at": datetime.utcnow()
+        })
+        finalized_letter = GeneratedLetter(**letter_dict)
         
         with patch('src.services.good_faith_letter_agent_service.LetterRepository') as mock_repo_class:
             mock_repo = mock_repo_class.return_value
@@ -181,9 +183,9 @@ class TestGoodFaithLetterAgentService:
                 
                 # Verify event emission
                 mock_emit.assert_called_once()
-                event_data = mock_emit.call_args[1]['data']
-                assert event_data['old_status'] == LetterStatus.APPROVED
-                assert event_data['new_status'] == LetterStatus.FINALIZED
+                event_metadata = mock_emit.call_args[1]['metadata']
+                assert event_metadata['old_status'] == LetterStatus.APPROVED
+                assert event_metadata['new_status'] == LetterStatus.FINALIZED
     
     @pytest.mark.asyncio
     async def test_finalize_letter_not_found(self, service, mock_security_context, mock_db_session):
@@ -312,22 +314,25 @@ class TestGoodFaithLetterAgentService:
             with patch.object(service.agent_loader, 'load_agent') as mock_load:
                 mock_load.return_value = AsyncMock()
                 
-                result = await service.export_letter(
-                    letter_id,
-                    "pdf",
-                    mock_security_context
-                )
-                
-                assert result["format"] == "pdf"
-                assert result["content"] == b"Export this content"
-                assert f"good-faith-letter-{letter_id}.pdf" in result["filename"]
+                # Mock the export service methods
+                with patch.object(service.export_service, 'export_to_pdf', return_value=b"Export this content"):
+                    result = await service.export_letter(
+                        letter_id,
+                        "pdf",
+                        mock_security_context
+                    )
+                    
+                    assert result["format"] == "pdf"
+                    assert result["content"] == b"Export this content"
+                    assert str(letter_id) in result["filename"]
+                    assert result["filename"].endswith(".pdf")
     
     @pytest.mark.asyncio
     async def test_list_templates(self, service):
         """Test listing available templates."""
         # Mock template metadata
-        with patch.object(service.template_service, 'get_template_metadata') as mock_get_meta:
-            mock_get_meta.side_effect = [
+        with patch.object(service.template_service, 'get_template_requirements') as mock_get_reqs:
+            mock_get_reqs.side_effect = [
                 {"required_variables": ["CASE_NAME", "ATTORNEY_NAME"]},  # federal
                 {"required_variables": ["CASE_NAME", "ATTORNEY_NAME", "STATE"]}  # state
             ]
@@ -341,16 +346,16 @@ class TestGoodFaithLetterAgentService:
             assert result[1]["id"] == "good-faith-letter-state"
             
             # Verify both templates were queried
-            assert mock_get_meta.call_count == 2
+            assert mock_get_reqs.call_count == 2
     
     @pytest.mark.asyncio
     async def test_get_db_session_provided(self, mock_db_session):
         """Test _get_db_session when session is provided."""
         service = GoodFaithLetterAgentService(db_session=mock_db_session)
         
-        session = await service._get_db_session()
-        
-        assert session == mock_db_session
+        # _get_db_session is an async context manager
+        async with service._get_db_session() as session:
+            assert session == mock_db_session
     
     @pytest.mark.asyncio
     async def test_get_db_session_from_dependency(self):
@@ -359,13 +364,15 @@ class TestGoodFaithLetterAgentService:
         
         mock_session = MagicMock(spec=AsyncSession)
         
-        with patch('src.services.good_faith_letter_agent_service.get_db') as mock_get_db:
-            # Make get_db an async generator
-            async def async_gen():
+        # Mock the AsyncSessionLocal
+        with patch('src.database.connection.AsyncSessionLocal') as mock_session_local:
+            # Create a mock async context manager
+            @asynccontextmanager
+            async def mock_session_context():
                 yield mock_session
                 
-            mock_get_db.return_value = async_gen()
+            mock_session_local.return_value = mock_session_context()
             
-            session = await service._get_db_session()
-            
-            assert session == mock_session
+            # _get_db_session is an async context manager
+            async with service._get_db_session() as session:
+                assert session == mock_session

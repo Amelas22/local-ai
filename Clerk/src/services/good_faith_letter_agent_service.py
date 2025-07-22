@@ -183,9 +183,13 @@ class GoodFaithLetterAgentService:
 
             # Emit finalization event
             await emit_agent_event(
-                event_type="letter:status_changed",
+                case_id=security_context.case_id,
                 agent_id=self.agent_id,
-                data={
+                task_name="finalize_letter",
+                message=f"Letter finalized by {approved_by}",
+                percentage=100,
+                status="completed",
+                metadata={
                     "letter_id": str(letter_id),
                     "old_status": old_status,
                     "new_status": LetterStatus.FINALIZED,
@@ -238,9 +242,13 @@ class GoodFaithLetterAgentService:
 
             # Emit export event
             await emit_agent_event(
-                event_type="letter:exported",
+                case_id=security_context.case_id,
                 agent_id=self.agent_id,
-                data={
+                task_name="export_letter",
+                message=f"Letter exported as {format}",
+                percentage=100,
+                status="completed",
+                metadata={
                     "letter_id": str(letter_id),
                     "format": format,
                     "case_name": security_context.case_name,
@@ -289,8 +297,8 @@ class GoodFaithLetterAgentService:
             List of template metadata
         """
         # Get templates from template service
-        federal_meta = await self.template_service.get_template_metadata("federal")
-        state_meta = await self.template_service.get_template_metadata("state")
+        federal_meta = await self.template_service.get_template_requirements("federal")
+        state_meta = await self.template_service.get_template_requirements("state")
 
         templates = []
 

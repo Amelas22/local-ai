@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch, AsyncMock
 from pathlib import Path
 import json
 
-from ai_agents.bmad_framework.security import AgentSecurityContext
+from src.ai_agents.bmad_framework.security import AgentSecurityContext
 
 
 class TestSelectLetterTemplateTask:
@@ -15,14 +15,14 @@ class TestSelectLetterTemplateTask:
     @pytest.mark.asyncio
     async def test_select_federal_template(self):
         """Test selecting federal jurisdiction template."""
-        from ai_agents.bmad_framework.task_handlers import execute_task
+        from src.ai_agents.bmad_framework.task_handlers import execute_task
         
         # Mock security context
         security_context = Mock(spec=AgentSecurityContext)
         security_context.case_id = "test-case-123"
         
         # Execute task
-        with patch('ai_agents.bmad_framework.template_loader.TemplateLoader') as mock_loader:
+        with patch('src.ai_agents.bmad_framework.template_loader.TemplateLoader') as mock_loader:
             mock_template = Mock()
             mock_template.metadata = {"id": "good-faith-letter-federal"}
             mock_template.get_required_variables.return_value = ["CASE_NAME", "DEFICIENCY_COUNT"]
@@ -46,7 +46,7 @@ class TestSelectLetterTemplateTask:
     @pytest.mark.asyncio
     async def test_select_state_template_requires_state_code(self):
         """Test state jurisdiction requires state code."""
-        from ai_agents.bmad_framework.task_handlers import execute_task
+        from src.ai_agents.bmad_framework.task_handlers import execute_task
         
         security_context = Mock(spec=AgentSecurityContext)
         
@@ -61,7 +61,7 @@ class TestSelectLetterTemplateTask:
     @pytest.mark.asyncio
     async def test_invalid_jurisdiction_raises_error(self):
         """Test invalid jurisdiction raises error."""
-        from ai_agents.bmad_framework.task_handlers import execute_task
+        from src.ai_agents.bmad_framework.task_handlers import execute_task
         
         security_context = Mock(spec=AgentSecurityContext)
         
@@ -79,7 +79,7 @@ class TestPopulateDeficiencyFindingsTask:
     @pytest.mark.asyncio
     async def test_populate_findings_basic(self):
         """Test basic population of deficiency findings."""
-        from ai_agents.bmad_framework.task_handlers import execute_task
+        from src.ai_agents.bmad_framework.task_handlers import execute_task
         from datetime import datetime
         
         security_context = Mock(spec=AgentSecurityContext)
@@ -124,7 +124,7 @@ class TestPopulateDeficiencyFindingsTask:
     @pytest.mark.asyncio
     async def test_populate_findings_with_evidence(self):
         """Test population with evidence chunks."""
-        from ai_agents.bmad_framework.task_handlers import execute_task
+        from src.ai_agents.bmad_framework.task_handlers import execute_task
         from datetime import datetime
         
         security_context = Mock(spec=AgentSecurityContext)
@@ -174,7 +174,7 @@ class TestGenerateSignatureBlockTask:
     @pytest.mark.asyncio
     async def test_generate_basic_signature(self):
         """Test basic signature block generation."""
-        from ai_agents.bmad_framework.task_handlers import execute_task
+        from src.ai_agents.bmad_framework.task_handlers import execute_task
         
         security_context = Mock(spec=AgentSecurityContext)
         
@@ -199,7 +199,7 @@ class TestGenerateSignatureBlockTask:
     @pytest.mark.asyncio
     async def test_generate_signature_with_certification(self):
         """Test signature with certification text."""
-        from ai_agents.bmad_framework.task_handlers import execute_task
+        from src.ai_agents.bmad_framework.task_handlers import execute_task
         
         security_context = Mock(spec=AgentSecurityContext)
         
@@ -224,7 +224,7 @@ class TestGenerateSignatureBlockTask:
     @pytest.mark.asyncio
     async def test_generate_signature_with_additional_signatories(self):
         """Test signature with multiple signatories."""
-        from ai_agents.bmad_framework.task_handlers import execute_task
+        from src.ai_agents.bmad_framework.task_handlers import execute_task
         
         security_context = Mock(spec=AgentSecurityContext)
         

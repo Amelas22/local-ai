@@ -99,7 +99,11 @@
       "Bash(pdftotext:*)",
       "Bash(/usr/bin/python3.12:*)",
       "Bash(cd:*)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(PYTHONPATH=/mnt/c/users/jlemr/test2/local-ai-package/Clerk python -m pytest src/ai_agents/bmad_framework/agents/tests/test_good_faith_letter_agent.py -v)",
+      "Bash(for:*)",
+      "Bash(do)",
+      "Bash(echo:*)"
     ],
     "deny": []
   }
