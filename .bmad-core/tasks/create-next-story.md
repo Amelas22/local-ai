@@ -89,24 +89,63 @@ ALWAYS cite source documents: `[Source: architecture/{filename}.md#{section}]`
     - **Technical Constraints**: Version requirements, performance considerations, security rules
   - Every technical detail MUST include its source reference: `[Source: architecture/{filename}.md#{section}]`
   - If information for a category is not found in the architecture docs, explicitly state: "No specific guidance found in architecture docs"
-- **`Tasks / Subtasks` section:**
-  - Generate detailed, sequential list of technical tasks based ONLY on: Epic Requirements, Story AC, Reviewed Architecture Information
+- **`Tasks / Subtasks` section (TDD-STRUCTURED):**
+  - CRITICAL: Structure tasks to support Test-Driven Development workflow
+  - Organize tasks in two distinct phases:
+    
+  **PHASE 1 - Test Creation (For Test Engineer):**
+  - [ ] Create comprehensive test suite for all acceptance criteria (AC: ALL)
+    - [ ] Write unit tests for [specific functionality] based on AC 1
+    - [ ] Write integration tests for [API endpoints/workflows] based on AC 2
+    - [ ] Write edge case tests for [scenarios] based on AC 3
+    - [ ] Create test fixtures/mocks for [external dependencies]
+    - [ ] Ensure all tests are failing (RED phase verification)
+    
+  **PHASE 2 - Implementation (For Developer):**
+  - [ ] Implement [functionality] to make tests pass (AC: 1)
+    - [ ] Create minimal implementation for [specific feature]
+    - [ ] Ensure unit tests pass
+    - [ ] Verify no over-engineering beyond test requirements
+  - [ ] Implement [API endpoints] to satisfy integration tests (AC: 2)
+    - [ ] Create endpoint handlers
+    - [ ] Implement request/response models
+    - [ ] Make integration tests pass
+  - [ ] Handle edge cases to satisfy all remaining tests (AC: 3)
+    - [ ] Implement error handling
+    - [ ] Add validation logic
+    - [ ] Ensure all edge case tests pass
+    
   - Each task must reference relevant architecture documentation
-  - Include unit testing as explicit subtasks based on the Testing Strategy
   - Link tasks to ACs where applicable (e.g., `Task 1 (AC: 1, 3)`)
+  - CRITICAL: Test tasks must be completed and approved BEFORE implementation tasks begin
 - Add notes on project structure alignment or discrepancies found in Step 4
 
-### 6. Story Draft Completion and Review
+### 6. Add TDD Workflow Information
+
+- **`Test Coverage Requirements` section:**
+  - Based on story complexity and critical paths, define:
+    - Minimum Coverage: 80% (or higher for critical features)
+    - Critical Paths: List specific functions/flows requiring 100% coverage
+    - Edge Cases: Enumerate specific edge cases from acceptance criteria
+    - Error Scenarios: List error conditions that must be tested
+    - Integration Tests: Define integration points needing tests
+
+### 7. Story Draft Completion and Review
 
 - Review all sections for completeness and accuracy
 - Verify all source references are included for technical details
 - Ensure tasks align with both epic requirements and architecture constraints
+- Verify TDD workflow is clear with distinct test and implementation phases
 - Update status to "Draft" and save the story file
 - Execute `.bmad-core/tasks/execute-checklist` `.bmad-core/checklists/story-draft-checklist`
 - Provide summary to user including:
   - Story created: `{devStoryLocation}/{epicNum}.{storyNum}.story.md`
   - Status: Draft
   - Key technical components included from architecture docs
+  - TDD workflow phases clearly defined
   - Any deviations or conflicts noted between epic and architecture
   - Checklist Results
-  - Next steps: For Complex stories, suggest the user carefully review the story draft and also optionally have the PO run the task `.bmad-core/tasks/validate-next-story`
+  - Next steps: 
+    - For Complex stories, suggest the user carefully review the story draft
+    - Have the PO run the task `.bmad-core/tasks/validate-next-story`
+    - After approval, story goes to Test Engineer for test creation (Phase 1)

@@ -49,13 +49,17 @@ To comprehensively validate a story draft before implementation begins, ensuring
 - **Success definition**: Is "done" clearly defined for each AC?
 - **Task-AC mapping**: Are tasks properly linked to specific acceptance criteria?
 
-### 5. Validation and Testing Instructions Review
+### 5. Validation and Testing Instructions Review (TDD Focus)
 
+- **TDD structure validation**: Are tasks organized into Phase 1 (Test Creation) and Phase 2 (Implementation)?
+- **Test-first approach**: Do test creation tasks precede implementation tasks?
+- **Test coverage requirements**: Is the Test Coverage Requirements section properly populated?
 - **Test approach clarity**: Are testing methods clearly specified?
-- **Test scenarios**: Are key test cases identified?
+- **Test scenarios**: Are key test cases identified for each acceptance criterion?
 - **Validation steps**: Are acceptance criteria validation steps clear?
 - **Testing tools/frameworks**: Are required testing tools specified?
 - **Test data requirements**: Are test data needs identified?
+- **RED phase verification**: Do test tasks include verification that tests fail initially?
 
 ### 6. Security Considerations Assessment (if applicable)
 
@@ -65,13 +69,17 @@ To comprehensively validate a story draft before implementation begins, ensuring
 - **Vulnerability prevention**: Are common security issues addressed?
 - **Compliance requirements**: Are regulatory/compliance needs addressed?
 
-### 7. Tasks/Subtasks Sequence Validation
+### 7. Tasks/Subtasks Sequence Validation (TDD Workflow)
 
-- **Logical order**: Do tasks follow proper implementation sequence?
+- **TDD phase separation**: Are tasks clearly divided into Phase 1 (Test Creation) and Phase 2 (Implementation)?
+- **Test-first sequence**: Do ALL test creation tasks come before implementation tasks?
+- **Phase completeness**: Does Phase 1 create tests for ALL acceptance criteria?
+- **Logical order**: Do tasks within each phase follow proper sequence?
 - **Dependencies**: Are task dependencies clear and correct?
 - **Granularity**: Are tasks appropriately sized and actionable?
 - **Completeness**: Do tasks cover all requirements and acceptance criteria?
 - **Blocking issues**: Are there any tasks that would block others?
+- **Test-to-implementation mapping**: Can each implementation task be traced to corresponding tests?
 
 ### 8. Anti-Hallucination Verification
 
@@ -105,6 +113,10 @@ Provide a structured validation report including:
 - Inaccurate or unverifiable technical claims
 - Incomplete acceptance criteria coverage
 - Missing required sections
+- TDD workflow violations (no test/implementation phase separation)
+- Implementation tasks before test creation tasks
+- Missing test coverage requirements section
+- No tests defined for one or more acceptance criteria
 
 #### Should-Fix Issues (Important Quality Improvements)
 
@@ -126,9 +138,17 @@ Provide a structured validation report including:
 - Inconsistencies with architecture documents
 - Invented libraries, patterns, or standards
 
+#### TDD Readiness Assessment
+
+- **Test Phase Completeness**: Are all ACs covered by test tasks?
+- **Implementation Phase Alignment**: Do implementation tasks map to tests?
+- **Coverage Requirements**: Are coverage targets clearly defined?
+- **Test-First Compliance**: Is the TDD workflow properly structured?
+
 #### Final Assessment
 
-- **GO**: Story is ready for implementation
-- **NO-GO**: Story requires fixes before implementation
+- **GO**: Story is ready for TDD workflow (test creation → review → implementation)
+- **NO-GO**: Story requires fixes before entering TDD workflow
+- **TDD Readiness Score**: 1-10 scale
 - **Implementation Readiness Score**: 1-10 scale
-- **Confidence Level**: High/Medium/Low for successful implementation
+- **Confidence Level**: High/Medium/Low for successful TDD implementation

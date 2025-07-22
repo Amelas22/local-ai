@@ -95,20 +95,27 @@ Note: We don't need every file listed - just the important ones.]]
 - [ ] Domain-specific terms or concepts are explained
 - [ ] Edge cases or error scenarios are addressed
 
-## 5. TESTING GUIDANCE
+## 5. TESTING GUIDANCE & TDD STRUCTURE
 
-[[LLM: Testing ensures the implementation actually works. Check:
+[[LLM: Testing ensures the implementation actually works. For TDD workflow, check:
 
-1. Test approach is specified (unit, integration, e2e)
-2. Key test scenarios are listed
-3. Success criteria are measurable
-4. Special test considerations are noted
-5. Acceptance criteria in the story are testable]]
+1. Tasks are split into PHASE 1 (Test Creation) and PHASE 2 (Implementation)
+2. Test creation tasks precede implementation tasks
+3. Test approach is specified (unit, integration, e2e)
+4. Key test scenarios are listed
+5. Test coverage requirements are defined
+6. Success criteria are measurable
+7. Special test considerations are noted
+8. Acceptance criteria in the story are testable]]
 
+- [ ] Tasks clearly separated into Test Creation (Phase 1) and Implementation (Phase 2)
+- [ ] Test creation tasks comprehensively cover all acceptance criteria
 - [ ] Required testing approach is outlined
 - [ ] Key test scenarios are identified
+- [ ] Test coverage requirements section is populated
 - [ ] Success criteria are defined
 - [ ] Special testing considerations are noted (if applicable)
+- [ ] TDD workflow is evident in task structure
 
 ## VALIDATION RESULT
 
@@ -147,7 +154,7 @@ Be pragmatic - perfect documentation doesn't exist, but it must be enough to pro
 | 2. Technical Implementation Guidance | _TBD_  |        |
 | 3. Reference Effectiveness           | _TBD_  |        |
 | 4. Self-Containment Assessment       | _TBD_  |        |
-| 5. Testing Guidance                  | _TBD_  |        |
+| 5. Testing Guidance & TDD Structure  | _TBD_  |        |
 
 **Final Assessment:**
 
