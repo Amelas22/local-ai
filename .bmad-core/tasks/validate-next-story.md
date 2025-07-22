@@ -57,6 +57,15 @@ To comprehensively validate a story draft before implementation begins, ensuring
 - **Testing tools/frameworks**: Are required testing tools specified?
 - **Test data requirements**: Are test data needs identified?
 
+### 5.1 TDD Compliance Validation
+
+- **Test-First Structure**: Do tasks follow Write Test → Implement → Refactor pattern?
+- **Test Scenario Completeness**: Does every AC have corresponding test scenarios?
+- **Coverage Requirements**: Is minimum 80% coverage explicitly stated?
+- **Red-Green-Refactor**: Are all three phases represented in tasks?
+- **Behavioral Testing**: Do test scenarios focus on behavior, not implementation?
+- **Critical Path Coverage**: Are critical paths identified for 100% coverage?
+
 ### 6. Security Considerations Assessment (if applicable)
 
 - **Security requirements**: Are security needs identified and addressed?
@@ -112,6 +121,14 @@ Provide a structured validation report including:
 - Missing security considerations
 - Task sequencing problems
 - Incomplete testing instructions
+
+#### TDD Compliance Issues
+
+- Tasks not following test-first approach
+- Missing test scenarios for acceptance criteria
+- No coverage requirements specified
+- Red-Green-Refactor cycle incomplete
+- Implementation-focused tests instead of behavioral
 
 #### Nice-to-Have Improvements (Optional Enhancements)
 

@@ -90,23 +90,57 @@ ALWAYS cite source documents: `[Source: architecture/{filename}.md#{section}]`
   - Every technical detail MUST include its source reference: `[Source: architecture/{filename}.md#{section}]`
   - If information for a category is not found in the architecture docs, explicitly state: "No specific guidance found in architecture docs"
 - **`Tasks / Subtasks` section:**
-  - Generate detailed, sequential list of technical tasks based ONLY on: Epic Requirements, Story AC, Reviewed Architecture Information
+  - Generate detailed, sequential list of technical tasks following TDD principles:
+    - ALWAYS start with "Write tests for..." tasks before implementation tasks
+    - Follow Red-Green-Refactor cycle: Test → Implement → Refactor
+    - Each feature must have: test task(s) → implementation task(s) → refactor task
   - Each task must reference relevant architecture documentation
   - Include unit testing as explicit subtasks based on the Testing Strategy
   - Link tasks to ACs where applicable (e.g., `Task 1 (AC: 1, 3)`)
+  - Example TDD task structure:
+    ```
+    - [ ] Write unit tests for user authentication (AC: 1)
+      - [ ] Test successful login scenario
+      - [ ] Test invalid credentials handling
+    - [ ] Implement user authentication logic (AC: 1)
+      - [ ] Create auth service
+      - [ ] Add validation logic
+    - [ ] Refactor authentication for clarity and performance
+    ```
 - Add notes on project structure alignment or discrepancies found in Step 4
+- **`Testing Requirements` subsection in Dev Notes:**
+  - Include explicit test coverage requirements: "Minimum 80% code coverage required"
+  - Specify testing frameworks from architecture docs
+  - Add TDD guidance: "Follow Red-Green-Refactor cycle for all implementations"
+  - List critical paths requiring 100% coverage
 
-### 6. Story Draft Completion and Review
+### 6. TDD Enrichment (Automatic)
+
+- Execute `.bmad-core/tasks/tdd-story-enrichment` to enhance the story with comprehensive TDD requirements
+- This will add:
+  - Specific test scenarios for each acceptance criterion
+  - Test coverage requirements and critical path identification
+  - Detailed Red-Green-Refactor implementation plan
+  - TDD checklist for tracking test-first development
+- Ensure all tasks follow test-first approach with proper sequencing
+
+### 7. Story Draft Completion and Review
 
 - Review all sections for completeness and accuracy
 - Verify all source references are included for technical details
 - Ensure tasks align with both epic requirements and architecture constraints
+- Verify TDD requirements are properly integrated
 - Update status to "Draft" and save the story file
 - Execute `.bmad-core/tasks/execute-checklist` `.bmad-core/checklists/story-draft-checklist`
+- Execute `.bmad-core/tasks/execute-checklist` `.bmad-core/checklists/tdd-story-checklist`
 - Provide summary to user including:
   - Story created: `{devStoryLocation}/{epicNum}.{storyNum}.story.md`
   - Status: Draft
   - Key technical components included from architecture docs
   - Any deviations or conflicts noted between epic and architecture
-  - Checklist Results
+  - TDD Requirements Summary:
+    - Number of test scenarios generated
+    - Coverage target specified (e.g., 80% minimum)
+    - Red-Green-Refactor cycles defined
+  - Checklist Results (both story-draft and TDD checklists)
   - Next steps: For Complex stories, suggest the user carefully review the story draft and also optionally have the PO run the task `.bmad-core/tasks/validate-next-story`
