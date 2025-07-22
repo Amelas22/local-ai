@@ -43,7 +43,7 @@ const SignUpPage = () => {
     setSuccess(null);
 
     try {
-      const { confirmPassword, ...signUpData } = data;
+      const { confirmPassword: _, ...signUpData } = data;
       const result = await authService.signUp?.(signUpData);
       setSuccess(result.message);
       

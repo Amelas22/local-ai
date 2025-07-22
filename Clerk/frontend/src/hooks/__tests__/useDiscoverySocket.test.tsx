@@ -41,7 +41,7 @@ describe('useDiscoverySocket', () => {
   });
 
   it('subscribes to discovery events on mount', () => {
-    const { result } = renderHook(
+    renderHook(
       () => useDiscoverySocket({ processingId: 'test-123', caseId: 'case-456' }),
       { wrapper }
     );
@@ -90,7 +90,7 @@ describe('useDiscoverySocket', () => {
 
   it('handles discovery:started event', () => {
     const store = createMockStore();
-    const { result } = renderHook(
+    renderHook(
       () => useDiscoverySocket({ processingId: 'test-123' }),
       { 
         wrapper: ({ children }: { children: React.ReactNode }) => <Provider store={store}>{children}</Provider>,
@@ -269,7 +269,8 @@ describe('useDiscoverySocket', () => {
         }),
       }));
 
-      const { useDiscoverySocket: useDiscoverySocketDisconnected } = require('../useDiscoverySocket');
+      const useDiscoverySocketModule = await import('../useDiscoverySocket');
+      const useDiscoverySocketDisconnected = useDiscoverySocketModule.useDiscoverySocket;
       
       const { result } = renderHook(
         () => useDiscoverySocketDisconnected({ caseId: 'case-456' }),
@@ -282,7 +283,7 @@ describe('useDiscoverySocket', () => {
     });
   });
 
-  it('handles reconnection after disconnect', () => {
+  it('handles reconnection after disconnect', async () => {
     const store = createMockStore();
     let isConnected = true;
     
@@ -294,7 +295,8 @@ describe('useDiscoverySocket', () => {
       }),
     }));
 
-    const { useDiscoverySocket: useDiscoverySocketReconnect } = require('../useDiscoverySocket');
+    const useDiscoverySocketModule = await import('../useDiscoverySocket');
+    const useDiscoverySocketReconnect = useDiscoverySocketModule.useDiscoverySocket;
     
     const { rerender } = renderHook(
       () => useDiscoverySocketReconnect({ caseId: 'case-456' }),

@@ -1,4 +1,9 @@
 import { DiscoveryWebSocketEvents } from './discovery.types';
+import { 
+  LetterUpdateEvent, 
+  LetterFinalizedEvent, 
+  LetterEmailSentEvent 
+} from './goodFaithLetter.types';
 
 // Combine all WebSocket event types
 export interface WebSocketEvents extends DiscoveryWebSocketEvents {
@@ -29,6 +34,30 @@ export interface WebSocketEvents extends DiscoveryWebSocketEvents {
   'subscribed': {
     case_id: string;
   };
+  
+  // Deficiency events
+  'deficiency:item_updated': {
+    report_id: string;
+    item_id: string;
+    changes: Record<string, unknown>;
+  };
+  'deficiency:bulk_update': {
+    report_id: string;
+    item_ids: string[];
+    changes: Record<string, unknown>;
+  };
+  'deficiency:report_saved': {
+    report_id: string;
+    saved_by: string;
+    saved_at: string;
+  };
+  
+  // Letter events
+  'letter:draft_created': LetterUpdateEvent;
+  'letter:customization_applied': LetterUpdateEvent;
+  'letter:finalized': LetterFinalizedEvent;
+  'letter:version_restored': LetterUpdateEvent;
+  'letter:email_sent': LetterEmailSentEvent;
   
   // Motion drafting events
   'motion:started': {

@@ -5,7 +5,7 @@ const deficiencyApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
     getDeficiencyReport: builder.query<DeficiencyReport, string>({
       query: (reportId) => `/api/deficiency/reports/${reportId}`,
-      providesTags: (result, error, reportId) => [
+      providesTags: (_result, _error, reportId) => [
         { type: 'DeficiencyReport', id: reportId }
       ]
     })

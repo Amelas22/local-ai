@@ -14,7 +14,7 @@ class SocketClient {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000; // Start with 1 second
-  private eventHandlers: Map<string, Function[]> = new Map();
+  private eventHandlers: Map<string, ((...args: any[]) => void)[]> = new Map();
   private reconnectTimer: NodeJS.Timeout | null = null;
 
   constructor() {
@@ -194,7 +194,7 @@ class SocketClient {
     if (!this.eventHandlers.has(event as string)) {
       this.eventHandlers.set(event as string, []);
     }
-    this.eventHandlers.get(event as string)!.push(handler as Function);
+    this.eventHandlers.get(event as string)!.push(handler as ((...args: any[]) => void));
 
     // Add to current socket if connected
     this.socket?.on(event as string, handler as any);
@@ -207,7 +207,7 @@ class SocketClient {
     // Remove from stored handlers
     const handlers = this.eventHandlers.get(event as string);
     if (handlers) {
-      const index = handlers.indexOf(handler as Function);
+      const index = handlers.indexOf(handler as ((...args: any[]) => void));
       if (index > -1) {
         handlers.splice(index, 1);
       }

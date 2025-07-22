@@ -150,9 +150,13 @@ async def execute_agent_command(
 
         # Emit agent activation event
         await emit_agent_event(
-            event_type="activated",
+            case_id=security_context.case_id,
             agent_id="good-faith-letter",
-            data={"command": request.command, "case_id": security_context.case_id},
+            task_name=request.command,
+            message=f"Agent activated for command: {request.command}",
+            percentage=0,
+            status="started",
+            metadata={"command": request.command},
         )
 
         # Execute via BMad framework
@@ -176,6 +180,9 @@ async def execute_agent_command(
             execution_id=result.execution_id,
         )
 
+    except HTTPException:
+        # Re-raise HTTPExceptions to preserve status codes
+        raise
     except Exception as e:
         logger.error(f"Agent command execution failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -192,12 +199,15 @@ async def generate_letter_via_agent(
     try:
         # Emit WebSocket event for agent activation
         await emit_agent_event(
-            event_type="activated",
+            case_id=security_context.case_id,
             agent_id="good-faith-letter",
-            data={
-                "command": "generate-letter",
-                "case_id": security_context.case_id,
+            task_name="generate-letter",
+            message="Generating Good Faith letter",
+            percentage=0,
+            status="started",
+            metadata={
                 "report_id": str(request.report_id),
+                "jurisdiction": request.jurisdiction,
             },
         )
 
@@ -222,10 +232,13 @@ async def generate_letter_via_agent(
 
         # Emit completion event
         await emit_agent_event(
-            event_type="command_completed",
+            case_id=security_context.case_id,
             agent_id="good-faith-letter",
-            data={
-                "command": "generate-letter",
+            task_name="generate-letter",
+            message="Letter generation completed",
+            percentage=100,
+            status="completed",
+            metadata={
                 "letter_id": str(letter.id),
                 "execution_id": letter.agent_execution_id,
             },
@@ -238,13 +251,20 @@ async def generate_letter_via_agent(
             preview_url=f"/api/agents/good-faith-letter/preview/{letter.id}",
         )
 
+    except HTTPException:
+        # Re-raise HTTPExceptions to preserve status codes
+        raise
     except Exception as e:
         logger.error(f"Letter generation failed: {str(e)}")
 
         await emit_agent_event(
-            event_type="command_failed",
+            case_id=security_context.case_id,
             agent_id="good-faith-letter",
-            data={"command": "generate-letter", "error": str(e)},
+            task_name="generate-letter",
+            message=f"Letter generation failed: {str(e)}",
+            percentage=0,
+            status="failed",
+            metadata={"error": str(e)},
         )
 
         raise HTTPException(status_code=500, detail=str(e))
@@ -288,6 +308,9 @@ async def preview_letter(
             },
         }
 
+    except HTTPException:
+        # Re-raise HTTPExceptions to preserve status codes
+        raise
     except Exception as e:
         logger.error(f"Letter preview failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -304,9 +327,13 @@ async def customize_letter(
     try:
         # Emit customization start event
         await emit_agent_event(
-            event_type="letter:customization_started",
+            case_id=security_context.case_id,
             agent_id="good-faith-letter",
-            data={
+            task_name="customize-letter",
+            message="Starting letter customization",
+            percentage=0,
+            status="started",
+            metadata={
                 "letter_id": str(letter_id),
                 "edit_count": len(request.section_edits),
             },
@@ -324,9 +351,13 @@ async def customize_letter(
 
         # Emit completion event
         await emit_agent_event(
-            event_type="letter:customization_applied",
+            case_id=security_context.case_id,
             agent_id="good-faith-letter",
-            data={
+            task_name="customize-letter",
+            message="Letter customization completed",
+            percentage=100,
+            status="completed",
+            metadata={
                 "letter_id": str(letter_id),
                 "version": updated_letter.version,
                 "changes": len(request.section_edits),
@@ -340,6 +371,9 @@ async def customize_letter(
             "edit_history_count": len(updated_letter.edit_history),
         }
 
+    except HTTPException:
+        # Re-raise HTTPExceptions to preserve status codes
+        raise
     except Exception as e:
         logger.error(f"Letter customization failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -365,11 +399,14 @@ async def finalize_letter(
 
         # Emit finalization event
         await emit_agent_event(
-            event_type="letter:finalized",
+            case_id=security_context.case_id,
             agent_id="good-faith-letter",
-            data={
+            task_name="finalize-letter",
+            message="Letter finalized and approved",
+            percentage=100,
+            status="completed",
+            metadata={
                 "letter_id": str(letter_id),
-                "status": "finalized",
                 "approved_by": request.approved_by,
             },
         )
@@ -389,6 +426,9 @@ async def finalize_letter(
             "export_urls": export_urls,
         }
 
+    except HTTPException:
+        # Re-raise HTTPExceptions to preserve status codes
+        raise
     except Exception as e:
         logger.error(f"Letter finalization failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -443,6 +483,9 @@ async def export_letter(
             },
         )
 
+    except HTTPException:
+        # Re-raise HTTPExceptions to preserve status codes
+        raise
     except Exception as e:
         logger.error(f"Letter export failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -468,6 +511,9 @@ async def list_available_templates(
             for t in templates
         ]
 
+    except HTTPException:
+        # Re-raise HTTPExceptions to preserve status codes
+        raise
     except Exception as e:
         logger.error(f"Template listing failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

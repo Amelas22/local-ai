@@ -2,7 +2,6 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { FactCard } from '../FactCard';
 import { ExtractedFactWithSource } from '../../../types/discovery.types';
-import { format } from 'date-fns';
 
 const mockFact: ExtractedFactWithSource = {
   id: 'fact-123',

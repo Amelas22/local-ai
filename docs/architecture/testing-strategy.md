@@ -68,3 +68,142 @@ def mock_vector_store():
         ]
         yield mock
 ```
+
+## Frontend Testing Strategy
+
+### Testing Framework
+The frontend uses **Vitest** as the primary testing framework (migrated from Jest in July 2025).
+
+**Why Vitest:**
+- Native ESM support - no more `import.meta.env` compatibility issues
+- Seamless integration with Vite build tool
+- Faster test execution using Vite's transformation pipeline
+- Jest-compatible API for easy migration
+- Built-in TypeScript support without additional configuration
+
+### Test Configuration
+```typescript
+// vitest.config.ts
+import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
+import path from 'path';
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/test-setup.ts',
+    css: false,
+    isolate: true,
+    pool: 'forks',
+    env: {
+      VITE_API_URL: 'http://localhost:8010',
+      VITE_WS_URL: 'ws://localhost:8010',
+      VITE_MVP_MODE: 'false',
+      VITE_AUTH_ENABLED: 'true'
+    },
+    coverage: {
+      reporter: ['text', 'json', 'html'],
+      exclude: [
+        'node_modules/',
+        'src/test-setup.ts',
+        '**/*.d.ts',
+        '**/*.config.*',
+        '**/mockData/**',
+        '**/__mocks__/**'
+      ]
+    }
+  },
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+      '@components': path.resolve(__dirname, './src/components'),
+      '@services': path.resolve(__dirname, './src/services'),
+      // ... other aliases
+    },
+  },
+});
+```
+
+### Frontend Test Organization
+- **Unit Tests:** Co-located in `__tests__/` directories next to components
+- **Integration Tests:** `src/__tests__/integration/` for workflow testing
+- **Test Utilities:** `src/test-utils/` for shared testing helpers
+- **Coverage Target:** 80% for components, 90% for critical business logic
+
+### Component Testing Pattern
+```typescript
+// src/components/__tests__/ComponentName.test.tsx
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ComponentName } from '../ComponentName';
+
+// Mock dependencies
+vi.mock('@/services/api/apiService');
+
+describe('ComponentName', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    });
+    vi.clearAllMocks();
+  });
+
+  it('should render correctly', async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ComponentName />
+      </QueryClientProvider>
+    );
+
+    expect(screen.getByText('Expected Text')).toBeInTheDocument();
+  });
+});
+```
+
+### Mock Strategies
+```typescript
+// Mocking API calls
+vi.mocked(apiService.getData).mockResolvedValue({ data: 'test' });
+
+// Mocking hooks
+vi.mock('@/hooks/useAuth', () => ({
+  useAuth: () => ({
+    user: { id: 'test-user', name: 'Test User' },
+    isAuthenticated: true,
+  }),
+}));
+
+// Mocking WebSocket
+vi.mock('socket.io-client', () => ({
+  io: () => ({
+    on: vi.fn(),
+    emit: vi.fn(),
+    disconnect: vi.fn(),
+  }),
+}));
+```
+
+### Running Tests
+```bash
+# Run all tests
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Run with coverage
+npm run test:coverage
+
+# Run with UI
+npm run test:ui
+
+# Run specific test file
+npx vitest run path/to/test.tsx
+```

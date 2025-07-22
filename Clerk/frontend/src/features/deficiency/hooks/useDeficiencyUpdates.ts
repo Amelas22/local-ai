@@ -1,44 +1,36 @@
 import { useEffect } from 'react';
 import { useWebSocket } from '../../../hooks/useWebSocket';
 
-interface DeficiencyUpdateEvent {
-  type: 'deficiency:item_updated' | 'deficiency:bulk_update' | 'deficiency:report_saved';
-  data: {
-    report_id: string;
-    [key: string]: unknown;
-  };
-}
-
 export const useDeficiencyUpdates = (reportId: string, onUpdate: () => void) => {
-  const { on, off } = useWebSocket();
+  const { on } = useWebSocket();
 
   useEffect(() => {
-    const handleItemUpdate = (event: DeficiencyUpdateEvent) => {
-      if (event.data.report_id === reportId) {
+    const handleItemUpdate = (data: { report_id: string; item_id: string; changes: Record<string, unknown> }) => {
+      if (data.report_id === reportId) {
         onUpdate();
       }
     };
 
-    const handleBulkUpdate = (event: DeficiencyUpdateEvent) => {
-      if (event.data.report_id === reportId) {
+    const handleBulkUpdate = (data: { report_id: string; item_ids: string[]; changes: Record<string, unknown> }) => {
+      if (data.report_id === reportId) {
         onUpdate();
       }
     };
 
-    const handleReportSaved = (event: DeficiencyUpdateEvent) => {
-      if (event.data.report_id === reportId) {
+    const handleReportSaved = (data: { report_id: string; saved_by: string; saved_at: string }) => {
+      if (data.report_id === reportId) {
         onUpdate();
       }
     };
 
-    on('deficiency:item_updated', handleItemUpdate);
-    on('deficiency:bulk_update', handleBulkUpdate);
-    on('deficiency:report_saved', handleReportSaved);
+    const unsub1 = on('deficiency:item_updated', handleItemUpdate);
+    const unsub2 = on('deficiency:bulk_update', handleBulkUpdate);
+    const unsub3 = on('deficiency:report_saved', handleReportSaved);
 
     return () => {
-      off('deficiency:item_updated', handleItemUpdate);
-      off('deficiency:bulk_update', handleBulkUpdate);
-      off('deficiency:report_saved', handleReportSaved);
+      unsub1();
+      unsub2();
+      unsub3();
     };
-  }, [reportId, onUpdate, on, off]);
+  }, [reportId, onUpdate, on]);
 };

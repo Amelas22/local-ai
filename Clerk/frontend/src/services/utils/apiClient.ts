@@ -29,7 +29,7 @@ class ApiClient {
   };
 
   constructor() {
-    // Get base URL from environment
+    // Get base URL from import.meta.environment
     const baseURL = import.meta.env.VITE_API_URL || '';
     
     this.client = axios.create({

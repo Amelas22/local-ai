@@ -544,13 +544,21 @@ export const LargeDocumentList: React.FC<{ documents: Document[] }> = ({
 
 ## Testing Strategy
 
+The frontend uses **Vitest** as the testing framework, which provides:
+- Native ESM support for Vite-based projects
+- Faster test execution using Vite's transformation pipeline
+- Jest-compatible API for easy migration
+- Built-in TypeScript support
+
 ### Component Testing
 ```typescript
 // __tests__/DiscoveryUpload.test.tsx
+import { describe, it, expect, vi } from 'vitest';
+
 describe('DiscoveryUpload', () => {
   it('should upload files when submit is clicked', async () => {
-    const mockUpload = jest.fn();
-    jest.mocked(useDiscoveryUpload).mockReturnValue({
+    const mockUpload = vi.fn();
+    vi.mocked(useDiscoveryUpload).mockReturnValue({
       mutateAsync: mockUpload
     });
 

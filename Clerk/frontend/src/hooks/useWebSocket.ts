@@ -4,7 +4,7 @@ import { WebSocketEventName, WebSocketEvents } from '../types/websocket.types';
 
 export function useWebSocket(_caseId?: string) {
   const { socket, state, connect, disconnect, emit, subscribeToCase, unsubscribeFromCase } = useWebSocketContext();
-  const handlersRef = useRef<Map<string, Function[]>>(new Map());
+  const handlersRef = useRef<Map<string, ((...args: any[]) => void)[]>>(new Map());
 
   // Subscribe to an event with proper cleanup
   const on = useCallback(<T extends WebSocketEventName>(

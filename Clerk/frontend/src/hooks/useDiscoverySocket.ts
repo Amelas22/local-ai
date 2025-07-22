@@ -34,7 +34,7 @@ export const useDiscoverySocket = (options: UseDiscoverySocketOptions = {}) => {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
 
   // Store handlers in refs to prevent recreating them
-  const handlersRef = useRef<Record<string, Function>>({});
+  const handlersRef = useRef<Record<string, (...args: any[]) => void>>({});
 
   const handleDiscoveryStarted = useCallback((data: DiscoveryWebSocketEvents['discovery:started']) => {
     if (processingId && data.processingId !== processingId) return;

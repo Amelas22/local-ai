@@ -94,7 +94,8 @@ class TestGoodFaithLetterEndpoints:
             attorney_info={
                 "name": "John Doe",
                 "firm": "Doe Law",
-                "bar_number": "12345"
+                "bar_number": "12345",
+                "email": "john.doe@doelaw.com"
             }
         )
         
@@ -277,9 +278,11 @@ class TestGoodFaithLetterEndpoints:
             agent_execution_id="exec-export"
         )
         
-        # Mock export data
-        mock_export_data = Mock()
-        mock_export_data.content = b"PDF content here"
+        # Mock export data as a dictionary
+        mock_export_data = {
+            "content": b"PDF content here",
+            "filename": f"good-faith-letter-{letter_id}.pdf"
+        }
         
         mock_service = mock_letter_service.return_value
         mock_service.get_letter = AsyncMock(return_value=mock_letter)
@@ -351,13 +354,15 @@ class TestGoodFaithLetterEndpoints:
         from src.api.agents.good_faith_letter_endpoints import customize_letter, CustomizeLetterRequest
         
         letter_id = uuid4()
-        request = CustomizeLetterRequest(
-            section_edits=[],
-            editor_notes="No changes"
-        )
         
-        with pytest.raises(HTTPException) as exc_info:
-            await customize_letter(letter_id, request, mock_security_context)
+        # The validation should fail when creating the request object
+        from pydantic import ValidationError
         
-        assert exc_info.value.status_code == 400
-        assert "At least one edit" in str(exc_info.value.detail)
+        with pytest.raises(ValidationError) as exc_info:
+            request = CustomizeLetterRequest(
+                section_edits=[],
+                editor_notes="No changes"
+            )
+        
+        # Check that the error mentions the empty edits
+        assert "At least one edit must be provided" in str(exc_info.value)
